@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>17 tool-bash Consumer · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html" class="active"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Branch · Step 17</p>
+  <h1>tool-bash：Consumer 的注入面与三条路径</h1>
+  <p class="lede"><code class="path">packages/shell/tool-bash/src/index.ts</code>（394 行）。这是旁支的最后一页，也是主链 14 页「工具从哪来」的最终答案：<strong>一个 394 行的插件，用 <code>defineTool('bash')</code> 把 shell 能力变成模型可见的工具</strong>。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">15 seam 全景：Consumer 位</span>
+  <span class="arrow">→</span>
+  <span class="here">tool-bash/src/index.ts apply:190 → defineTool:242 → execute:330</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回到主干) 13/14 页的调度器与流水线执行它</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">inject 数组：依赖面声明</a></li>
+    <li><a href="#s2">apply：注册工具与沙箱升级</a></li>
+    <li><a href="#s3">execute：三条路径</a></li>
+    <li><a href="#s4">旁支结束：回望与后续</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>inject 数组：依赖面声明</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>插件声明（节选）</span><span class="ln-range">30-34</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">30</span><span class="tok-k">export const</span> name = <span class="tok-s">'tool-bash'</span></span>
+<span class="code-line"><span class="ln">31</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'tools'</span>, <span class="tok-s">'shell'</span>, <span class="tok-s">'systemPrompt'</span>, <span class="tok-s">'shellEnv'</span>]</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">30-31</span><p><strong>inject 就是依赖面</strong>：这四个服务全部就绪，本插件才激活（03 页的 PENDING 审计靠它诊断）。逐一看：<code>tools</code>（注册 bash 工具的注册表）、<code>shell</code>（能力本体，16 页的 provider）、<code>systemPrompt</code>（工具 schema 进提示词的通道，12 页）、<code>shellEnv</code>（环境事实注册表，16 页的 dshEnv 来源）。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>apply：注册工具与沙箱升级</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>apply 主体（节选）</span><span class="ln-range">190-242</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">190</span><span class="tok-k">export function</span> <span class="tok-f">apply</span>(ctx: Context, config: Config = {}): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">192</span>  <span class="tok-k">const</span> defaultMode = ctx.shell.sandboxMode</span>
+<span class="code-line"><span class="ln">194</span>  <span class="tok-k">const</span> sandboxPolicy = defaultMode === <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">195</span>    ? <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">196</span>    : ctx.<span class="tok-f">get</span>(<span class="tok-s">'sandboxPolicy'</span>)</span>
+<span class="code-line"><span class="ln">200</span>    sandboxPolicy?.<span class="tok-f">resolve</span>(exec.agent === <span class="tok-k">undefined</span> ? {} : { session: exec.agent.session })</span>
+<span class="code-line"><span class="ln">223</span>    <span class="tok-k">return</span> <span class="tok-f">approveEscalation</span>(</span>
+<span class="code-line"><span class="ln">226</span>      { approver: ctx.<span class="tok-f">get</span>(<span class="tok-s">'approval'</span>), ... },</span>
+<span class="code-line"><span class="ln">227</span>    )</span>
+<span class="code-line"><span class="ln">242</span>  ctx.tools.<span class="tok-f">register</span>(<span class="tok-f">defineTool</span>({</span>
+<span class="code-line"><span class="ln">243</span>    name: <span class="tok-s">'bash'</span>,</span>
+<span class="code-line"><span class="ln">330</span>    <span class="tok-k">async</span> <span class="tok-f">execute</span>(args: BashToolArgs, exec) { ... },</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">190</span><p><strong>插件入口是 apply</strong>——Cordis 插件协议（03 页的 Inject/Plugin）。树挂载时 Loader 调它，返回 void（注册是副作用，卸载时由 fiber 逆转）。</p></div>
+    <div class="lr"><span class="ln-ref">192-196</span><p>能力探针：读 <code>ctx.shell.sandboxMode</code>（15 页接口里的可选能力声明）。本地 executor 返回 undefined（不沙箱）；沙箱化 executor 返回具体 mode——tool-bash 由此决定是否启用升级审批路径。</p></div>
+    <div class="lr"><span class="ln-ref">223-227</span><p><strong>沙箱升级走审批</strong>：<code>approveEscalation</code>（来自 dsh-sandbox）最终调 <code>approver.request</code> 的 <code>approval/request</code> waterfall——这是 shell seam 唯一相交的 Cordis 事件（15 页图里标过）。</p></div>
+    <div class="lr"><span class="ln-ref">242-243</span><p><code>ctx.tools.register(defineTool({name:'bash',...}))</code>——<strong>「工具从哪来」的最终答案</strong>：一个插件用 defineTool 定义，register 进 registry（14 页），schema 经 systemPrompt 进提示词（12 页），模型就能调它。</p></div>
+    <div class="lr"><span class="ln-ref">330</span><p>execute 是工具的 body——14 页流水线的 dispatchToolBody 最终调到这里。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>execute：三条路径</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>execute 的分支（节选）</span><span class="ln-range">330-382</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">330</span>    <span class="tok-k">async</span> <span class="tok-f">execute</span>(args: BashToolArgs, exec) {</span>
+<span class="code-line"><span class="ln">341</span>      <span class="tok-k">const</span> dshEnv = ctx.shellEnv.<span class="tok-f">collect</span>(exec)</span>
+<span class="code-line"><span class="ln">354</span>        <span class="tok-k">const</span> jobs = ctx.<span class="tok-f">get</span>(<span class="tok-s">'jobs'</span>)</span>
+<span class="code-line"><span class="ln">370</span>            <span class="tok-k">const</span> proc = ctx.shell.<span class="tok-f">start</span>(ctx.shell.<span class="tok-f">resolve</span>(request))</span>
+<span class="code-line"><span class="ln">380</span>      <span class="tok-k">const</span> result = <span class="tok-k">await</span> ctx.shell.<span class="tok-f">run</span>(ctx.shell.<span class="tok-f">resolve</span>({ ... }))</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">341</span><p><strong>能力事实采集</strong>：<code>ctx.shellEnv.collect(exec)</code> 把 DSH_* 环境快照收进 request 的 dshEnv——16 页环境合并第④段的来源。</p></div>
+    <div class="lr"><span class="ln-ref">354</span><p>后台路径探针：<code>ctx.get('jobs')</code>——jobs 服务挂载时后台命令走它（ShellProcess → jobs 任务 outcome），否则只能前台。</p></div>
+    <div class="lr"><span class="ln-ref">370</span><p><strong>后台路径</strong>：<code>ctx.shell.start(ctx.shell.resolve(request))</code>——注意「先 resolve 再 start」的字面形态，15 页的心智模型在这里落点。</p></div>
+    <div class="lr"><span class="ln-ref">380</span><p><strong>前台路径</strong>：<code>await ctx.shell.run(ctx.shell.resolve({...}))</code>——resolve → run 一段式。run 返回的 ShellRunResult 经 renderResult（render.ts）变成模型看到的文本 + 退出码 marker（<code>[exit code: N]</code> / <code>[killed by signal: X]</code>，正反解析共享 parseExitStatus）。</p></div>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>旁支结束：回望与后续</h2>
+  <p>旁支走完了。回望这段树：</p>
+  <blockquote>主链 14 页的工具结果来自 registry → registry 里的工具来自插件（15 的分岔）→ 工具 execute 调 <code>ctx.shell</code> 服务（17）→ 服务由 Provider 实现（16）→ Provider 调下层 <code>ctx.subprocess</code> → 进程树。</blockquote>
+  <p>这套「Definition / Provider / Consumer + inject」的读法就是读其他能力的模板——fs、lsp、web、terminal、subagent 都同构。读新 seam 时的检查清单：</p>
+  <ol>
+    <li>Service Definition 在哪（<code>super(ctx,…)</code> 与抽象方法）；</li>
+    <li>resolve 拆分有没有（Request → Spec）；</li>
+    <li>默认值归谁（Provider 的 config）；</li>
+    <li>Provider 的 teardown 责任（<code>ctx.effect</code> 挂什么）；</li>
+    <li>Consumer 的 inject 数组（依赖面）；</li>
+    <li>相交事件是哪些（Service 型往往只有 approval/request；事件 gate 型看 fs/*）。</li>
+  </ol>
+
+  <div class="callout info">
+    <p><strong>整站到这里为止</strong>。回到<a href="index.html">树状总览</a>，或继续扩展新的旁支：持久化（session-persistence-jsonl / session-query-sqlite）、压缩（compaction + surface replace）、子代理（subagent seam）、审批权限（approval/request + permission）、沙箱（sandbox seam + fs-observation-policy）、Cordis 运行时（vendor/ Loader/Include/Context 内部）、Web 层（api/remotes BFF + ACP）。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="16-bash-provider.html"><span class="dir">← 16</span><span class="t">bash-local Provider</span></a>
+  <a class="next" href="index.html"><span class="dir">回到</span><span class="t">树状总览 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

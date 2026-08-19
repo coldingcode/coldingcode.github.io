@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>15 分岔点 seam · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html" class="active"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Branch · Step 15</p>
+  <h1>分岔点：能力缝与注入</h1>
+  <p class="lede">主干 B 讲完了「工具如何执行」，但没讲「工具从哪来」。本页是旁支的入口：先看一个 capability seam 的三件套在代码里长什么样，再看 shell 这个 seam 的<strong>四个参与者</strong>如何通过 <code>super(ctx,…)</code> + <code>static inject</code> 连接。之后 16/17 两页分别深入 Provider 与 Consumer 的代码。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(来自主干 14) 工具结果来自 registry 里注册的某个工具</span>
+  <span class="arrow">→</span>
+  <span class="here">分岔点：工具（Consumer）↔ 能力（Service）↔ 实现（Provider）</span>
+  <span class="arrow">→</span>
+  <span class="seg">(旁支子页) 16 bash-local · 17 tool-bash</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">三件套在代码里的形态</a></li>
+    <li><a href="#s2">shell seam 的四个参与者</a></li>
+    <li><a href="#s3">Service 型 vs 事件 gate 型</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>三件套在代码里的形态</h2>
+  <p>一个 capability seam 是「Service Definition（接口）/ Service Provider（实现）/ Consumer（工具）」三件套。在 dsh 代码里它们长这样（以 shell 为例，与 10 页的 LlmRuntime 同构）：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/shell/shell/src/index.ts</span><span>Service Definition：抽象类 + super 注册</span><span class="ln-range">65-93</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">65</span><span class="tok-k">export abstract class</span> <span class="tok-t">ShellExecutor</span> <span class="tok-k">extends</span> Service {</span>
+<span class="code-line"><span class="ln">66</span>  <span class="tok-f">constructor</span>(ctx: Context) {</span>
+<span class="code-line"><span class="ln">67</span>    <span class="tok-k">super</span>(ctx, <span class="tok-s">'shell'</span>)      <span class="tok-c">// ← ctx.shell 由此而来</span></span>
+<span class="code-line"><span class="ln">68</span>  }</span>
+<span class="code-line"><span class="ln">75</span>  <span class="tok-k">get</span> <span class="tok-f">sandboxMode</span>(): SandboxMode | <span class="tok-k">undefined</span> { <span class="tok-k">return</span> <span class="tok-k">undefined</span> }</span>
+<span class="code-line"><span class="ln">85</span>  <span class="tok-k">abstract</span> <span class="tok-f">resolve</span>(request: ShellExecRequest): ShellExecSpec</span>
+<span class="code-line"><span class="ln">93</span>  <span class="tok-k">abstract</span> <span class="tok-f">run</span>(spec: ShellExecSpec): Promise&lt;ShellRunResult&gt;</span>
+<span class="code-line"><span class="ln">94</span>  <span class="tok-k">abstract</span> <span class="tok-f">start</span>(spec: ShellExecSpec): ShellProcess</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">65-68</span><p>Service Definition 的注册形态：<code>extends Service</code> + <code>super(ctx, 'shell')</code>。<code>declare module</code> 里的 <code>Context.shell</code> 是类型层，这里才是运行时注册点。</p></div>
+    <div class="lr"><span class="ln-ref">75</span><p><code>sandboxMode</code> 是可选能力声明：默认实现返回 undefined（不沙箱）。沙箱化 provider（bash-sandbox）override 它——tool-bash 靠它判断是否需要升级审批。</p></div>
+    <div class="lr"><span class="ln-ref">85, 93-94</span><p><strong>resolve 拆分</strong>是 seam 的核心心智模型：Request（可选字段）→ resolve → Spec（全字段）。Consumer 永远先 resolve 再 run/start，绝不直接传 request——默认值归属实现方（16 页看具体落点）。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>shell seam 的四个参与者</h2>
+
+<figure class="fig">
+<svg class="dg" viewBox="0 0 1120 430" role="img" aria-label="shell seam 四参与者">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="hd" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <text class="note" x="20" y="30">shell seam（上层）＋ subprocess seam（下层）：四个参与者</text>
+
+  <rect class="acc" x="20" y="48" width="290" height="84" rx="9"/>
+  <text class="th" x="165" y="74" text-anchor="middle">Consumer：tool-bash（17 页）</text>
+  <text class="t" x="165" y="96" text-anchor="middle">defineTool('bash')</text>
+  <text class="ts" x="165" y="116" text-anchor="middle">inject = ['tools','shell','systemPrompt','shellEnv']</text>
+
+  <line class="a" x1="310" y1="90" x2="368" y2="90" marker-end="url(#arw)"/>
+  <text class="note" x="316" y="76">ctx.shell.resolve() → run()/start()</text>
+
+  <rect class="acc" x="372" y="48" width="290" height="84" rx="9"/>
+  <text class="th" x="517" y="74" text-anchor="middle">Service Definition</text>
+  <text class="t" x="517" y="96" text-anchor="middle">ShellExecutor · super(ctx,'shell')</text>
+  <text class="ts" x="517" y="116" text-anchor="middle">shell/src/index.ts</text>
+
+  <line class="a" x1="662" y1="90" x2="720" y2="90" marker-end="url(#arw)"/>
+  <text class="note" x="668" y="76">extends + inject=['subprocess']</text>
+
+  <rect class="evt" x="724" y="48" width="320" height="84" rx="9"/>
+  <text class="th" x="884" y="74" text-anchor="middle">Provider：LocalBashExecutor（16 页）</text>
+  <text class="t" x="884" y="96" text-anchor="middle">默认值 · 上限 · 超时分类 · env 覆盖</text>
+  <text class="ts" x="884" y="116" text-anchor="middle">bash-local/src/index.ts</text>
+
+  <line class="a" x1="884" y1="132" x2="884" y2="196" marker-end="url(#arw)"/>
+  <text class="note" x="896" y="170">ctx.subprocess.spawn(['bash','-c',command])</text>
+
+  <rect class="box" x="724" y="200" width="320" height="84" rx="9"/>
+  <text class="th" x="884" y="226" text-anchor="middle">下层 seam：ctx.subprocess</text>
+  <text class="t" x="884" y="248" text-anchor="middle">SubprocessRuntime · LocalSubprocessRuntime</text>
+  <text class="ts" x="884" y="268" text-anchor="middle">detached 进程树 · 输出采集 · 树级终止</text>
+
+  <rect class="box" x="20" y="200" width="290" height="84" rx="9"/>
+  <text class="th" x="165" y="226" text-anchor="middle">ctx.shellEnv（能力事实）</text>
+  <text class="t" x="165" y="248" text-anchor="middle">DSH_* 环境快照注册表</text>
+  <text class="ts" x="165" y="268" text-anchor="middle">tool-bash 经 dshEnv 注入（17 页）</text>
+
+  <rect class="box" x="372" y="200" width="290" height="84" rx="9"/>
+  <text class="th" x="517" y="226" text-anchor="middle">ctx.jobs（后台路径）</text>
+  <text class="t" x="517" y="248" text-anchor="middle">ShellProcess → jobs 任务</text>
+  <text class="ts" x="517" y="268" text-anchor="middle">tool-bash 后台命令的归宿</text>
+
+  <text class="note" x="20" y="330">关键事实：shell/subprocess 没有 shell/* 或 subprocess/* 事件——连接方式是 Service 注入 + dshEnv 数据流</text>
+  <text class="note" x="20" y="352">唯一相交的 Cordis 事件是 approval/request：沙箱化 executor 上模型用 sandbox_permissions 升级时，tool-bash 经 approveEscalation 走审批 waterfall（17 页）</text>
+  <text class="note" x="20" y="374">对照：fs seam 用 fs/write-intent、fs/edit-intent、fs/observed 事件 gate 让 policy 注入检查——那是「事件 gate 型 seam」（§3）</text>
+</svg>
+<figcaption>图 15-1 · shell seam 全景：两个 seam 叠放（shell 在 subprocess 之上），四个参与者。</figcaption>
+</figure>
+
+  <p>连接方式的三个代码形态：</p>
+  <ul>
+    <li><strong>Provider 侧拿下层</strong>：<code>static inject = ['subprocess']</code>（bash-local）→ 构造器里 <code>ctx.subprocess</code> 可用（16 页）。</li>
+    <li><strong>Provider 侧注册自己</strong>：<code>super(ctx, 'shell')</code>——同一个 seam 只能挂一个 provider，挂两个（如 bash-local + pwsh-local 同时）会因重复 service 注册失败。</li>
+    <li><strong>Consumer 侧拿能力</strong>：<code>inject = ['tools','shell','systemPrompt','shellEnv']</code>（tool-bash，17 页）——tools 用来注册工具，shell 是能力本体，systemPrompt 是工具 schema 进提示词的通道，shellEnv 是环境事实。</li>
+  </ul>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>Service 型 vs 事件 gate 型</h2>
+  <p>读完本页，你拿到了分辨任意 seam 类型的罗盘——看 provider 与 policy 之间是靠 <code>ctx.get()</code> 还是靠事件名：</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th></th><th>Service 型 seam</th><th>事件 gate 型 seam</th></tr>
+    <tr><td>代表</td><td>shell / subprocess / llm</td><td>fs</td></tr>
+    <tr><td>连接方式</td><td>Cordis Service 注入（super + inject）</td><td>事件 gate：provider 发 <code>fs/write-intent</code> 等，policy 监听并注入检查</td></tr>
+    <tr><td>invariant</td><td>各包 invariant.ts 声明 No runtime invariant / 无独立事件序列</td><td>事件 gate 即运行时关系校验点</td></tr>
+    <tr><td>判定口诀</td><td colspan="2">provider 与 policy 之间靠 <code>ctx.get()</code> 连接 = 注入型；靠事件名连接 = 拦截型。</td></tr>
+  </table></div>
+
+  <div class="fork">
+    <span class="fork-tag">◈ 旁支展开 → 两条子路径</span>
+    <p><a href="16-bash-provider.html"><strong>16 页（Provider）</strong></a>：从 <code>LocalBashExecutor</code> 的 resolve/run/start 出发，追踪 <code>['bash','-c',command]</code> 如何进 subprocess、env 四段合并、超时分类。<br>
+    <a href="17-shell-consumer.html"><strong>17 页（Consumer）</strong></a>：从 <code>tool-bash</code> 的 <code>defineTool('bash')</code> 出发，看 execute 的三个路径（前台/后台/沙箱升级）与 inject 数组的每个成员。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="14-pipeline.html"><span class="dir">← 14（主干 B 终点）</span><span class="t">ToolRuntime：三段流水线</span></a>
+  <a class="next" href="16-bash-provider.html"><span class="dir">旁支 · 16</span><span class="t">bash-local Provider →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

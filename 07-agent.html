@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 Inbox 双队列 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html" class="active"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain B · Step 07</p>
+  <h1>Inbox：双队列的 replay-once 投影</h1>
+  <p class="lede"><code class="path">packages/core/agent/src/inbox.ts</code>（220 行）。Inbox 是 agent 拥有的「持久待办工作」投影：<strong>内存状态只是缓存，真相是日志里的 <code>agent/inbox/spliced</code> 事件</strong>。所有输入方法（send/claim/splice）都汇到 <code>mutate</code> 这一个函数。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">05 agent.ts:113 send → :119 inbox.splice</span>
+  <span class="arrow">→</span>
+  <span class="here">agent/src/inbox.ts:139 splice → :158 mutate</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下一步) 08 preStep:229 inbox.claim</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">replay-once：构造器</a></li>
+    <li><a href="#s2">mutate：先落盘，再改投影</a></li>
+    <li><a href="#s3">claim 与 validate</a></li>
+    <li><a href="#s4">对账：foldConsumedWork</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>replay-once：构造器</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent/src/inbox.ts</span><span>构造器与状态</span><span class="ln-range">25-61</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">25</span><span class="tok-k">export class</span> <span class="tok-t">Inbox</span> {</span>
+<span class="code-line"><span class="ln">26</span>  <span class="tok-k">private readonly</span> state: InboxState = { <span class="tok-s">'next-turn'</span>: [], <span class="tok-s">'next-step'</span>: [] }</span>
+<span class="code-line"><span class="ln">28</span>  <span class="tok-f">constructor</span>(<span class="tok-k">private readonly</span> session, <span class="tok-k">private readonly</span> notifications) {</span>
+<span class="code-line"><span class="ln">32</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> event <span class="tok-k">of</span> session.events.<span class="tok-f">slice</span>(session.header.seedLength ?? 0)) {</span>
+<span class="code-line"><span class="ln">33</span>      <span class="tok-k">if</span> (event.type !== <span class="tok-s">'agent/inbox/spliced'</span>) <span class="tok-k">continue</span></span>
+<span class="code-line"><span class="ln">34</span>      <span class="tok-k">try</span> { <span class="tok-k">this</span>.<span class="tok-f">apply</span>(event.data) }</span>
+<span class="code-line"><span class="ln">35</span>      <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">37</span>        <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`invalid persisted inbox splice at session seq ${event.seq}`, { cause: error })</span>
+<span class="code-line"><span class="ln">38</span>      }</span>
+<span class="code-line"><span class="ln">39</span>    }</span>
+<span class="code-line"><span class="ln">40</span>  }</span>
+<span class="code-line"><span class="ln">43</span>  <span class="tok-k">get</span> <span class="tok-f">nextTurn</span>() { <span class="tok-k">return</span> <span class="tok-k">this</span>.state[<span class="tok-s">'next-turn'</span>] }</span>
+<span class="code-line"><span class="ln">48</span>  <span class="tok-k">get</span> <span class="tok-f">nextStep</span>() { <span class="tok-k">return</span> <span class="tok-k">this</span>.state[<span class="tok-s">'next-step'</span>] }</span>
+<span class="code-line"><span class="ln">53</span>  <span class="tok-k">get</span> <span class="tok-f">hasPending</span>() { <span class="tok-k">return</span> <span class="tok-k">this</span>.nextTurn.length &gt; 0 || <span class="tok-k">this</span>.nextStep.length &gt; 0 }</span>
+<span class="code-line"><span class="ln">58</span>  <span class="tok-f">clear</span>() {</span>
+<span class="code-line"><span class="ln">59</span>    <span class="tok-k">this</span>.<span class="tok-f">splice</span>(<span class="tok-s">'next-step'</span>, 0, <span class="tok-k">this</span>.nextStep.length, [])</span>
+<span class="code-line"><span class="ln">60</span>    <span class="tok-k">this</span>.<span class="tok-f">splice</span>(<span class="tok-s">'next-turn'</span>, 0, <span class="tok-k">this</span>.nextTurn.length, [])</span>
+<span class="code-line"><span class="ln">61</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">26</span><p>两个队列就是全部状态：<code>next-turn</code>（等待各自轮次的消息）与 <code>next-step</code>（等待下一步边界的输入）。</p></div>
+    <div class="lr"><span class="ln-ref">32</span><p><strong>replay-once 投影</strong>：构造时从 <code>header.seedLength</code> 起回放日志里的 <code>agent/inbox/spliced</code> 事件重建内存状态。为什么从 seedLength 开始？seed 前缀（父历史）已经含在投影里，不需要重放。这就是「resume 后 inbox 恢复」的机制。</p></div>
+    <div class="lr"><span class="ln-ref">34-38</span><p>回放校验失败 → 报错并带 cause（哪条 seq 坏了）。持久化的 splice 不可信，回放必须验证。</p></div>
+    <div class="lr"><span class="ln-ref">53</span><p>hasPending 是 turn() 324 行与 kick 220 行判断「还有没有活」的依据。</p></div>
+    <div class="lr"><span class="ln-ref">58-61</span><p>clear（cancel 时用）：<strong>先清 next-step 再清 next-turn</strong>——顺序有意为之，保证任何时刻 next-turn 里的消息不被转向半途截胡。两个 splice 各自落盘（durable 的取消）。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>mutate：先落盘，再改投影</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent/src/inbox.ts</span><span>所有变更的唯一出口</span><span class="ln-range">139-193</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">139</span>  <span class="tok-f">splice</span>(target, start, deleteCount, inserted): UserMessage[] {</span>
+<span class="code-line"><span class="ln">145</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">mutate</span>(target, start, deleteCount, inserted, <span class="tok-n">true</span>)</span>
+<span class="code-line"><span class="ln">146</span>  }</span>
+<span class="code-line"><span class="ln">158</span>  <span class="tok-k">private</span> <span class="tok-f">mutate</span>(target, start, deleteCount, inserted, discardRemoved): UserMessage[] {</span>
+<span class="code-line"><span class="ln">159</span>    <span class="tok-k">const</span> inbox = <span class="tok-k">this</span>.state[target]</span>
+<span class="code-line"><span class="ln">160</span>    <span class="tok-k">const</span> truncatedStart = Math.<span class="tok-f">trunc</span>(start)</span>
+<span class="code-line"><span class="ln">161</span>    <span class="tok-k">const</span> offset = Number.<span class="tok-f">isNaN</span>(truncatedStart) ? 0 : truncatedStart</span>
+<span class="code-line"><span class="ln">162</span>    <span class="tok-k">const</span> actualStart = offset &lt; 0</span>
+<span class="code-line"><span class="ln">163</span>      ? Math.<span class="tok-f">max</span>(inbox.length + offset, 0)</span>
+<span class="code-line"><span class="ln">164</span>      : Math.<span class="tok-f">min</span>(offset, inbox.length)</span>
+<span class="code-line"><span class="ln">165</span>    <span class="tok-k">const</span> truncatedDeleteCount = Math.<span class="tok-f">trunc</span>(deleteCount)</span>
+<span class="code-line"><span class="ln">166</span>    <span class="tok-k">const</span> actualDeleteCount = Math.<span class="tok-f">min</span>(</span>
+<span class="code-line"><span class="ln">167</span>      Math.<span class="tok-f">max</span>(Number.<span class="tok-f">isNaN</span>(truncatedDeleteCount) ? 0 : truncatedDeleteCount, 0),</span>
+<span class="code-line"><span class="ln">168</span>      inbox.length - actualStart,</span>
+<span class="code-line"><span class="ln">169</span>    )</span>
+<span class="code-line"><span class="ln">170</span>    <span class="tok-k">if</span> (actualDeleteCount === 0 &amp;&amp; inserted.length === 0) <span class="tok-k">return</span> []</span>
+<span class="code-line"><span class="ln">171</span>    <span class="tok-k">const</span> outcome = discardRemoved &amp;&amp; actualDeleteCount &gt; 0 ? <span class="tok-s">'canceled'</span> <span class="tok-k">as const</span> : <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">172</span>    <span class="tok-k">const</span> splice = {</span>
+<span class="code-line"><span class="ln">173</span>      target,</span>
+<span class="code-line"><span class="ln">174</span>      start: actualStart,</span>
+<span class="code-line"><span class="ln">175</span>      ...(actualDeleteCount === 0 ? {} : { removedCount: actualDeleteCount }),</span>
+<span class="code-line"><span class="ln">176</span>      inserted,</span>
+<span class="code-line"><span class="ln">177</span>      ...(outcome === <span class="tok-k">undefined</span> ? {} : { outcome }),</span>
+<span class="code-line"><span class="ln">178</span>    }</span>
+<span class="code-line"><span class="ln">179</span>    <span class="tok-k">this</span>.<span class="tok-f">validate</span>(splice)</span>
+<span class="code-line"><span class="ln">180</span>    <span class="tok-k">const</span> event = <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'agent/inbox/spliced'</span>, splice)</span>
+<span class="code-line"><span class="ln">181</span>    <span class="tok-k">const</span> removed = inbox.<span class="tok-f">splice</span>(actualStart, actualDeleteCount, ...event.data.inserted)</span>
+<span class="code-line"><span class="ln">182</span>    <span class="tok-k">if</span> (discardRemoved) {</span>
+<span class="code-line"><span class="ln">183</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> message <span class="tok-k">of</span> removed) <span class="tok-k">this</span>.notifications.<span class="tok-f">discarded</span>(message)</span>
+<span class="code-line"><span class="ln">184</span>    }</span>
+<span class="code-line"><span class="ln">185</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> message <span class="tok-k">of</span> event.data.inserted) <span class="tok-k">this</span>.notifications.<span class="tok-f">inserted</span>(message)</span>
+<span class="code-line"><span class="ln">186</span>    <span class="tok-k">return</span> removed</span>
+<span class="code-line"><span class="ln">187</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">139-146</span><p>公开的 splice 与内部 mutate 的差别只在 <code>discardRemoved</code>：公开 splice 传 true（被移除的消息是「取消」），claim 内部传 false（被移除的消息是「认领」，不算取消）。</p></div>
+    <div class="lr"><span class="ln-ref">160-170</span><p><strong>归一化坐标</strong>：截断小数、NaN 归零、负 offset 从尾部算、越界钳到界内。任何输入都归一成「合法 splice」。零操作直接返回（不产生无意义事件）。</p></div>
+    <div class="lr"><span class="ln-ref">171</span><p><code>outcome: 'canceled'</code> 只标在「真的删了东西」的公开 splice 上——这是 foldConsumedWork 对账的依据（§4）。</p></div>
+    <div class="lr"><span class="ln-ref">172-178</span><p>splice 记录是<strong>归一化后的坐标</strong>（target/start/removedCount/inserted），不是操作原始输入——回放只需机械重放，无需重算。</p></div>
+    <div class="lr"><span class="ln-ref">179</span><p>validate 在 append 之前——坏 splice 不进日志（§3）。</p></div>
+    <div class="lr"><span class="ln-ref">180-181</span><p><strong>关键顺序：先 append（durable），再 splice（内存）</strong>。事件进日志后，内存投影才改。因此同步的 session/event 观察者读到的是 splice 前的列表，可用记录坐标重建被移除的消息——这正是 06 页 append 里「通知收集在 push 之前」的消费场景。</p></div>
+    <div class="lr"><span class="ln-ref">182-185</span><p>两个通知方向：被移除的消息发 discarded（仅公开 splice），插入的消息发 inserted。回放（apply，196-200 行）不通知——回放不是新事实。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>claim 与 validate</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent/src/inbox.ts</span><span>claim 与 validate</span><span class="ln-range">71-78, 203-219</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">71</span>  <span class="tok-f">claim</span>(target: InboxTarget, turn: number): UserMessage[] {</span>
+<span class="code-line"><span class="ln">72</span>    <span class="tok-k">const</span> claimed = <span class="tok-k">this</span>.<span class="tok-f">mutate</span>(<span class="tok-s">'next-step'</span>, 0, <span class="tok-k">this</span>.nextStep.length, [], <span class="tok-n">false</span>)</span>
+<span class="code-line"><span class="ln">73</span>    <span class="tok-k">if</span> (target === <span class="tok-s">'next-turn'</span>) {</span>
+<span class="code-line"><span class="ln">74</span>      claimed.<span class="tok-f">push</span>(...<span class="tok-k">this</span>.<span class="tok-f">mutate</span>(<span class="tok-s">'next-turn'</span>, 0, 1, [], <span class="tok-n">false</span>))</span>
+<span class="code-line"><span class="ln">75</span>    }</span>
+<span class="code-line"><span class="ln">76</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> message <span class="tok-k">of</span> claimed) <span class="tok-k">this</span>.notifications.<span class="tok-f">claimed</span>(message, turn)</span>
+<span class="code-line"><span class="ln">77</span>    <span class="tok-k">return</span> claimed</span>
+<span class="code-line"><span class="ln">78</span>  }</span>
+<span class="code-line"><span class="ln">203</span>  <span class="tok-k">private</span> <span class="tok-f">validate</span>(splice): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">204</span>    <span class="tok-k">const</span> inbox = <span class="tok-k">this</span>.state[splice.target]</span>
+<span class="code-line"><span class="ln">205</span>    <span class="tok-k">const</span> removedCount = splice.removedCount ?? 0</span>
+<span class="code-line"><span class="ln">206</span>    <span class="tok-k">if</span> (!Number.<span class="tok-f">isSafeInteger</span>(splice.start) || splice.start &lt; 0 || splice.start &gt; inbox.length</span>
+<span class="code-line"><span class="ln">207</span>      || !Number.<span class="tok-f">isSafeInteger</span>(removedCount) || removedCount &lt; 0</span>
+<span class="code-line"><span class="ln">208</span>      || splice.start + removedCount &gt; inbox.length) {</span>
+<span class="code-line"><span class="ln">209</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'invalid inbox splice'</span>)</span>
+<span class="code-line"><span class="ln">210</span>    }</span>
+<span class="code-line"><span class="ln">211</span>    <span class="tok-k">const</span> candidate = inbox.<span class="tok-f">toSpliced</span>(splice.start, removedCount, ...splice.inserted)</span>
+<span class="code-line"><span class="ln">212</span>    <span class="tok-k">const</span> ids = <span class="tok-k">new</span> Set&lt;string&gt;()</span>
+<span class="code-line"><span class="ln">213</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> message <span class="tok-k">of</span> splice.target === <span class="tok-s">'next-turn'</span></span>
+<span class="code-line"><span class="ln">214</span>      ? [...candidate, ...<span class="tok-k">this</span>.nextStep]</span>
+<span class="code-line"><span class="ln">215</span>      : [...<span class="tok-k">this</span>.nextTurn, ...candidate]) {</span>
+<span class="code-line"><span class="ln">216</span>      <span class="tok-k">if</span> (ids.<span class="tok-f">has</span>(message.id)) <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`message <span class="tok-s">"${message.id}"</span> is already pending`)</span>
+<span class="code-line"><span class="ln">217</span>      ids.<span class="tok-f">add</span>(message.id)</span>
+<span class="code-line"><span class="ln">218</span>    }</span>
+<span class="code-line"><span class="ln">219</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">72-74</span><p><strong>claim 的语义</strong>：总是先清空 next-step（全部），仅当 target 是 next-turn 时再取<strong>一条</strong>排队 turn。返回「next-step 输入 + 排队 turn」的完整批——这就是 08 页 preStep 拿到的 claimed。</p></div>
+    <div class="lr"><span class="ln-ref">72, 74</span><p>两次 mutate 都传 <code>discardRemoved=false</code>——认领的删除不是取消，不落 <code>outcome:'canceled'</code>，不发 discarded 通知。claim 的 durable 记录是「纯删除 splice」。</p></div>
+    <div class="lr"><span class="ln-ref">76</span><p>每条认领消息发 <code>agent/inbox/claimed</code>（带 owning turn）——被拒 step 的消息终点就是这里：它既不被 discarded 也不 re-emit 成 user/message。</p></div>
+    <div class="lr"><span class="ln-ref">206-209</span><p>坐标合法性：start/removedCount 必须是安全整数、非负、且在界内。</p></div>
+    <div class="lr"><span class="ln-ref">211-218</span><p><strong>跨队列 id 唯一</strong>：插入后两个队列里任何消息 id 不能重复——同一消息不能同时排队又待转向。id 唯一性是 cancel/replace 按 id 定位的前提。</p></div>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>对账：foldConsumedWork</h2>
+  <p><code class="path">packages/core/agent/src/consumed-work.ts</code>（108 行）的纯函数 <code>foldConsumedWork</code> 是「从日志可重建」原则的又一实例：<strong>只靠 session 日志</strong>（turn/step 边界 + inbox splice）就能判定一个 agent 到底消费/丢弃了哪些工作——不需要任何内存状态。它的对账依据就是本页落下的两类记录：</p>
+  <ul>
+    <li>turn 的开合（turn/start、turn/end）圈定「哪些工作属于哪个 turn」；</li>
+    <li>splice 的 <code>removedCount</code> + <code>outcome:'canceled'</code> 区分「被认领消费」与「被取消丢弃」。</li>
+  </ul>
+  <p>这解释了 171 行为什么 outcome 只在公开 splice 上标记：取消是对账需要的事实，认领不是。</p>
+</section>
+
+<footer class="prevnext">
+  <a href="06-session.html"><span class="dir">← 06</span><span class="t">Session：日志与 append</span></a>
+  <a class="next" href="08-prestep.html"><span class="dir">下一步 · 08</span><span class="t">preStep：四个动作 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 runProfile · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html" class="active"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain A · Step 04</p>
+  <h1>runProfile：五层拼齐 + 热更新 + 信号</h1>
+  <p class="lede"><code class="path">apps/cli/src/profile-boot.ts</code>（300 行）是启动链的最后一站，也是 00 页 <code>bin.ts</code> 直接调用的那个函数。它把五层补丁拼齐、调 <code>boot()</code>、再给树挂上「改配置即热重组」的 watch。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">bin.ts:31 runProfile({...})</span>
+  <span class="arrow">→</span>
+  <span class="here">profile-boot.ts:207 runProfile</span>
+  <span class="arrow">→</span>
+  <span class="seg">(内部) composeProfile:142 · composeLive:240 · boot:248</span>
+  <span class="arrow">→</span>
+  <span class="seg">(终点) 活插件树 → 05 脊柱</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">composeProfile：五层拼齐</a></li>
+    <li><a href="#s2">runProfile：boot + 信号</a></li>
+    <li><a href="#s3">composeLive：热重组的补丁快照</a></li>
+    <li><a href="#s4">启动链完成：你拥有了一棵树</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>composeProfile：五层拼齐</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>五层的组合（节选）</span><span class="ln-range">142-171</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">142</span><span class="tok-k">function</span> <span class="tok-f">composeProfile</span>(name, patchFiles): ComposedProfile {</span>
+<span class="code-line"><span class="ln">146</span>  <span class="tok-k">const</span> profile = <span class="tok-f">prepareProfile</span>(name)          <span class="tok-c">// 02 页的 loadProfile + 重写空根配置</span></span>
+<span class="code-line"><span class="ln">147</span>  <span class="tok-k">const</span> homePatches = <span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? []</span>
+<span class="code-line"><span class="ln">148</span>  <span class="tok-k">const</span> overlays = patchFiles.<span class="tok-f">flatMap</span>(file =&gt; <span class="tok-f">loadOverlayPatches</span>(NAME, <span class="tok-f">resolve</span>(file)))</span>
+<span class="code-line"><span class="ln">149</span>  <span class="tok-k">const</span> bundlePatches = profile.layers.<span class="tok-f">flatMap</span>(layer =&gt; layer.patches)</span>
+<span class="code-line"><span class="ln">150</span>  <span class="tok-k">const</span> rows = <span class="tok-k">new</span> Map&lt;string, EntryOptions&gt;()</span>
+<span class="code-line"><span class="ln">151</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> row <span class="tok-k">of</span> <span class="tok-f">composeEntries</span>([bundlePatches, profile.patches, homePatches, overlays])) {</span>
+<span class="code-line"><span class="ln">152</span>    <span class="tok-k">if</span> (<span class="tok-k">typeof</span> row.id === <span class="tok-s">'string'</span>) rows.<span class="tok-f">set</span>(row.id, row)</span>
+<span class="code-line"><span class="ln">153</span>  }</span>
+<span class="code-line"><span class="ln">154</span>  <span class="tok-k">const</span> composedOverlays = [...overlays]</span>
+<span class="code-line"><span class="ln">159</span>  <span class="tok-k">if</span> (rows.<span class="tok-f">has</span>(<span class="tok-s">'agent-presets'</span>)) {</span>
+<span class="code-line"><span class="ln">160</span>    composedOverlays.<span class="tok-f">push</span>({</span>
+<span class="code-line"><span class="ln">161</span>      id: <span class="tok-s">'agent-presets'</span>,</span>
+<span class="code-line"><span class="ln">162</span>      config: { ...rows.<span class="tok-f">get</span>(<span class="tok-s">'agent-presets'</span>)?.config, roots: [{ path: SHIPPED_PRESET_ROOT, trust: <span class="tok-s">'system'</span> }] },</span>
+<span class="code-line"><span class="ln">163</span>    })</span>
+<span class="code-line"><span class="ln">164</span>  }</span>
+<span class="code-line"><span class="ln">168</span>  <span class="tok-k">const</span> telemetryPatch = <span class="tok-f">resolveTelemetryPatch</span>(process.env.DSH_TELEMETRY_DISABLED, rows.<span class="tok-f">has</span>(TELEMETRY_ROW_ID))</span>
+<span class="code-line"><span class="ln">169</span>  <span class="tok-k">if</span> (telemetryPatch !== <span class="tok-k">undefined</span>) composedOverlays.<span class="tok-f">push</span>(telemetryPatch)</span>
+<span class="code-line"><span class="ln">170</span>  <span class="tok-k">return</span> { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }</span>
+<span class="code-line"><span class="ln">171</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">146</span><p><code>prepareProfile</code>（98-103 行）：调 02 页的 loadProfile，然后<strong>重写空根配置</strong>。注释解释为什么每次都要重写：Loader 的树写回（插件自卸载会持久化当前树）可能把组合好的行烤进 cordis.yml——下次 boot 就会重复每个 bundle 的 insert。所以根永远是空的。</p></div>
+    <div class="lr"><span class="ln-ref">147</span><p>第③层：home 级 <code>$DSH_HOME/cordis.patch.yml</code>——机器级偏好，<strong>在 profile 层之后应用</strong>（高于它）。<code>loadOptionalPatches</code>：文件不存在就返回空（可选层）。</p></div>
+    <div class="lr"><span class="ln-ref">148</span><p>第④层：<code>--patch</code> overlay，按 argv 顺序。注意这里 overlay 只是被 load；真正 push 进 composedOverlays 是在 154 行复制之后——因为第⑤层遥测开关也要进 overlay，而用户 overlay 不能被污染。</p></div>
+    <div class="lr"><span class="ln-ref">151</span><p><strong>五层压成一张表</strong>（只列前四层；第五层在 169 行并入）：同一个 <code>composeEntries</code>——与 boot 里的挂载用同一个算法，保证「flag 推导和配置 dump 看到的，就是实际挂载的」。</p></div>
+    <div class="lr"><span class="ln-ref">152</span><p>rows 是 id → Entry 索引，供 launcher 自己的行级检查（如 159 行查 agent-presets 是否存在）。</p></div>
+    <div class="lr"><span class="ln-ref">159-163</span><p>agent-presets 特例：SHIPPED_PRESET_ROOT（app 自带的预设目录，源码/产物两种布局下都在 app 旁边）只有这个 launcher 能解析，所以作为 overlay 推入。注释：「writable root 由 dsh-agent-presets 自己追加」，launcher 永不覆盖用户目录，只补系统目录。</p></div>
+    <div class="lr"><span class="ln-ref">168-169</span><p>第⑤层：遥测开关。<code>resolveTelemetryPatch</code>（80-83 行）——<strong>任何非空值（包括 '0'/'false'）都禁用</strong>：隐私开关宁可误关不可误开。组合里没有遥测行时开关自然满足，不产生补丁。</p></div>
+  </div>
+
+  <div class="callout key">
+    <p><strong>五层顺序定案</strong>：bundle 层 → profile 用户层 → home 用户层 → --patch overlay → 遥测开关。应用在空列表 <code>[]</code> 上，命中同 id 即整行替换。这就是整个 dsh 的「配置树」的全部真相。</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>runProfile：boot + 信号</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>runProfile 主体（节选）</span><span class="ln-range">207-259</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">207</span><span class="tok-k">export async function</span> <span class="tok-f">runProfile</span>(options): Promise&lt;{ ctx; shutdown }&gt; {</span>
+<span class="code-line"><span class="ln">208</span>  <span class="tok-k">const</span> composed = <span class="tok-f">composeProfile</span>(options.profile, options.patchFiles)</span>
+<span class="code-line"><span class="ln">209</span>  <span class="tok-k">const</span> app: { current?: Context } = {}</span>
+<span class="code-line"><span class="ln">210</span>  <span class="tok-k">const</span> shutdown = <span class="tok-f">createProcessShutdown</span>(<span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
+<span class="code-line"><span class="ln">211</span>  <span class="tok-k">const</span> signalShutdown = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
+<span class="code-line"><span class="ln">221</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGTERM'</span>, () =&gt; { <span class="tok-f">interrupt</span>(0) })</span>
+<span class="code-line"><span class="ln">222</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGINT'</span>, () =&gt; { <span class="tok-f">interrupt</span>(130) })</span>
+<span class="code-line"><span class="ln">223</span>  <span class="tok-f">installFailLoud</span>(NAME, process, <span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
+<span class="code-line"><span class="ln">240</span>  <span class="tok-k">const</span> composeLive = (): PatchOptions[] =&gt; <span class="tok-f">structuredClone</span>([</span>
+<span class="code-line"><span class="ln">241</span>    ...composed.bundlePatches,</span>
+<span class="code-line"><span class="ln">242</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, composed.profile.patchPath) ?? [],</span>
+<span class="code-line"><span class="ln">243</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? [],</span>
+<span class="code-line"><span class="ln">244</span>    ...composed.overlays,</span>
+<span class="code-line"><span class="ln">245</span>  ])</span>
+<span class="code-line"><span class="ln">248</span>  <span class="tok-k">const</span> ctx = <span class="tok-k">await</span> <span class="tok-f">boot</span>(NAME, rootConfig, <span class="tok-f">structuredClone</span>(<span class="tok-f">allPatches</span>(composed)), (hostCtx) =&gt; {</span>
+<span class="code-line"><span class="ln">249</span>    app.current = hostCtx</span>
+<span class="code-line"><span class="ln">252</span>    hostCtx.<span class="tok-f">provide</span>(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)</span>
+<span class="code-line"><span class="ln">255</span>    <span class="tok-f">provideCmdline</span>(hostCtx, { args: options.args, exit: code =&gt; <span class="tok-k">void</span> shutdown.<span class="tok-f">shutdown</span>(code) })</span>
+<span class="code-line"><span class="ln">256</span>  })</span>
+<span class="code-line"><span class="ln">257</span>  app.current = ctx</span>
+<span class="code-line"><span class="ln">279</span>  <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'hmr'</span>) === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">280</span>    <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'timer'</span>) === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">281</span>      <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-timer'</span> })</span>
+<span class="code-line"><span class="ln">282</span>    }</span>
+<span class="code-line"><span class="ln">283</span>    <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-hmr'</span>, config: { root: [] } })</span>
+<span class="code-line"><span class="ln">284</span>  }</span>
+<span class="code-line"><span class="ln">285</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: composed.profile.patchPath, compose: composeLive })</span>
+<span class="code-line"><span class="ln">290</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: <span class="tok-f">homePatchPath</span>(), compose: composeLive })</span>
+<span class="code-line"><span class="ln">299</span>  <span class="tok-k">return</span> { ctx, shutdown }</span>
+<span class="code-line"><span class="ln">300</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">210</span><p><code>createProcessShutdown</code>（<code class="path">process-shutdown.ts</code>）：有界关机的控制器——dispose 整棵树是它 shutdown 时执行的第一个动作。之后所有退出路径（信号、app 请求退出、one-shot 完成）都走它。</p></div>
+    <div class="lr"><span class="ln-ref">221-222</span><p>信号语义：<strong>SIGTERM 退出码 0</strong>（supervisor 的普通停止请求，launcher 不知道应用是否算完成）；<strong>SIGINT 退出码 130</strong>（用户中断）。信号在 boot() settle 之前就接管 teardown——注释解释：insert 的 provider 可能在兄弟行还没挂完时就 publish。</p></div>
+    <div class="lr"><span class="ln-ref">223</span><p><code>installFailLoud</code>：boot 完成后的未处理 rejection 也不再静默——每个未处理错误都 dispose 树并报告。这是「错了就大声崩」原则的进程级实现。</p></div>
+    <div class="lr"><span class="ln-ref">240-245</span><p><strong>composeLive 是热重组的补丁快照</strong>：bundle 层在底、overlay 在顶，用户的两个文件（profile 的 + home 的）<strong>每次重组都重新读盘</strong>。注意整体 <code>structuredClone</code>——见 §3。</p></div>
+    <div class="lr"><span class="ln-ref">248</span><p>调 03 页的 <code>boot()</code>。传的 patches 也是 <code>structuredClone(allPatches(composed))</code>——boot 应用补丁时不能 mutate 后续热重组要用的原对象。</p></div>
+    <div class="lr"><span class="ln-ref">252</span><p>prepare 回调（03 页的 prepare 参数）：provide <strong>启动环境快照</strong>——在任何配置树条目挂载前，插件解析启动期环境值（DSH_* env 等）都从这同一个不可变来源读。</p></div>
+    <div class="lr"><span class="ln-ref">255</span><p>provide 命令行：内部参数（01 页的 args）+ <code>exit</code> 请求函数。任何注入的 app 插件都能读同一份不可变参数快照；one-shot 完成时通过 exit 请求关机。</p></div>
+    <div class="lr"><span class="ln-ref">279-284</span><p>HMR 补挂：web bundle 禁用了共享的模块重载 hmr 行（其 reload 生命周期未测试），所以这里补一个 <code>root: []</code> 的 watch-only HMR 实例——只做「cordis.patch.yml 编辑即时生效」的配置热重载，不做模块重载。缺 timer 服务就先挂 timer（HMR 依赖它）。<strong>静默跳过会破坏文档承诺的热重载契约</strong>，所以宁可显式补挂。</p></div>
+    <div class="lr"><span class="ln-ref">285-290</span><p>两个 watch：profile 的 patch 文件和 home 的 patch 文件。文件一改，watchUserPatches 就用 <code>composeLive</code> 重算补丁、重组插件树。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>composeLive：热重组的补丁快照</h2>
+  <div class="callout warn">
+    <p><strong>为什么 composeLive 和 boot 调用前都要 <code>structuredClone</code>？</strong>（这是全库最重要的 gotcha，02 页提过，这里看它的完整因果）：include 的 <code>insert</code> 行按<strong>引用</strong> push 进挂载树，后续 id 定向补丁<strong>原地 mutate</strong>那些对象。如果复用同一份解析出的补丁对象，一次 boot 的覆盖就会「烤」进 bundle 的 in-memory insert 行——之后删除用户 override 也回不去了。每次应用前 clone，才能保证「删除 override = 回到 bundle 默认」。</p>
+  </div>
+  <div class="callout key">
+    <p><strong>热重组的完整机制</strong>：watch 发现文件变化 → <code>composeLive()</code> 重读两个用户文件 + 重新拼四层 → Loader 对差异行做「卸载旧的、挂载新的」→ 被换掉的插件 fiber 销毁，其<strong>全部注册逆转</strong>（服务、事件、effect）→ 新 fiber 挂载。进程不重启，配置即代码。</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>启动链完成：你拥有了一棵树</h2>
+  <p>到这里，主干 A 走完了。回望这条链：</p>
+  <blockquote><code>bin.ts</code>（分派）→ <code>args.ts</code>（解析）→ <code>loadProfile</code>（发现 profile 与 bundle）→ <code>composeEntries</code>（五层补丁压成条目表）→ <code>boot()</code>（条目表挂成插件树）→ <code>runProfile</code>（信号 + 热更新 watch）。</blockquote>
+  <p>现在 <code>runProfile</code> 返回 <code>{ ctx, shutdown }</code>——ctx 就是那棵活树。树上有 78+ 个插件，其中一个叫 <code>dsh-agent-loop</code>。<strong>接下来的主干 B（05→14 页）就钻进这个插件的心脏</strong>，跟踪一条消息从进入 inbox 到工具结果落盘的每一步代码。</p>
+
+  <div class="callout verify">
+    <p>动手验证：<code>pnpm dsh --profile web --dump-config</code> 打印的就是这台机器实际会启动的条目表；在 <code>$DSH_HOME/cordis.patch.yml</code> 里改一行，长驻的 web 进程会即时重组。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="03-cordis.html"><span class="dir">← 03</span><span class="t">boot + Cordis 运行时</span></a>
+  <a class="next" href="05-spine.html"><span class="dir">主干 B 开始 · 05</span><span class="t">脊柱：从 kick 出发 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

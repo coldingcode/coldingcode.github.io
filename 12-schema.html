@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>12 assemble 提示词组装 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html" class="active"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain B · Step 12</p>
+  <h1>assemble：片段如何变成最终提示词</h1>
+  <p class="lede">08 页 preStep 的第二步调了 <code>systemPrompt.assemble()</code>。这一页看 <code class="path">packages/core/system-prompt/src/index.ts</code>（545 行）的 <code>SystemPrompt</code> 服务：各插件贡献的有序片段、动态上下文、工具 schema 如何合并成一份 <code>PromptAssembly</code>。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">08 preStep:230 systemPrompt.assemble(assembleContextFor(...))</span>
+  <span class="arrow">→</span>
+  <span class="here">system-prompt/src/index.ts:467 assemble</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下一步) 11 step:337 renderPrompt(assembly)</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">合并语义：variables / sections / tools</a></li>
+    <li><a href="#s2">waterfall：system-prompt/assemble</a></li>
+    <li><a href="#s3">renderPrompt：严格插值</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>合并语义：variables / sections / tools</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/system-prompt/src/index.ts</span><span>assemble 主体（节选）</span><span class="ln-range">467-512</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">467</span>  <span class="tok-k">async</span> <span class="tok-f">assemble</span>(context: AssembleContext = {}): Promise&lt;PromptAssembly&gt; {</span>
+<span class="code-line"><span class="ln">468</span>    <span class="tok-k">const</span> scope = context.scope</span>
+<span class="code-line"><span class="ln">469</span>    <span class="tok-k">const</span> scopeLayers = <span class="tok-k">this</span>.layers.<span class="tok-f">chainLayers</span>(scope)</span>
+<span class="code-line"><span class="ln">471</span>    <span class="tok-k">const</span> runtimeContextSuppressed = !<span class="tok-k">this</span>.layers.global.runtimeContextSuppressors.<span class="tok-f">isEmpty</span>()</span>
+<span class="code-line"><span class="ln">472</span>      || scopeLayers.<span class="tok-f">some</span>(layer =&gt; !layer.runtimeContextSuppressors.<span class="tok-f">isEmpty</span>())</span>
+<span class="code-line"><span class="ln">474</span>    <span class="tok-k">const</span> variables: Record&lt;string, string | <span class="tok-k">undefined</span>&gt; = {}</span>
+<span class="code-line"><span class="ln">475</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> [name, provider] <span class="tok-k">of</span> <span class="tok-k">this</span>.layers.global.variables.<span class="tok-f">entries</span>()) variables[name] = <span class="tok-f">provider</span>(context)</span>
+<span class="code-line"><span class="ln">478</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> layer <span class="tok-k">of</span> scopeLayers) {           <span class="tok-c">// Farthest first → nearest scope wins</span></span>
+<span class="code-line"><span class="ln">480</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> [name, provider] <span class="tok-k">of</span> layer.variables.<span class="tok-f">entries</span>()) variables[name] = <span class="tok-f">provider</span>(context)</span>
+<span class="code-line"><span class="ln">481</span>    }</span>
+<span class="code-line"><span class="ln">484</span>    <span class="tok-k">const</span> sectionByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.sections)</span>
+<span class="code-line"><span class="ln">485</span>    <span class="tok-k">const</span> contextByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.contexts)</span>
+<span class="code-line"><span class="ln">487</span>    <span class="tok-k">const</span> providers = [                   <span class="tok-c">// tools: global + ALL matched scopes 都贡献</span></span>
+<span class="code-line"><span class="ln">488</span>      ...<span class="tok-k">this</span>.layers.global.toolProviders.<span class="tok-f">values</span>(),</span>
+<span class="code-line"><span class="ln">489</span>      ...scopeLayers.<span class="tok-f">flatMap</span>(layer =&gt; [...layer.toolProviders.<span class="tok-f">values</span>()]),</span>
+<span class="code-line"><span class="ln">490</span>    ]</span>
+<span class="code-line"><span class="ln">491</span>    <span class="tok-k">const</span> collected: ToolSchema[] = []</span>
+<span class="code-line"><span class="ln">493</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> provider <span class="tok-k">of</span> providers) {</span>
+<span class="code-line"><span class="ln">494</span>      <span class="tok-k">const</span> result = <span class="tok-f">provider</span>(context)</span>
+<span class="code-line"><span class="ln">495</span>      <span class="tok-k">const</span> schemas = result.schemas.<span class="tok-f">map</span>(({ name, description, parameters }) =&gt; ({</span>
+<span class="code-line"><span class="ln">496</span>        name, description,</span>
+<span class="code-line"><span class="ln">498</span>        parameters: <span class="tok-f">structuredClone</span>(parameters),   <span class="tok-c">// 只投影白名单三字段</span></span>
+<span class="code-line"><span class="ln">499</span>      }))</span>
+<span class="code-line"><span class="ln">501</span>      collected.<span class="tok-f">push</span>(...schemas)</span>
+<span class="code-line"><span class="ln">504</span>    <span class="tok-k">const</span> sectionDefinitions = [...sectionByName.<span class="tok-f">values</span>()].<span class="tok-f">sort</span>((a, b) =&gt; a.order - b.order)</span>
+<span class="code-line"><span class="ln">505</span>    <span class="tok-k">const</span> completeSections = sectionDefinitions.<span class="tok-f">filter</span>(section =&gt; section.complete === <span class="tok-n">true</span>)</span>
+<span class="code-line"><span class="ln">506</span>    <span class="tok-k">if</span> (completeSections.length &gt; 1) {</span>
+<span class="code-line"><span class="ln">507</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`multiple complete prompt sections are active: ...`)</span>
+<span class="code-line"><span class="ln">508</span>    }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">468-469</span><p><code>scopeLayers</code>：该 scope 的层链。合并基于 ScopedLayers（scope 库）——global 层 + 从远到近的 scope 层。</p></div>
+    <div class="lr"><span class="ln-ref">471-472</span><p>runtimeContextSuppressors：任何层有 suppressor 就整体抑制运行时上下文（08 页 project 的开关）。</p></div>
+    <div class="lr"><span class="ln-ref">474-481</span><p><strong>variables：同名时 scoped 覆盖 global</strong>——先填 global，再从远到近遍历 scope 层，最近的作用域最后写、赢下同名。Provider 函数在调用时求值。</p></div>
+    <div class="lr"><span class="ln-ref">484-485</span><p>sections/contexts 走 <code>layers.merge(scope, ...)</code>——同样的覆盖语义。</p></div>
+    <div class="lr"><span class="ln-ref">487-489</span><p><strong>tools 不同：global + 全部匹配 scope 都 append（贡献而非覆盖）</strong>——与 variables 的语义相反。一个 agent 作用域的工具不会遮蔽全局工具，只会增加。</p></div>
+    <div class="lr"><span class="ln-ref">495-499</span><p>工具 schema 进模型的唯一路径：<strong>只投影 name/description/parameters 三个字段</strong>（structuredClone 防消费者改原对象）。timeoutMs、isConcurrencySafe、execute 等元数据永不下发。</p></div>
+    <div class="lr"><span class="ln-ref">504</span><p>order 带决定顺序：-100 = harness:identity（<code>PERSONA_SECTION</code> 之前的身份行），0 = persona，100-199 = tool guidance；同 order 靠注册顺序破平（插件加载顺序的产物）。工具另有 toolOrder 排序。</p></div>
+    <div class="lr"><span class="ln-ref">505-508</span><p><strong>complete 节：fail-loud</strong>——多个 effective complete 直接 throw。complete:true 的节在 waterfall 之后恢复为唯一节（§2）。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>waterfall：system-prompt/assemble</h2>
+  <p>组装完基础结构后，整个 assembly 过一道 <code>system-prompt/assemble</code> waterfall（scope-filtered）：</p>
+  <ul>
+    <li><strong>返回值为权威 PromptAssembly</strong>——监听器可改写/替换 sections 与 tools，可增删上下文。</li>
+    <li>complete 节的恢复发生在 waterfall <strong>之后</strong>——所以监听器看到的可能不是最终形态，但恢复是系统保证。</li>
+    <li>伴随的 <code>system-prompt/change</code> 是 emit 通知（任何 section/context/variable/tools/suppressor 注册或注销时发，不做 scope 过滤——全局变化影响所有 scope），消费者据此失效缓存。</li>
+    <li>invariant.ts（60 行）校验 waterfall 返回的权威 assembly 结构。</li>
+  </ul>
+  <div class="callout info">
+    <p><strong>两个事件模式分清</strong>：<code>system-prompt/assemble</code> 是 waterfall（可拦截/短路，返回值权威）；<code>system-prompt/change</code> 是 emit（payload-free 通知，非否决）。同一模式在 10 页 llm 出现过：stream=waterfall，adapters-updated=emit。</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>renderPrompt：严格插值</h2>
+  <p>11 页 step:337 调 <code>renderPrompt(assembly)</code> 产出最终 system 文本。四条规则（fail-loud 取向）：</p>
+  <ol>
+    <li>未注册的变量（<code>Object.hasOwn</code> 防原型名攻击）→ <strong>throw</strong></li>
+    <li>注册但值为 <code>undefined</code> → <strong>throw</strong></li>
+    <li>畸形的完整组（<code>{{}}</code> 里不是合法名）→ <strong>throw</strong></li>
+    <li>孤立 <code>{{</code> 后无 <code>}}</code> → 字面量（不是变量，保留原文）</li>
+  </ol>
+  <p>渲染出的 system 文本随后进入 09 页的 <code>canonicalHeader</code>，落进 <code>request/header</code> 事件——<strong>模型看到的 prompt 从此可从日志重建</strong>。</p>
+</section>
+
+<footer class="prevnext">
+  <a href="11-step.html"><span class="dir">← 11</span><span class="t">step：循环、落盘、分支</span></a>
+  <a class="next" href="13-tool-sched.html"><span class="dir">下一步 · 13</span><span class="t">executeToolCalls：调度 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

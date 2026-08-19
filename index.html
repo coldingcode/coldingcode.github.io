@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>树状总览 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html" class="active"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">DeepSeek Harness · Code-Level Reading</p>
+  <h1>树状总览：从入口到心脏，再到旁支</h1>
+  <p class="lede">这套页面按<strong>调用链顺序</strong>精读源码：从 <code class="path">apps/cli/src/bin.ts</code> 开始，沿启动链走到 agent loop 的心脏，再从心脏分出「工具执行」和「shell 能力」两个旁支。每一页都聚焦一个函数/一组紧邻的代码，标注<strong>文件路径与行号</strong>，逐行解释它在做什么、为什么这样写。</p>
+</header>
+
+<section id="tree">
+  <h2><span class="sec-num">图 0</span>阅读树</h2>
+
+<figure class="fig">
+<svg class="dg" viewBox="0 0 1280 780" role="img" aria-label="阅读树">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="hd" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <!-- 主干：启动 -->
+  <text class="note" x="20" y="30">主链 A：进程启动（apps/cli → app-boot → cordis）</text>
+  <rect class="acc" x="20" y="44" width="190" height="46" rx="9"/><text class="th" x="115" y="72" text-anchor="middle">00 bin.ts:53</text>
+  <line class="a" x1="210" y1="67" x2="240" y2="67" marker-end="url(#arw)"/>
+  <rect class="box" x="243" y="44" width="190" height="46" rx="9"/><text class="th" x="338" y="72" text-anchor="middle">01 args.ts:112</text>
+  <line class="a" x1="433" y1="67" x2="463" y2="67" marker-end="url(#arw)"/>
+  <rect class="box" x="466" y="44" width="210" height="46" rx="9"/><text class="th" x="571" y="72" text-anchor="middle">02 profile.ts:371</text>
+  <line class="a" x1="676" y1="67" x2="706" y2="67" marker-end="url(#arw)"/>
+  <rect class="box" x="709" y="44" width="220" height="46" rx="9"/><text class="th" x="819" y="72" text-anchor="middle">03 boot index.ts:757</text>
+  <line class="a" x1="929" y1="67" x2="959" y2="67" marker-end="url(#arw)"/>
+  <rect class="box" x="962" y="44" width="230" height="46" rx="9"/><text class="th" x="1077" y="72" text-anchor="middle">04 runProfile:207</text>
+
+  <!-- 主干：消息一生 -->
+  <text class="note" x="20" y="130">主链 B：一条消息的一生（agent-loop → session → llm → tools）</text>
+  <rect class="acc" x="20" y="144" width="190" height="46" rx="9"/><text class="th" x="115" y="172" text-anchor="middle">05 agent.ts kick:210</text>
+  <line class="a" x1="210" y1="167" x2="240" y2="167" marker-end="url(#arw)"/>
+  <rect class="box" x="243" y="144" width="190" height="46" rx="9"/><text class="th" x="338" y="172" text-anchor="middle">06 Session.append:604</text>
+  <line class="a" x1="433" y1="167" x2="463" y2="167" marker-end="url(#arw)"/>
+  <rect class="box" x="466" y="144" width="190" height="46" rx="9"/><text class="th" x="561" y="172" text-anchor="middle">07 Inbox.mutate:158</text>
+  <line class="a" x1="656" y1="167" x2="686" y2="167" marker-end="url(#arw)"/>
+  <rect class="box" x="689" y="144" width="200" height="46" rx="9"/><text class="th" x="789" y="172" text-anchor="middle">08 preStep:225</text>
+  <line class="a" x1="889" y1="167" x2="919" y2="167" marker-end="url(#arw)"/>
+  <rect class="box" x="922" y="144" width="220" height="46" rx="9"/><text class="th" x="1032" y="172" text-anchor="middle">09 buildRequest:407</text>
+  <line class="a" x1="1142" y1="167" x2="1172" y2="167" marker-end="url(#arw)"/>
+  <rect class="box" x="1175" y="144" width="90" height="46" rx="9"/><text class="th" x="1220" y="172" text-anchor="middle">10 llm/stream</text>
+
+  <line class="a" x1="1220" y1="190" x2="1220" y2="228" marker-end="url(#arw)"/>
+  <rect class="box" x="1175" y="232" width="90" height="46" rx="9"/><text class="th" x="1220" y="260" text-anchor="middle">11 step:332</text>
+
+  <!-- 分支 1：工具 -->
+  <line class="a" x1="1220" y1="278" x2="1220" y2="360" marker-end="url(#arw)"/>
+  <text class="acc" x="1232" y="325">工具调用时</text>
+  <rect class="acc" x="1120" y="364" width="190" height="46" rx="9"/><text class="th" x="1215" y="392" text-anchor="middle">13 executeToolCalls:59</text>
+  <line class="a" x1="1120" y1="387" x2="1088" y2="387" marker-end="url(#arw)"/>
+  <rect class="box" x="898" y="364" width="186" height="46" rx="9"/><text class="th" x="991" y="392" text-anchor="middle">14 ToolRuntime:1342</text>
+  <line class="a" x1="898" y1="387" x2="866" y2="387" marker-end="url(#arw)"/>
+  <rect class="box" x="676" y="364" width="186" height="46" rx="9"/><text class="th" x="769" y="392" text-anchor="middle">15 分岔点 · seam</text>
+
+  <!-- 分支 2：提示词 -->
+  <line class="a" x1="1090" y1="167" x2="1090" y2="240" marker-end="url(#arw)"/>
+  <text class="acc" x="1100" y="210">每步组装</text>
+  <rect class="box" x="995" y="244" width="190" height="46" rx="9"/><text class="th" x="1090" y="272" text-anchor="middle">12 assemble:467</text>
+
+  <!-- shell 旁支的两个子页 -->
+  <line class="a" x1="676" y1="410" x2="676" y2="452" marker-end="url(#arw)"/>
+  <rect class="box" x="576" y="456" width="200" height="46" rx="9"/><text class="th" x="676" y="484" text-anchor="middle">16 bash-local</text>
+  <line class="a" x1="676" y1="410" x2="830" y2="452" marker-end="url(#arw)"/>
+  <rect class="box" x="730" y="456" width="200" height="46" rx="9"/><text class="th" x="830" y="484" text-anchor="middle">17 tool-bash</text>
+
+  <text class="note" x="20" y="530">阅读规则：主链 00→14 顺序读；15 是从 14 长出的旁支入口，16/17 是旁支的子页</text>
+  <text class="note" x="20" y="552">每个页面顶部有「调用链位置条」，标明本页在树上的位置与当前函数的完整路径</text>
+  <text class="note" x="20" y="574">每个代码段下方的「行级解读」块按行号逐行解释；分岔点页面（15）解释为什么这里长出旁支</text>
+</svg>
+<figcaption>图 0-1 · 阅读树：主干 A（启动）+ 主干 B（消息一生）+ 两个旁支。</figcaption>
+</figure>
+</section>
+
+<section id="howto">
+  <h2><span class="sec-num">图 0</span>怎么读这套页面</h2>
+  <ol>
+    <li><strong>沿主干 A 读</strong>（00→04）：搞清「从敲下 <code>dsh web</code> 到一棵插件树活起来」的每一行代码。</li>
+    <li><strong>沿主干 B 读</strong>（05→14）：跟踪一条消息从进队列到工具结果落盘的完整调用链。这是全书重点，10/12/13 是从 09/11 自然长出的分支。</li>
+    <li><strong>旁支</strong>（15→17）：从工具流水线的通用机制出发，落到一个具体能力（shell）的三件套实现，学会「怎么读一个能力」的模板。</li>
+    <li>每页的代码引用都标<strong>真实文件路径 + 真实行号</strong>，建议把源码窗口放在旁边对照；行号锚定 master @ rc.7。</li>
+  </ol>
+</section>
+
+<section id="reading-hints">
+  <h2><span class="sec-num">图 0</span>开读前需要知道的三件事</h2>
+  <div class="callout key">
+    <p><strong>① 一切皆插件。</strong>模型适配器、工具注册表、会话日志、agent loop 本身，全部是插件，全部能从配置替换。不存在特权内核。</p>
+  </div>
+  <div class="callout key">
+    <p><strong>② 模型可见 ⟺ 已记录。</strong>送进模型请求的内容必须能从 session log 重建——所以模型历史来自 <code>deriveMessages()</code> 对日志的投影，而不是任何内存对象（在 06/09 页你会看到它的行级实现）。</p>
+  </div>
+  <div class="callout key">
+    <p><strong>③ waterfall 事件必须调 <code>next()</code> 才委托；</strong>serial 事件没有 <code>next()</code>；emit 是纯通知不可否决。这是所有扩展点代码的语法基础（08/10/14 页反复出现）。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <span></span>
+  <a class="next" href="00-root.html"><span class="dir">开始 · 主干 A</span><span class="t">00 根：bin.ts 入口 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 args 解析 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html" class="active"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain A · Step 01</p>
+  <h1>args.ts：解析与分发</h1>
+  <p class="lede"><code class="path">apps/cli/src/args.ts</code>（191 行）用 commander 把 argv 变成结构化的 <code>DshInvocation</code>。它的核心设计只有一条：<strong>launcher 只解析自己的 flags，第一个不认识的东西起全归应用</strong>。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">bin.ts:26</span>
+  <span class="arrow">→</span>
+  <span class="here">args.ts:112 parseDshArgs</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下一步) profile-boot.ts → 02 loadProfile</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">判别联合：三种 invocation</a></li>
+    <li><a href="#s2">parseDshArgs：commander 装配</a></li>
+    <li><a href="#s3">resolveBoot：dump 的守卫</a></li>
+    <li><a href="#s4">边界设计：flags 归属</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>判别联合：三种 invocation</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">apps/cli/src/args.ts</span><span>三种调用的类型定义</span><span class="ln-range">21-48</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">21</span><span class="tok-k">interface</span> ProfileInvocation {</span>
+<span class="code-line"><span class="ln">22</span>  mode: <span class="tok-s">'profile'</span></span>
+<span class="code-line"><span class="ln">23</span>  profile: string</span>
+<span class="code-line"><span class="ln">24</span>  patches: string[]</span>
+<span class="code-line"><span class="ln">26</span>  args: string[]   <span class="tok-c">// 内部参数：原样交给 booted 插件树</span></span>
+<span class="code-line"><span class="ln">27</span>}</span>
+<span class="code-line"><span class="ln">30</span><span class="tok-k">interface</span> DumpConfigInvocation {</span>
+<span class="code-line"><span class="ln">31</span>  mode: <span class="tok-s">'dump-config'</span></span>
+<span class="code-line"><span class="ln">32</span>  profile: string</span>
+<span class="code-line"><span class="ln">34</span>  defaultOnly: boolean   <span class="tok-c">// true = 只打印 bundle 层（跳过用户层与 --patch）</span></span>
+<span class="code-line"><span class="ln">35</span>  patches: string[]</span>
+<span class="code-line"><span class="ln">36</span>}</span>
+<span class="code-line"><span class="ln">39</span><span class="tok-k">interface</span> PluginInvocation {</span>
+<span class="code-line"><span class="ln">40</span>  mode: <span class="tok-s">'plugin'</span></span>
+<span class="code-line"><span class="ln">41</span>  profile: string</span>
+<span class="code-line"><span class="ln">43</span>  args: string[]   <span class="tok-c">// pnpm 参数，原样转发</span></span>
+<span class="code-line"><span class="ln">44</span>}</span>
+<span class="code-line"><span class="ln">48</span><span class="tok-k">export type</span> DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">21-27</span><p><code>ProfileInvocation</code>：主模式。四个字段各司其职——<code>profile</code> 是名字，<code>patches</code> 是 <code>--patch</code> overlay 列表（按 argv 顺序），<code>args</code> 是「内部参数」（launcher 不认识的所有东西，原样进插件树）。</p></div>
+    <div class="lr"><span class="ln-ref">30-36</span><p><code>DumpConfigInvocation</code>：打印配置树。注意它<strong>没有</strong> args 字段——dump 是 boot-free 的（见 §3 的守卫逻辑）。</p></div>
+    <div class="lr"><span class="ln-ref">39-44</span><p><code>PluginInvocation</code>：把剩余参数转发给 pnpm。与主链无关，但它说明了 <code>args</code> 字段在两种模式里语义不同（应用参数 vs pnpm 参数）。</p></div>
+    <div class="lr"><span class="ln-ref">48</span><p>判别联合：mode 就是判别标签。这就是 00 页 bin.ts switch 的穷尽性来源。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>parseDshArgs：commander 装配</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">apps/cli/src/args.ts</span><span>parseDshArgs 主体</span><span class="ln-range">112-145</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">112</span><span class="tok-k">export function</span> <span class="tok-f">parseDshArgs</span>(argv, version): DshInvocation {</span>
+<span class="code-line"><span class="ln">116</span>  <span class="tok-k">const</span> program: Command = <span class="tok-k">new</span> <span class="tok-t">Command</span>()</span>
+<span class="code-line"><span class="ln">117</span>  program</span>
+<span class="code-line"><span class="ln">118</span>    .<span class="tok-f">name</span>(<span class="tok-s">'dsh'</span>)</span>
+<span class="code-line"><span class="ln">119</span>    .<span class="tok-f">version</span>(version, <span class="tok-s">'-V, --version'</span>, <span class="tok-s">'output the version number'</span>)</span>
+<span class="code-line"><span class="ln">121</span>    .<span class="tok-f">addHelpText</span>(<span class="tok-s">'after'</span>, HELP_EXAMPLES)</span>
+<span class="code-line"><span class="ln">122</span>    .<span class="tok-f">exitOverride</span>()          <span class="tok-c">// 不让 commander 直接 process.exit，改抛 CommanderError</span></span>
+<span class="code-line"><span class="ln">126</span>    .<span class="tok-f">helpOption</span>(<span class="tok-n">false</span>)       <span class="tok-c">// launcher 自己禁用 -h：它属于应用</span></span>
+<span class="code-line"><span class="ln">127</span>    .<span class="tok-f">allowUnknownOption</span>()</span>
+<span class="code-line"><span class="ln">128</span>    .<span class="tok-f">passThroughOptions</span>()</span>
+<span class="code-line"><span class="ln">129</span>    .<span class="tok-f">enablePositionalOptions</span>()</span>
+<span class="code-line"><span class="ln">130</span>    .<span class="tok-f">argument</span>(<span class="tok-s">'[args...]'</span>, <span class="tok-s">'arguments for the booted profile\'s app ...'</span>)</span>
+<span class="code-line"><span class="ln">131</span>    .<span class="tok-f">option</span>(<span class="tok-s">'--profile &lt;name&gt;'</span>, ...)</span>
+<span class="code-line"><span class="ln">132</span>    .<span class="tok-f">option</span>(<span class="tok-s">'--patch &lt;path&gt;'</span>, ..., collect)</span>
+<span class="code-line"><span class="ln">133</span>    .<span class="tok-f">option</span>(<span class="tok-s">'--dump-config'</span>, ...)</span>
+<span class="code-line"><span class="ln">134</span>    .<span class="tok-f">option</span>(<span class="tok-s">'--dump-default-config'</span>, ...)</span>
+<span class="code-line"><span class="ln">135</span>    .<span class="tok-f">action</span>((args, options) =&gt; {</span>
+<span class="code-line"><span class="ln">138</span>      <span class="tok-k">if</span> (options.profile === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">139</span>        <span class="tok-k">if</span> (args.<span class="tok-f">some</span>(argument =&gt; argument === <span class="tok-s">'-h'</span> || argument === <span class="tok-s">'--help'</span>)) program.<span class="tok-f">help</span>()</span>
+<span class="code-line"><span class="ln">140</span>        program.<span class="tok-f">error</span>(<span class="tok-s">'error: --profile &lt;name&gt; is required'</span>)</span>
+<span class="code-line"><span class="ln">141</span>      }</span>
+<span class="code-line"><span class="ln">142</span>      <span class="tok-k">const</span> profile = options.profile</span>
+<span class="code-line"><span class="ln">143</span>      <span class="tok-k">if</span> (profile === <span class="tok-s">''</span>) program.<span class="tok-f">error</span>(<span class="tok-s">'error: --profile needs a name'</span>)</span>
+<span class="code-line"><span class="ln">144</span>      resolved = <span class="tok-f">resolveBoot</span>(program, profile, options, args)</span>
+<span class="code-line"><span class="ln">145</span>    })</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">119</span><p>版本号从 bin.ts 的 <code>readVersion()</code> 传进来——launcher 自己不读 package.json，依赖注入。</p></div>
+    <div class="lr"><span class="ln-ref">122</span><p><code>exitOverride()</code>：把 commander 的「打印错误并 <code>process.exit</code>」改成「抛 <code>CommanderError</code>」。这样 183-187 行的 catch 能统一处理退出码（见 §3）。</p></div>
+    <div class="lr"><span class="ln-ref">126-129</span><p><strong>四连是关键设计</strong>：禁用 launcher 的 -h（它属于应用）、允许未知选项、透传选项、启用位置参数——合起来实现「launcher 的 flags 在第一个不认识的 token 处结束，之后全归应用」。于是 <code>dsh --profile web -h</code> 打印的是 web 应用的帮助，不是 launcher 的。</p></div>
+    <div class="lr"><span class="ln-ref">131-134</span><p>launcher 自己的四个 flag。注意 <code>--patch</code> 用 <code>collect</code>（61 行）——<strong>可重复单值收集器，绝不 variadic</strong>：注释明确说 variadic 的 <code>--patch</code> 会吞掉内部参数。</p></div>
+    <div class="lr"><span class="ln-ref">135-145</span><p>action 回调：无 profile 时的兜底——若 args 里带 -h 则打印 launcher 帮助（因为没人接收它了），否则报「--profile required」。空字符串 profile 也要报错。最终委托 <code>resolveBoot</code> 组装结果。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>resolveBoot：dump 的守卫</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">apps/cli/src/args.ts</span><span>resolveBoot + parse 收尾</span><span class="ln-range">83-103, 183-190</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">83</span><span class="tok-k">function</span> <span class="tok-f">resolveBoot</span>(program, profile, options, args): DshInvocation {</span>
+<span class="code-line"><span class="ln">84</span>  <span class="tok-k">const</span> patches = options.patch ?? []</span>
+<span class="code-line"><span class="ln">85</span>  <span class="tok-k">if</span> (patches.<span class="tok-f">includes</span>(<span class="tok-s">''</span>)) program.<span class="tok-f">error</span>(<span class="tok-s">'error: --patch needs a path'</span>)</span>
+<span class="code-line"><span class="ln">86</span>  <span class="tok-k">if</span> (options.dumpConfig !== <span class="tok-n">true</span> &amp;&amp; options.dumpDefaultConfig !== <span class="tok-n">true</span>) {</span>
+<span class="code-line"><span class="ln">87</span>    <span class="tok-k">return</span> { mode: <span class="tok-s">'profile'</span>, profile, patches, args }</span>
+<span class="code-line"><span class="ln">88</span>  }</span>
+<span class="code-line"><span class="ln">89</span>  <span class="tok-k">if</span> (options.dumpConfig === <span class="tok-n">true</span> &amp;&amp; options.dumpDefaultConfig === <span class="tok-n">true</span>) {</span>
+<span class="code-line"><span class="ln">90</span>    program.<span class="tok-f">error</span>(<span class="tok-s">'error: --dump-config and --dump-default-config are mutually exclusive'</span>)</span>
+<span class="code-line"><span class="ln">91</span>  }</span>
+<span class="code-line"><span class="ln">95</span>  <span class="tok-k">if</span> (args.length &gt; 0) {</span>
+<span class="code-line"><span class="ln">96</span>    program.<span class="tok-f">error</span>(`error: config dumps take no app arguments, got ${args...}`)</span>
+<span class="code-line"><span class="ln">97</span>  }</span>
+<span class="code-line"><span class="ln">98</span>  <span class="tok-k">const</span> defaultOnly = options.dumpDefaultConfig === <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">99</span>  <span class="tok-k">if</span> (defaultOnly &amp;&amp; patches.length &gt; 0) {</span>
+<span class="code-line"><span class="ln">100</span>    program.<span class="tok-f">error</span>(<span class="tok-s">'error: --dump-default-config prints the bundle layers and takes no --patch'</span>)</span>
+<span class="code-line"><span class="ln">101</span>  }</span>
+<span class="code-line"><span class="ln">102</span>  <span class="tok-k">return</span> { mode: <span class="tok-s">'dump-config'</span>, profile, defaultOnly, patches }</span>
+<span class="code-line"><span class="ln">103</span>}</span>
+<span class="code-line"><span class="ln">183</span>  <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">184</span>    program.<span class="tok-f">parse</span>(argv, { from: <span class="tok-s">'user'</span> })</span>
+<span class="code-line"><span class="ln">185</span>  } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">186</span>    <span class="tok-k">return</span> process.<span class="tok-f">exit</span>(error <span class="tok-k">instanceof</span> CommanderError ? error.exitCode : 1)</span>
+<span class="code-line"><span class="ln">187</span>  }</span>
+<span class="code-line"><span class="ln">189</span>  <span class="tok-k">if</span> (resolved === <span class="tok-k">undefined</span>) <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'dsh: no invocation resolved'</span>)</span>
+<span class="code-line"><span class="ln">190</span>  <span class="tok-k">return</span> resolved</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">86-88</span><p>不是 dump 就直接返回 profile 调用——主路径在第一个 if 就返回，dump 的检查是守卫。</p></div>
+    <div class="lr"><span class="ln-ref">92-97</span><p><strong>dump 是 boot-free 的，所以不允许带应用参数</strong>——注释解释得透彻：dump 不跑应用的命令行 provider，无法显示那些 flags 会决定什么；打印一棵与真实 boot 不同的树会误导人。所以直接报错。</p></div>
+    <div class="lr"><span class="ln-ref">99-101</span><p><code>--dump-default-config</code> 只打印 bundle 层（无用户层、无 --patch），所以带 --patch 也报错。</p></div>
+    <div class="lr"><span class="ln-ref">183-187</span><p>配合 122 行的 <code>exitOverride()</code>：commander 的错误到这里统一 <code>process.exit</code>。帮助、版本、解析错误都在这个 catch 里退出——所以 bin.ts 的 switch 只会收到合法的 invocation。</p></div>
+    <div class="lr"><span class="ln-ref">189</span><p>防御性断言：action 一定会 resolve（要么 Commander 抛错）。这行是类型系统的兜底——注释标了 <code>v8 ignore next</code>，实际不可达。</p></div>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>边界设计：flags 归属</h2>
+  <p>这一页最值得记住的设计，是文件头 JSDoc 里那句：</p>
+  <blockquote>The launcher parses only what it owns — which profile to boot, which extra patch overlays to apply, and the config dumps — and hands <strong>everything after its own flags</strong> to the booted tree verbatim.</blockquote>
+  <p>launcher 只拥有四件事（profile 名、--patch、两个 dump 开关），其余一切——包括 <code>--resume</code>、<code>-h</code>——都归「被启动的应用」自己解析。这是 CLI 分层的干净边界：<strong>launcher 是协议的，应用是具体的</strong>。</p>
+</section>
+
+<footer class="prevnext">
+  <a href="00-root.html"><span class="dir">← 00</span><span class="t">bin.ts 入口</span></a>
+  <a class="next" href="02-parse.html"><span class="dir">下一步 · 02</span><span class="t">loadProfile：profile 与五层补丁 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

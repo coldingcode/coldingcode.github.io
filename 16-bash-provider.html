@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16 bash-local Provider · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html" class="active"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Branch · Step 16</p>
+  <h1>bash-local：Provider 的职责清单</h1>
+  <p class="lede"><code class="path">packages/shell/bash-local/src/index.ts</code>（333 行）。LocalBashExecutor 是 shell seam 的本地 Provider：<strong>默认值与上限、超时分类、环境合并、把 command 包成 argv 交给下层 subprocess</strong>。它是「resolve 拆分」的完整范本。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">15 seam 定义：ShellExecutor 抽象类</span>
+  <span class="arrow">→</span>
+  <span class="here">bash-local/src/index.ts LocalBashExecutor（inject=['subprocess']）</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下层) ctx.subprocess.spawn → subprocess-local 进程树</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">resolve：Request → Spec</a></li>
+    <li><a href="#s2">run：超时分类与 deadline</a></li>
+    <li><a href="#s3">env 四段合并顺序</a></li>
+    <li><a href="#s4">下层：subprocess-local 的职责</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>resolve：Request → Spec</h2>
+  <p>15 页的接口里 resolve 是抽象的——bash-local 的实现把它变成「默认值 + 钳制」的确定性过程。它的产出物 <code>spawnSpec</code> 里最典型的一行是环境合并（194-198 行）：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>spawnSpec 里的环境合并</span><span class="ln-range">190-198</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">190</span>    <span class="tok-c">// snapshot beats both the caller's env and the terminal overrides; the</span></span>
+<span class="code-line"><span class="ln">191</span>    <span class="tok-c">// subprocess service merges the whole map after its ambient scrub.</span></span>
+<span class="code-line"><span class="ln">196</span>      env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },</span>
+<span class="code-line"><span class="ln">197</span>    }</span>
+<span class="code-line"><span class="ln">198</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">196</span><p>四段合并的第三段（§3 有全表）。<code>spec.env</code>（调用方）覆盖 <code>ENV_OVERRIDES</code>，<code>spec.dshEnv</code>（DSH_* 快照）最后合并——<strong>普通 env 无法覆盖 harness 事实</strong>。</p></div>
+    <div class="lr"><span class="ln-ref">190-191</span><p>注释说明剩余一段在哪：subprocess 服务在它的 ambient scrub（去凭证）之后合并整张 map。Provider 只负责它自己这一层。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>run：超时分类与 deadline</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>run → runArgv</span><span class="ln-range">211-240</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">211</span>  <span class="tok-k">async</span> <span class="tok-f">run</span>(spec: ShellExecSpec): Promise&lt;ShellRunResult&gt; {</span>
+<span class="code-line"><span class="ln">212</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">runArgv</span>(spec, [<span class="tok-s">'bash'</span>, <span class="tok-s">'-c'</span>, spec.command])</span>
+<span class="code-line"><span class="ln">213</span>  }</span>
+<span class="code-line"><span class="ln">223</span>  <span class="tok-k">protected async</span> <span class="tok-f">runArgv</span>(spec, argv) {</span>
+<span class="code-line"><span class="ln">225</span>    <span class="tok-k">using</span> d = <span class="tok-f">deadline</span>(spec.signal, spec.timeoutMs, <span class="tok-s">'BASH_TIMEOUT'</span>)</span>
+<span class="code-line"><span class="ln">226</span>    <span class="tok-k">const</span> handle = <span class="tok-k">this</span>.ctx.subprocess.<span class="tok-f">spawn</span>(<span class="tok-k">this</span>.<span class="tok-f">spawnSpec</span>(spec, argv, spec.stdoutMaxBytes, d.signal))</span>
+<span class="code-line"><span class="ln">227</span>    <span class="tok-k">const</span> outcome = <span class="tok-k">await</span> handle.done</span>
+<span class="code-line"><span class="ln">228</span>    <span class="tok-k">const</span> collected = LocalBashExecutor.<span class="tok-f">collected</span>(handle)</span>
+<span class="code-line"><span class="ln">230</span>    <span class="tok-k">const</span> timedOut = <span class="tok-f">timeoutOf</span>(d.signal, <span class="tok-s">'BASH_TIMEOUT'</span>) !== <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">231</span>    <span class="tok-k">const</span> aborted = d.signal.aborted &amp;&amp; !timedOut</span>
+<span class="code-line"><span class="ln">232</span>    <span class="tok-k">return</span> { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }</span>
+<span class="code-line"><span class="ln">240</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">211-213</span><p><strong>argv 从不由 subprocess 解释</strong>：bash-local 把 command 包成 <code>['bash','-c',command]</code>（pwsh-local 对应 <code>['pwsh','-NoProfile','-Command',...]</code>）；subprocess 只认 argv[0] 为程序。shell 语法归 provider，进程生成归 subprocess。</p></div>
+    <div class="lr"><span class="ln-ref">225</span><p><code>deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')</code>：一个 deadline 融合两个取消源（上游取消信号 + 自身超时）。<code>using</code> 保证 deadline 的定时器随函数结束释放。</p></div>
+    <div class="lr"><span class="ln-ref">226</span><p>spawn 下层进程。这里发生 seam 的分层：bash-local 只关心「bash 语义」，进程树管理全在下层。</p></div>
+    <div class="lr"><span class="ln-ref">230-232</span><p><strong>cause 分类归 bash-local</strong>：只有 executor 自己的 BASH_TIMEOUT 算 <code>timedOut</code>，外层 deadline（上游取消）算 <code>aborted</code>。subprocess seam 对取消原因无感——它只对 AbortSignal 反应。这就是 15 页说的「默认值与分类归实现方」。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>env 四段合并顺序</h2>
+  <p>完整顺序（subprocess-local 的 childEnv + bash-local 的覆盖）：</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>顺序</th><th>来源</th><th>说明</th></tr>
+    <tr><td>①</td><td><code>scrubbedParentEnv</code></td><td>去凭证 + 去 DSH_* 的环境基线（scrub 在 subprocess-local，唯一实现）</td></tr>
+    <tr><td>②</td><td><code>ENV_OVERRIDES</code></td><td><code>NO_COLOR=1 · TERM=dumb · PAGER=cat · GIT_PAGER=cat</code>（工具友好输出；bash-local/src/index.ts:27-32）</td></tr>
+    <tr><td>③</td><td><code>spec.env</code></td><td>调用方环境</td></tr>
+    <tr><td>④</td><td><code>spec.dshEnv</code></td><td>DSH_* 快照（来自 ctx.shellEnv 注册表，17 页）<strong>最后合并、无法被普通 env 覆盖</strong></td></tr>
+  </table></div>
+
+  <p>为什么 DSH_* 必须最后？它携带 harness 的事实（会话 id、执行世界标识），普通 env 不应有权遮蔽——这是「能力事实随执行对象流动」的载体。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>下层：subprocess-local 的职责</h2>
+  <p><code class="path">packages/subprocess/subprocess-local/src/index.ts</code>（195 行）是下层 seam 的 Provider：</p>
+  <ul>
+    <li><strong>存活管理</strong>：用 <code>ctx.effect</code> 挂 process exit 监听（host 退出时对存活进程树/终端同步强杀），live handle 存 Set 供 disposal 终止。</li>
+    <li><strong>进程管线</strong>（<code class="path">spawn.ts</code>，543 行）：<code>spawnSubprocess</code> 组装 detached 进程树、<code>OutputCollector</code> 实现 tail-keep + spill 文件、树级 SIGTERM→graceMs→SIGKILL 升级与 <code>waitForExit</code>——<strong>观察整棵树</strong>，TERM-trapping 的后代不会逃逸。</li>
+    <li><strong>输出契约</strong>：<code>CollectedOutput.text</code> 截断时是「尾部」（tail-keep），<code>spillPath</code> 才是全量。</li>
+  </ul>
+  <div class="callout warn">
+    <p><strong>分层存活边界（重要）</strong>：bash-local 依赖 <code>ctx.subprocess</code>，后台进程的 teardown 边界是 subprocess disposal——因此 <strong>executor-only 重载后后台进程仍然存活</strong>（shell/src/index.ts 的类注释明确写了这一点）。换 provider 只影响新命令，不追杀旧进程。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="15-seam.html"><span class="dir">← 15</span><span class="t">分岔点：seam 与注入</span></a>
+  <a class="next" href="17-shell-consumer.html"><span class="dir">旁支 · 17</span><span class="t">tool-bash Consumer →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

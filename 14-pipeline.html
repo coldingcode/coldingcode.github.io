@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>14 ToolRuntime 三段流水线 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html" class="active"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain B · Step 14</p>
+  <h1>ToolRuntime：三段把关流水线</h1>
+  <p class="lede">13 页的调度器最终把每个调用交给 <code class="path">packages/core/tools/src/index.ts</code>（1946 行）的 <code>ToolRuntime</code>。这一页拆解它的执行流水线：<strong>pre-execute 决定「让不让跑」，execute 跑 body，post-execute 决定「结果怎么呈现」</strong>。也是主干 B 的终点。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">13 startCall:169 prepare · commitReady:151 finalize/finish</span>
+  <span class="arrow">→</span>
+  <span class="here">tools/src/index.ts:1342 execute → :1346 completeScheduledExecution → :1364 createExecution</span>
+  <span class="arrow">→</span>
+  <span class="seg">(主干 B 终点) 工具结果 → 11 页 appendToolResult 落盘</span>
+  <span class="arrow">→</span>
+  <span class="seg">(旁支入口) 15 页：具体工具（bash）从哪来</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">入口与三段分派</a></li>
+    <li><a href="#s2">createExecution：mode 坍缩与守卫</a></li>
+    <li><a href="#s3">三个 waterfall 的语义</a></li>
+    <li><a href="#s4">主干 B 结束：回望全程</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>入口与三段分派</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/tools/src/index.ts</span><span>execute → completeScheduledExecution</span><span class="ln-range">1342-1362</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">1342</span>  <span class="tok-k">async</span> <span class="tok-f">execute</span>(exec: ToolExecutionInput): Promise&lt;ToolExecutionResult&gt; {</span>
+<span class="code-line"><span class="ln">1343</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">prepareExecution</span>(exec, prepared =&gt; <span class="tok-k">this</span>.<span class="tok-f">completeScheduledExecution</span>(prepared))</span>
+<span class="code-line"><span class="ln">1344</span>  }</span>
+<span class="code-line"><span class="ln">1346</span>  <span class="tok-k">private async</span> <span class="tok-f">completeScheduledExecution</span>(prepared) {</span>
+<span class="code-line"><span class="ln">1347</span>    <span class="tok-k">switch</span> (prepared.kind) {</span>
+<span class="code-line"><span class="ln">1348</span>      <span class="tok-k">case</span> <span class="tok-s">'dispatch'</span>: {</span>
+<span class="code-line"><span class="ln">1349</span>        <span class="tok-k">const</span> dispatched = <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">dispatchScheduledExecution</span>(prepared.exec)</span>
+<span class="code-line"><span class="ln">1350</span>        <span class="tok-k">return</span> dispatched.kind === <span class="tok-s">'post-result'</span></span>
+<span class="code-line"><span class="ln">1351</span>          ? <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">finalizeScheduledExecution</span>(prepared.exec, dispatched.result)</span>
+<span class="code-line"><span class="ln">1352</span>          : <span class="tok-k">this</span>.<span class="tok-f">finishScheduledExecution</span>(prepared.exec, dispatched.result)</span>
+<span class="code-line"><span class="ln">1353</span>      }</span>
+<span class="code-line"><span class="ln">1354</span>      <span class="tok-k">case</span> <span class="tok-s">'post-result'</span>:</span>
+<span class="code-line"><span class="ln">1355</span>        <span class="tok-k">return</span> <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">finalizeScheduledExecution</span>(prepared.exec, prepared.result)</span>
+<span class="code-line"><span class="ln">1356</span>      <span class="tok-k">case</span> <span class="tok-s">'final-result'</span>:</span>
+<span class="code-line"><span class="ln">1357</span>        <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">finishScheduledExecution</span>(prepared.exec, prepared.result)</span>
+<span class="code-line"><span class="ln">1358</span>      <span class="tok-k">default</span>:</span>
+<span class="code-line"><span class="ln">1360</span>        <span class="tok-k">return</span> <span class="tok-f">assertNever</span>(prepared, <span class="tok-s">'scheduled tool preparation'</span>)</span>
+<span class="code-line"><span class="ln">1361</span>    }</span>
+<span class="code-line"><span class="ln">1362</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">1342-1344</span><p>普通调用者的唯一入口。13 页的并行调度器不走这里——它用 <code>TOOL_RUNTIME_SCHEDULER</code> 暴露的分段接口（prepare/dispatch/finalize/finish）自己编排（JSDoc 明说那是内部视角，<strong>不是插件扩展点</strong>）。</p></div>
+    <div class="lr"><span class="ln-ref">1347-1357</span><p>三段由 prepared.kind 决定：<code>dispatch</code>（正常：pre 通过 → body → 有 post 结果则 post）→ <code>post-result</code>（pre 直接给了结果，仍需 post）→ <code>final-result</code>（终局，post 也不走——如 UNKNOWN_TOOL）。</p></div>
+    <div class="lr"><span class="ln-ref">1358-1360</span><p><strong>closed-union 的 assertNever 兜底</strong>——AGENTS.md「switch 判别标签」约定的标准形态（merge-extensible union 才用带文档的 default 兜底）。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>createExecution：mode 坍缩与守卫</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/tools/src/index.ts</span><span>createExecution（节选）</span><span class="ln-range">1364-1397</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">1364</span>  <span class="tok-k">private</span> <span class="tok-f">createExecution</span>(exec) {</span>
+<span class="code-line"><span class="ln">1365</span>    <span class="tok-k">const</span> deferredContexts: UserMessage[] = []</span>
+<span class="code-line"><span class="ln">1366</span>    <span class="tok-k">const</span> token = <span class="tok-f">createExecutionToken</span>()</span>
+<span class="code-line"><span class="ln">1367</span>    <span class="tok-k">const</span> callId = exec.callId</span>
+<span class="code-line"><span class="ln">1368</span>    <span class="tok-k">const</span> rootCallId = exec.rootCallId ?? callId</span>
+<span class="code-line"><span class="ln">1380</span>    <span class="tok-k">const</span> visible = <span class="tok-k">this</span>.<span class="tok-f">get</span>(name, agent)</span>
+<span class="code-line"><span class="ln">1381</span>    <span class="tok-k">const</span> collapsed = visible !== <span class="tok-k">undefined</span> &amp;&amp; <span class="tok-k">this</span>.<span class="tok-f">collapses</span>(name, agent, parent !== <span class="tok-k">undefined</span>)</span>
+<span class="code-line"><span class="ln">1382</span>    <span class="tok-k">const</span> concludingExecutions = <span class="tok-k">this</span>.concludingExecutions</span>
+<span class="code-line"><span class="ln">1383</span>    <span class="tok-k">const</span> base = {</span>
+<span class="code-line"><span class="ln">1384</span>      token, callId, rootCallId, name, signal,</span>
+<span class="code-line"><span class="ln">1389</span>      ...agent !== <span class="tok-k">undefined</span> ? { agent } : {},</span>
+<span class="code-line"><span class="ln">1390</span>      ...parent !== <span class="tok-k">undefined</span> ? { parent } : {},</span>
+<span class="code-line"><span class="ln">1391</span>      <span class="tok-f">deferContext</span>(context) { deferredContexts.<span class="tok-f">push</span>(context) },</span>
+<span class="code-line"><span class="ln">1394</span>      <span class="tok-f">concludeTurn</span>() { concludingExecutions.<span class="tok-f">add</span>(<span class="tok-k">this</span>) },</span>
+<span class="code-line"><span class="ln">1397</span>    }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">1366</span><p><code>createExecutionToken</code>：相关性令牌——在策略流水线开始前就创建，让日志/遥测在 pre-execute 之前就能关联这次执行。</p></div>
+    <div class="lr"><span class="ln-ref">1380-1381</span><p><strong>坍缩判定</strong>：可见（view 里找得到）但 mode 是 code 时模型调了非 run_code 工具 → <code>collapsed</code>。这类调用在策略流水线之前被确定性拒绝——注释原文：「pre-execute listeners, approval ask, and guards must never observe — or worse, approve — a call that can only fail」。未知工具（不可见）则保留历史 dispatch 阶段的 UNKNOWN_TOOL 路径，让策略仍能看到每个到达注册表的名字。</p></div>
+    <div class="lr"><span class="ln-ref">1391-1395</span><p>两个执行期能力：<code>deferContext</code>（推迟的上下文，结算时成为 additionalContexts → 11 页的 next-step）与 <code>concludeTurn</code>（请求以本调用终结 turn——13 页的 concluded 来源）。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>三个 waterfall 的语义</h2>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>事件</th><th>阶段</th><th>返回值语义</th><th>作用域</th></tr>
+    <tr><td><code>tools/pre-execute</code></td><td>createExecution</td><td><code>PreToolDecision</code>：allow / deny / ask（ask 走审批 seam 的 serviceAsk）</td><td>scopeTarget(registry, exec.agent) 过滤</td></tr>
+    <tr><td><code>tools/execute</code></td><td>dispatchScheduled</td><td>around-dispatch：<code>next()</code> 即 dispatchToolBody；wrapper 只能替换 <code>exec.signal</code></td><td>同上过滤</td></tr>
+    <tr><td><code>tools/post-execute</code></td><td>finalizeScheduled</td><td><code>PostToolDecision</code>：accept（可替换 content/value）/ block（转 isError）/ 可附加 additionalContexts</td><td>同上过滤</td></tr>
+    <tr><td><code>tools/result</code></td><td>finishScheduled</td><td>emit（非否决）：freeze(exec) 后的深冻结最终结果，供持久化/UI 观察</td><td>—</td></tr>
+  </table></div>
+
+  <p>invariant.ts（128 行）通过 <code>internal/dispatch</code> 强制阶段顺序（pre → execute → post → result）、结果冻结、run_code 子调度的事件围栏。取消语义的两个 canonical code：<code>TOOL_ABORTED</code>（body 已启动后被取消）与 <code>TOOL_ABORTED_BEFORE_DISPATCH</code>（body 未启动，13 页 §3 用过）。<code>fuseToolSignals</code> 融合 caller 与 wrapper 信号但不嵌套 <code>AbortSignal.any</code>，且 wrapper 只能替换 signal、不能解除 caller 取消——<strong>取消权单向传递</strong>。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>主干 B 结束：回望全程</h2>
+  <p>到这里，一条消息走完了它的全程。回望：</p>
+  <blockquote><code>followup/steer/inject</code> → inbox splice（07）→ <code>kick/turn</code> 循环（05）→ <code>preStep</code> claim + assemble（08、12）→ <code>buildRequest</code> 从日志折叠请求（09）→ <code>llm/stream</code> waterfall → adapter 流（10）→ 逐 chunk 落盘 + 完成锚点（11、06）→ <code>executeToolCalls</code> 调度（13）→ ToolRuntime 三段流水线（14）→ tool/result 落盘 → 还有欠账则下一 step。</blockquote>
+  <p>整条链上你反复见到的模式：<strong>先落盘再改内存</strong>（turn/step 边界、inbox、chunk）、<strong>waterfall 决定 / emit 通知</strong>（pre-step、request、request-error、turn-stopping、llm/stream、tools/*）、<strong>冻结性贯穿</strong>（deepFreeze 从事件到请求到结果）、<strong>fail-loud</strong>（审计、坍缩、header 校验）。这些就是 dsh 的「语感」。</p>
+
+  <div class="fork">
+    <span class="fork-tag">◈ 分岔点 → <a href="15-seam.html">15 页：能力缝与注入</a></span>
+    <p>主干到这里讲完了「工具调用如何执行」。但你还没见过「工具从哪来」——14 页的 registry 里注册的每个工具（bash、fs、web……）都是某个插件贡献的。<strong>15 页从这个分岔点出发</strong>：一个具体能力（shell）如何按「Service Definition / Provider / Consumer」三件套组装，并沿调用链追踪 <code>ctx.tools.execute → ctx.shell.run → ctx.subprocess.spawn</code> 的注入路径。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="13-tool-sched.html"><span class="dir">← 13</span><span class="t">executeToolCalls：调度</span></a>
+  <a class="next" href="15-seam.html"><span class="dir">旁支开始 · 15</span><span class="t">分岔点：seam 与注入 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>13 executeToolCalls 调度 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html" class="active"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain B · Step 13</p>
+  <h1>executeToolCalls：barrier 与滚动池</h1>
+  <p class="lede"><code class="path">packages/core/agent-loop/src/tool-calls.ts</code>（289 行）调度一个 step 里的全部工具调用：<strong>exclusive 调用形成 barrier，parallel-safe 调用走受界滚动池；只有 dispatch/body 并发，策略、结果、结果上下文都按模型顺序提交</strong>。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">11 step:395 executeToolCalls(...)</span>
+  <span class="arrow">→</span>
+  <span class="here">tool-calls.ts:59 executeToolCalls → :121 runGroup</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下一步) 14 ctx.tools[TOOL_RUNTIME_SCHEDULER] 分段接口</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">executeToolCalls：分组循环</a></li>
+    <li><a href="#s2">runGroup：滚动池与顺序提交</a></li>
+    <li><a href="#s3">abort 的合成结果</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>executeToolCalls：分组循环</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent-loop/src/tool-calls.ts</span><span>入口与分组</span><span class="ln-range">59-110</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">59</span><span class="tok-k">export async function</span> <span class="tok-f">executeToolCalls</span>(ctx, turn, step, toolCalls, signal, acceptContext) {</span>
+<span class="code-line"><span class="ln">67</span>  <span class="tok-k">const</span> agent = ctx.agents.<span class="tok-f">requireInitiator</span>()</span>
+<span class="code-line"><span class="ln">68</span>  <span class="tok-k">const</span> { session } = agent</span>
+<span class="code-line"><span class="ln">71</span>  <span class="tok-k">const</span> planned: PlannedCall[] = toolCalls.<span class="tok-f">map</span>(block =&gt; ({</span>
+<span class="code-line"><span class="ln">72</span>    block,</span>
+<span class="code-line"><span class="ln">73</span>    exec: {</span>
+<span class="code-line"><span class="ln">74</span>      callId: block.id, name: block.name,</span>
+<span class="code-line"><span class="ln">76</span>      arguments: <span class="tok-f">parseArguments</span>(block.arguments),</span>
+<span class="code-line"><span class="ln">77</span>      agent, signal,</span>
+<span class="code-line"><span class="ln">78</span>    },</span>
+<span class="code-line"><span class="ln">80</span>  }))</span>
+<span class="code-line"><span class="ln">82</span>  <span class="tok-k">let</span> next = 0</span>
+<span class="code-line"><span class="ln">84</span>  <span class="tok-k">while</span> (next &lt; planned.length) {</span>
+<span class="code-line"><span class="ln">87</span>    <span class="tok-k">const</span> first = planned[next]!</span>
+<span class="code-line"><span class="ln">88</span>    <span class="tok-k">const</span> mode = ctx.tools.<span class="tok-f">executionMode</span>(first.exec).kind</span>
+<span class="code-line"><span class="ln">89</span>    <span class="tok-k">const</span> group = mode === <span class="tok-s">'parallel'</span> ? planned.<span class="tok-f">slice</span>(next) : [first]</span>
+<span class="code-line"><span class="ln">90</span>    <span class="tok-k">const</span> outcome = <span class="tok-k">await</span> <span class="tok-f">runGroup</span>(ctx, turn, step, group, mode, signal, acceptContext)</span>
+<span class="code-line"><span class="ln">93</span>    next += outcome.consumed</span>
+<span class="code-line"><span class="ln">94</span>    concluded ||= outcome.concluded</span>
+<span class="code-line"><span class="ln">95</span>    <span class="tok-k">if</span> (outcome.aborted) {</span>
+<span class="code-line"><span class="ln">96</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> call <span class="tok-k">of</span> planned.<span class="tok-f">slice</span>(next)) <span class="tok-f">appendSkippedToolCall</span>(session, turn, step, call.block)</span>
+<span class="code-line"><span class="ln">97</span>      <span class="tok-k">return</span> { concluded }</span>
+<span class="code-line"><span class="ln">98</span>    }</span>
+<span class="code-line"><span class="ln">99</span>  }</span>
+<span class="code-line"><span class="ln">100</span>  <span class="tok-k">return</span> { concluded }</span>
+<span class="code-line"><span class="ln">101</span>}</span>
+<span class="code-line"><span class="ln">104</span><span class="tok-k">function</span> <span class="tok-f">parseArguments</span>(raw: string): unknown {</span>
+<span class="code-line"><span class="ln">105</span>  <span class="tok-k">try</span> { <span class="tok-k">return</span> raw ? JSON.<span class="tok-f">parse</span>(raw) : {} } <span class="tok-k">catch</span> { <span class="tok-k">return</span> raw }</span>
+<span class="code-line"><span class="ln">106</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">67</span><p><strong><code>requireInitiator()</code> 是归因的反面</strong>：05 页 wakeDriver 用 withInitiator 设置，这里 require——工具执行需要知道「发起这个 turn 的 agent」。没有 initiator 直接抛错（进程本地归因的消费点）。</p></div>
+    <div class="lr"><span class="ln-ref">71-80</span><p>planned：把模型块转成执行输入。注意 <code>exec.signal</code> 是共享的 step 信号——14 页会看到 tools/execute wrapper 可以替换它（但<strong>不能解除 caller 取消</strong>）。</p></div>
+    <div class="lr"><span class="ln-ref">88-89</span><p><strong>分组规则</strong>：读当前调用的 <code>executionMode(...)</code>——exclusive 则组 = [这一个]（barrier）；parallel 则组 = 剩余全部（但 13 页 §2 的 fillPool 会逐个重查模式，中途变 exclusive 会切断池）。</p></div>
+    <div class="lr"><span class="ln-ref">90-98</span><p>组串行推进：跑完一组，<code>consumed</code> 推进游标。若组以 aborted 结束，剩余所有调用补合成结果（§3）后整体返回。</p></div>
+    <div class="lr"><span class="ln-ref">104-106</span><p>parseArguments：合法 JSON 解析；空串 → <code>{}</code>；非法 JSON <strong>保留原文</strong>（不抛——坏参数交给工具的 schema 校验去报，调度器不代劳）。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>runGroup：滚动池与顺序提交</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent-loop/src/tool-calls.ts</span><span>runGroup 的核心（节选）</span><span class="ln-range">145-245</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">145</span>  <span class="tok-c">// committed 只跨连续 model 序 slot 前进</span></span>
+<span class="code-line"><span class="ln">146</span>  <span class="tok-k">const</span> commitReady = <span class="tok-k">async</span> () =&gt; {</span>
+<span class="code-line"><span class="ln">147</span>    <span class="tok-k">while</span> (committed &lt; group.length) {</span>
+<span class="code-line"><span class="ln">148</span>      <span class="tok-k">const</span> slot = slots[committed]</span>
+<span class="code-line"><span class="ln">149</span>      <span class="tok-k">if</span> (slot === <span class="tok-k">undefined</span>) <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">151</span>      <span class="tok-k">const</span> result = slot.needsPost</span>
+<span class="code-line"><span class="ln">152</span>        ? <span class="tok-k">await</span> ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">finalize</span>(slot.exec, slot.result)</span>
+<span class="code-line"><span class="ln">153</span>        : ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">finish</span>(slot.exec, slot.result)</span>
+<span class="code-line"><span class="ln">155</span>      <span class="tok-f">appendToolResult</span>(session, turn, step, call.block, result, callSeqs[committed])</span>
+<span class="code-line"><span class="ln">156</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> context <span class="tok-k">of</span> result.additionalContexts ?? []) <span class="tok-f">acceptContext</span>(context)</span>
+<span class="code-line"><span class="ln">157</span>      concluded ||= result.concludesTurn === <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">158</span>      committed++</span>
+<span class="code-line"><span class="ln">159</span>    }</span>
+<span class="code-line"><span class="ln">160</span>  }</span>
+<span class="code-line"><span class="ln">164</span>  <span class="tok-k">const</span> startCall = <span class="tok-k">async</span> (index) =&gt; {</span>
+<span class="code-line"><span class="ln">167</span>    callSeqs[index] = <span class="tok-f">appendToolCall</span>(session, turn, step, call.block)</span>
+<span class="code-line"><span class="ln">169</span>    <span class="tok-k">const</span> prepared = <span class="tok-k">await</span> ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">prepare</span>(call.exec)</span>
+<span class="code-line"><span class="ln">171</span>    <span class="tok-k">switch</span> (prepared.kind) {</span>
+<span class="code-line"><span class="ln">172</span>      <span class="tok-k">case</span> <span class="tok-s">'dispatch'</span>: { ... <span class="tok-f">dispatch</span>(prepared.exec).<span class="tok-f">then</span>(...) }</span>
+<span class="code-line"><span class="ln">186</span>      <span class="tok-k">case</span> <span class="tok-s">'post-result'</span>: slots[index] = { ...prepared.result, needsPost: <span class="tok-n">true</span> }</span>
+<span class="code-line"><span class="ln">189</span>      <span class="tok-k">case</span> <span class="tok-s">'final-result'</span>: slots[index] = { ...prepared.result, needsPost: <span class="tok-n">false</span> }</span>
+<span class="code-line"><span class="ln">198</span>  <span class="tok-k">const</span> fillPool = <span class="tok-k">async</span> () =&gt; {</span>
+<span class="code-line"><span class="ln">199</span>    <span class="tok-k">while</span> (!aborted &amp;&amp; nextToStart &lt; group.length &amp;&amp; inFlight.size &lt; maxParallelToolCalls) {</span>
+<span class="code-line"><span class="ln">203</span>      <span class="tok-k">if</span> (nextToStart &gt; 0 &amp;&amp; mode === <span class="tok-s">'parallel'</span></span>
+<span class="code-line"><span class="ln">204</span>        &amp;&amp; ctx.tools.<span class="tok-f">executionMode</span>(nextCall.exec).kind !== <span class="tok-s">'parallel'</span>) <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">205</span>      <span class="tok-k">await</span> <span class="tok-f">startCall</span>(nextToStart)</span>
+<span class="code-line"><span class="ln">206</span>      nextToStart++</span>
+<span class="code-line"><span class="ln">208</span>      <span class="tok-k">await</span> <span class="tok-f">commitReady</span>()</span>
+<span class="code-line"><span class="ln">211</span>      <span class="tok-k">if</span> (signal.aborted) aborted = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">212</span>    }</span>
+<span class="code-line"><span class="ln">213</span>  }</span>
+<span class="code-line"><span class="ln">219</span>    <span class="tok-k">await</span> <span class="tok-f">fillPool</span>()</span>
+<span class="code-line"><span class="ln">220</span>    <span class="tok-k">while</span> (inFlight.size &gt; 0) {</span>
+<span class="code-line"><span class="ln">221</span>      <span class="tok-k">const</span> settledIndex = <span class="tok-k">await</span> Promise.<span class="tok-f">race</span>(inFlight.<span class="tok-f">values</span>())</span>
+<span class="code-line"><span class="ln">222</span>      inFlight.<span class="tok-f">delete</span>(settledIndex)</span>
+<span class="code-line"><span class="ln">224</span>      <span class="tok-k">await</span> <span class="tok-f">commitReady</span>()</span>
+<span class="code-line"><span class="ln">228</span>      <span class="tok-k">if</span> (signal.aborted) aborted = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">229</span>      <span class="tok-k">await</span> <span class="tok-f">fillPool</span>()</span>
+<span class="code-line"><span class="ln">230</span>    }</span>
+<span class="code-line"><span class="ln">240</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> call <span class="tok-k">of</span> group.<span class="tok-f">slice</span>(started)) <span class="tok-f">appendSkippedToolCall</span>(session, turn, step, call.block)</span>
+<span class="code-line"><span class="ln">245</span>  <span class="tok-k">return</span> { consumed: started, aborted: <span class="tok-n">false</span>, concluded }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">145-160</span><p><strong>顺序提交游标</strong>：committed 只跨<strong>连续</strong> model 序 slot 前进——slot[committed] 没就绪就 break。慢的第 0 号调用未完成时，第 1 号即使完成也不提交结果。保证「结果的落盘顺序 = 模型的调用顺序」。</p></div>
+    <div class="lr"><span class="ln-ref">151-153</span><p>提交时区分 <code>finalize</code>（还要过 post-execute）与 <code>finish</code>（直接终局）——这两个就是 14 页分段接口暴露给调度器的钩子。</p></div>
+    <div class="lr"><span class="ln-ref">155-157</span><p>appendToolResult（268-289 行）：tool/result 带 <code>sourceEventSeqs: [callSeq]</code> 引用它的 tool/call。additionalContexts 喂给 acceptContext（11 页 397 行 → next-step inbox）。concludesTurn 置位。</p></div>
+    <div class="lr"><span class="ln-ref">167</span><p>startCall 第一件事是 <strong>先落盘 tool/call</strong>（263 行：append 并返回 seq）——已启动的调用在日志里有 call 记录，结果引用它。</p></div>
+    <div class="lr"><span class="ln-ref">169-190</span><p>prepare 三态（14 页的分段接口）：dispatch（pre 通过，等 body）、post-result（pre 直接给了结果，还要 post）、final-result（终局，连 post 都不走——如 UNKNOWN_TOOL）。</p></div>
+    <div class="lr"><span class="ln-ref">198-213</span><p><strong>滚动池</strong>：池容量 = <code>maxParallelToolCalls</code>。两个停止条件：aborted、或<strong>重新分类</strong>——203-204 行对下一个未启动的调用重查 executionMode，若从 parallel 变成 exclusive 就 break，让它成为下一组的 barrier 起点。每次 startCall 后 commitReady——策略与结果在启动间隙就按序提交。</p></div>
+    <div class="lr"><span class="ln-ref">219-230</span><p>主驱动：填池 → race 等任一 settle → 顺序提交 → 继续填。调度器失败（231-235 行）：停止新派发，排干已启动的，把第一个失败抛给 turn 边界——<strong>不伪造结果</strong>（与 abort 不同，见 §3）。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>abort 的合成结果</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent-loop/src/tool-calls.ts</span><span>appendSkippedToolCall</span><span class="ln-range">248-259</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">248</span><span class="tok-c">/** Append the durable call/result pair for a model call skipped after cancellation. */</span></span>
+<span class="code-line"><span class="ln">249</span><span class="tok-k">function</span> <span class="tok-f">appendSkippedToolCall</span>(session, turn, step, block) {</span>
+<span class="code-line"><span class="ln">250</span>  <span class="tok-k">const</span> callSeq = <span class="tok-f">appendToolCall</span>(session, turn, step, block)</span>
+<span class="code-line"><span class="ln">251</span>  <span class="tok-f">appendToolResult</span>(session, turn, step, block, {</span>
+<span class="code-line"><span class="ln">252</span>    content: [{ type: <span class="tok-s">'text'</span>, text: <span class="tok-s">'Error: tool call aborted before dispatch'</span> }],</span>
+<span class="code-line"><span class="ln">253</span>    isError: <span class="tok-n">true</span>,</span>
+<span class="code-line"><span class="ln">254</span>    error: { message: <span class="tok-s">'tool call aborted before dispatch'</span>,</span>
+<span class="code-line"><span class="ln">255</span>      info: { name: <span class="tok-s">'AbortError'</span>, code: TOOL_ABORTED_BEFORE_DISPATCH } },</span>
+<span class="code-line"><span class="ln">256</span>  }, callSeq)</span>
+<span class="code-line"><span class="ln">257</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">248-257</span><p><strong>为什么 abort 要合成未启动调用的结果？</strong>模型请求里出现过 N 个 tool-call，日志就必须有 N 对 call/result——否则 deriveMessages 投影出的 transcript 有一个悬空 tool-call 没有结果，下一次请求就是畸形历史。这是「模型可见 ⟺ 已记录」在取消路径上的强制。code 用 <code>TOOL_ABORTED_BEFORE_DISPATCH</code>（区别于 body 已启动后取消的 <code>TOOL_ABORTED</code>，14 页）。</p></div>
+    <div class="lr"><span class="ln-ref">250</span><p>注意：被跳过的调用也先落 tool/call 再落 tool/result——call/result 配对在日志里永远成对。</p></div>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="12-schema.html"><span class="dir">← 12</span><span class="t">assemble：提示词组装</span></a>
+  <a class="next" href="14-pipeline.html"><span class="dir">下一步 · 14</span><span class="t">ToolRuntime：三段流水线 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

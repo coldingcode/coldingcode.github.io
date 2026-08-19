@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 preStep · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html" class="active"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain B · Step 08</p>
+  <h1>preStep：决定模型看到什么的四个动作</h1>
+  <p class="lede"><code>agent.ts:225-243</code>。每一步开始前，<code>preStep</code> 依次做四件事：<strong>claim 输入 → assemble 提示词 → project 运行时上下文 → 过 <code>agent/pre-step</code> waterfall</strong>。最后一步是全 harness 最重要的扩展点之一——它决定模型看到什么。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">05 turn:266 preStep(target, {turn, step})</span>
+  <span class="arrow">→</span>
+  <span class="here">agent.ts:225 preStep</span>
+  <span class="arrow">→</span>
+  <span class="seg">(分叉) 12 systemPrompt.assemble · 07 inbox.claim</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下一步) 09 buildRequest</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">完整代码与行级解读</a></li>
+    <li><a href="#s2">扩展点语义：waterfall 的四个返回形态</a></li>
+    <li><a href="#s3">runtimeContext：三态投影</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>完整代码与行级解读</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>preStep 全文</span><span class="ln-range">225-243</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">225</span>  <span class="tok-k">private async</span> <span class="tok-f">preStep</span>(target, position: { turn: number; step: number }): Promise&lt;PreparedStep&gt; {</span>
+<span class="code-line"><span class="ln">227</span>    <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind !== <span class="tok-s">'running'</span>) <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`agent <span class="tok-s">"${this.id}"</span>: pre-step outside running phase`)</span>
+<span class="code-line"><span class="ln">228</span>    <span class="tok-k">const</span> signal = <span class="tok-k">this</span>.phase.abort.signal</span>
+<span class="code-line"><span class="ln">229</span>    <span class="tok-k">const</span> claimed = <span class="tok-k">this</span>.inbox.<span class="tok-f">claim</span>(target, position.turn)              <span class="tok-c">// ①</span></span>
+<span class="code-line"><span class="ln">230</span>    <span class="tok-k">const</span> assembly = <span class="tok-k">await</span> <span class="tok-k">this</span>.loopCtx.systemPrompt.<span class="tok-f">assemble</span>(        <span class="tok-c">// ②</span></span>
+<span class="code-line"><span class="ln">231</span>      <span class="tok-f">assembleContextFor</span>(<span class="tok-k">this</span>, signal))</span>
+<span class="code-line"><span class="ln">232</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">233</span>    <span class="tok-k">const</span> sections = <span class="tok-f">renderContextSections</span>(assembly)</span>
+<span class="code-line"><span class="ln">234</span>    <span class="tok-k">const</span> context = <span class="tok-k">this</span>.runtimeContext.<span class="tok-f">project</span>(<span class="tok-f">joinContextSections</span>(sections), sections)  <span class="tok-c">// ③</span></span>
+<span class="code-line"><span class="ln">235</span>    <span class="tok-k">const</span> decision = <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">waterfall</span>(                       <span class="tok-c">// ④</span></span>
+<span class="code-line"><span class="ln">236</span>      <span class="tok-s">'agent/pre-step'</span>, { messages: claimed, ...position, signal },</span>
+<span class="code-line"><span class="ln">237</span>      (): Promise&lt;PreStepDecision&gt; =&gt; Promise.<span class="tok-f">resolve</span>&lt;PreStepDecision&gt;({</span>
+<span class="code-line"><span class="ln">238</span>        kind: <span class="tok-s">'enter'</span>,</span>
+<span class="code-line"><span class="ln">239</span>        messages: context === <span class="tok-k">undefined</span> ? claimed : [...claimed, context],</span>
+<span class="code-line"><span class="ln">240</span>      }),</span>
+<span class="code-line"><span class="ln">241</span>    )</span>
+<span class="code-line"><span class="ln">242</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">243</span>    <span class="tok-k">return</span> decision.kind === <span class="tok-s">'reject'</span> ? decision : { ...decision, assembly }</span>
+<span class="code-line"><span class="ln">244</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">227</span><p>防御性前置：preStep 只在 running phase 合法。注释标了 v8 ignore——私有调用者（turn）已经建立了 running phase。</p></div>
+    <div class="lr"><span class="ln-ref">229</span><p><strong>① claim（07 页）</strong>：纯删除 splice，清空 next-step（+ 一条 next-turn）。注意它的位置在 assemble <strong>之前</strong>——消息先离开 inbox 再组装。即使后面的 pre-step 被插件 reject，这些消息也已经移除、不进入 step，日志里不会有它们的 user/message。这是有意设计：被拒的消息就丢弃。</p></div>
+    <div class="lr"><span class="ln-ref">230-231</span><p><strong>② assemble（12 页详述）</strong>：收集所有插件贡献的提示词片段 + 工具 schema，<code>assembleContextFor(this, signal)</code> 把 agent 与取消信号放进组装上下文。整个组装的产物 assembly 会一路传到 step 里渲染成最终 prompt。</p></div>
+    <div class="lr"><span class="ln-ref">232</span><p>assemble 之后查一次 abort——组装期间可能已被取消，不继续做无用功。</p></div>
+    <div class="lr"><span class="ln-ref">233-234</span><p><strong>③ project（§3）</strong>：把动态运行时上下文（如工作目录、平台信息）快照成候选 user/message。注意 <code>sections</code> 既被 join 成完整文本（作为候选消息的 content），也原样传入（作为结构化元数据）。</p></div>
+    <div class="lr"><span class="ln-ref">235-241</span><p><strong>④ waterfall 扩展点</strong>：payload 是 { messages: claimed, turn, step, signal }。默认值（fallback 回调）是 enter + claimed + 投影出的 context。任何插件可以改写 messages 或直接 reject。返回值的语义见 §2。</p></div>
+    <div class="lr"><span class="ln-ref">242</span><p>waterfall 之后再查一次 abort——监听器里可能发生取消。</p></div>
+    <div class="lr"><span class="ln-ref">243</span><p><strong>assembly 只随 enter 返回</strong>：reject 的 decision 不携带 assembly（反正不进 step）。return 类型 <code>PreparedStep</code>（50-52 行）的两个形态：<code>{kind:'reject'}</code> 或 <code>{kind:'enter', messages, assembly}</code>。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>扩展点语义：waterfall 的四个返回形态</h2>
+  <p><code>agent/pre-step</code> 的声明在 <code class="path">packages/core/agent/src/runtime-types.ts:231</code>。它的 waterfall 返回 <code>PreStepDecision</code>：</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>监听器行为</th><th>结果</th></tr>
+    <tr><td>调 <code>next()</code></td><td>保留当前消息，继续委托给后续监听器（或 fallback）</td></tr>
+    <tr><td>返回 <code>{kind:'enter', messages: 改写后}</code>（不调 next）</td><td>用改写后的消息进入 step——<strong>短路</strong>，后面的监听器不跑</td></tr>
+    <tr><td>返回 <code>{kind:'reject'}</code>（不调 next）</td><td>拒绝该 step → turn 以 <code>blocked</code> 关闭（05 页 267 行）</td></tr>
+    <tr><td>调 next 后改写其结果再返回</td><td>在默认/后续结果基础上再改写——最常见的「包裹」形态</td></tr>
+  </table></div>
+
+  <div class="callout warn">
+    <p><strong>waterfall 语义（全库通用，之后 09/10/14 页还会出现）</strong>：不调 <code>next()</code> 就返回 = <strong>短路整条链</strong>。忘调 next 的监听器会静默吃掉所有后续监听器——这是 Cordis waterfall 最容易犯的错。AGENTS.md 原文：「Waterfall listeners MUST call next() to delegate; returning without it short-circuits the chain」。</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>runtimeContext：三态投影</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/core/agent-loop/src/runtime-context.ts</span><span>retained 三态（节选，76 行）</span><span class="ln-range">1-76</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">1</span><span class="tok-c">/** Self-contained durable projection: snapshot dynamic runtime context as a user/message. */</span></span>
+<span class="code-line"><span class="ln">46</span>  session.events 跟随权威 session 事件维护 retained 快照</span>
+<span class="code-line"><span class="ln">59</span>  <span class="tok-k">const</span> retained: { seq?: number; text?: string } | <span class="tok-k">null</span>  <span class="tok-c">// 三态：undefined | null | {seq,text}</span></span>
+<span class="code-line"><span class="ln">66</span>  <span class="tok-f">project</span>(text, sections): UserMessage | <span class="tok-k">undefined</span> {</span>
+<span class="code-line"><span class="ln">71</span>    <span class="tok-c">// 只有值变化才返回候选 user/message；不拥有落盘</span></span>
+<span class="code-line"><span class="ln">76</span>  }</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">59</span><p><strong>retained 三态</strong>：<code>undefined</code> = 从未有过快照；<code>null</code> = 当前无保留值；<code>{seq, text}</code> = 有保留值（seq 指向日志里承载它的 user/message）。三态区分「从未」与「已清空」——这是 project 判断「该不该发新消息」的依据。</p></div>
+    <div class="lr"><span class="ln-ref">66-76</span><p><strong>project 只在值变化时返回候选消息</strong>，且不拥有落盘——落盘权在 turn() 的 282-284 行（decision.messages 的 append）。它的 retained 快照通过跟随 session/event 权威流维护（46 行），所以重放安全。</p></div>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="07-agent.html"><span class="dir">← 07</span><span class="t">Inbox：双队列投影</span></a>
+  <a class="next" href="09-buildreq.html"><span class="dir">下一步 · 09</span><span class="t">buildRequest：日志 → 请求 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

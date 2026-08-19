@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>00 bin.ts 入口 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html" class="active"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain A · Step 00</p>
+  <h1>根：bin.ts 入口</h1>
+  <p class="lede">一切从 <code class="path">apps/cli/src/bin.ts</code> 开始——它是 <code>dsh</code> 命令的执行入口。整条启动链从这一页出发。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">process.argv</span>
+  <span class="arrow">→</span>
+  <span class="here">bin.ts:27 parseDshArgs</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下一步) args.ts:112</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">这个文件在哪、怎么被调用</a></li>
+    <li><a href="#s2">完整代码（53 行）</a></li>
+    <li><a href="#s3">行级解读</a></li>
+    <li><a href="#s4">一个设计问题：为什么动态 import</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>这个文件在哪、怎么被调用</h2>
+  <p>根 <code>package.json</code> 的 scripts 里有这样一行（<code class="path">package.json:136</code>）：</p>
+  <pre><code>"dsh": "node --import tsx/esm apps/cli/src/bin.ts"</code></pre>
+  <p>所以 <code>pnpm dsh web</code> 实际执行的是 <code>node --import tsx/esm apps/cli/src/bin.ts web</code>。<code>--import tsx/esm</code> 让 Node 直接跑 TypeScript 源码（ESM-only hook）。这就是仓库里说的「dsh CLI source launch runs through tsx's ESM-only hook」——源码启动模式。</p>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>完整代码（53 行）</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">apps/cli/src/bin.ts</span><span>全文 53 行</span><span class="ln-range">1-53</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">1</span><span class="tok-c">#!/usr/bin/env node</span></span>
+<span class="code-line"><span class="ln">9</span><span class="tok-c">/* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */</span></span>
+<span class="code-line"><span class="ln">11</span><span class="tok-k">import</span> { readFileSync } <span class="tok-k">from</span> <span class="tok-s">'node:fs'</span></span>
+<span class="code-line"><span class="ln">12</span><span class="tok-k">import</span> { fileURLToPath } <span class="tok-k">from</span> <span class="tok-s">'node:url'</span></span>
+<span class="code-line"><span class="ln">13</span><span class="tok-k">import</span> { loadLayeredEnv } <span class="tok-k">from</span> <span class="tok-s">'@deepseek-ai/dsh-app-boot'</span></span>
+<span class="code-line"><span class="ln">14</span><span class="tok-k">import</span> { parseDshArgs } <span class="tok-k">from</span> <span class="tok-s">'./args.ts'</span></span>
+<span class="code-line"><span class="ln">19</span><span class="tok-k">function</span> <span class="tok-f">readVersion</span>(): string {</span>
+<span class="code-line"><span class="ln">20</span>  <span class="tok-k">const</span> manifest = JSON.<span class="tok-f">parse</span>(</span>
+<span class="code-line"><span class="ln">21</span>    <span class="tok-f">readFileSync</span>(<span class="tok-f">fileURLToPath</span>(<span class="tok-k">new</span> URL(<span class="tok-s">'../package.json'</span>, import.meta.url)), <span class="tok-s">'utf8'</span>),</span>
+<span class="code-line"><span class="ln">22</span>  ) <span class="tok-k">as</span> { version?: unknown }</span>
+<span class="code-line"><span class="ln">23</span>  <span class="tok-k">return</span> <span class="tok-k">typeof</span> manifest.version === <span class="tok-s">'string'</span> ? manifest.version : <span class="tok-s">'0.0.0'</span></span>
+<span class="code-line"><span class="ln">24</span>}</span>
+<span class="code-line"><span class="ln">26</span><span class="tok-k">const</span> invocation = <span class="tok-f">parseDshArgs</span>(process.argv.<span class="tok-f">slice</span>(2), <span class="tok-f">readVersion</span>())</span>
+<span class="code-line"><span class="ln">28</span><span class="tok-k">switch</span> (invocation.mode) {</span>
+<span class="code-line"><span class="ln">29</span>  <span class="tok-k">case</span> <span class="tok-s">'profile'</span>: {</span>
+<span class="code-line"><span class="ln">30</span>    <span class="tok-k">const</span> { runProfile } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./profile-boot.ts'</span>)</span>
+<span class="code-line"><span class="ln">31</span>    <span class="tok-k">await</span> <span class="tok-f">runProfile</span>({</span>
+<span class="code-line"><span class="ln">32</span>      environment: <span class="tok-f">loadLayeredEnv</span>(<span class="tok-s">'dsh'</span>),</span>
+<span class="code-line"><span class="ln">33</span>      profile: invocation.profile,</span>
+<span class="code-line"><span class="ln">34</span>      patchFiles: invocation.patches,</span>
+<span class="code-line"><span class="ln">35</span>      args: invocation.args,</span>
+<span class="code-line"><span class="ln">36</span>    })</span>
+<span class="code-line"><span class="ln">37</span>    <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">38</span>  }</span>
+<span class="code-line"><span class="ln">39</span>  <span class="tok-k">case</span> <span class="tok-s">'plugin'</span>: {</span>
+<span class="code-line"><span class="ln">40</span>    <span class="tok-k">const</span> { runPlugin } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./plugin.ts'</span>)</span>
+<span class="code-line"><span class="ln">41</span>    process.<span class="tok-f">exit</span>(<span class="tok-f">runPlugin</span>(invocation.profile, invocation.args))</span>
+<span class="code-line"><span class="ln">42</span>    <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">43</span>  }</span>
+<span class="code-line"><span class="ln">44</span>  <span class="tok-k">case</span> <span class="tok-s">'dump-config'</span>: {</span>
+<span class="code-line"><span class="ln">45</span>    <span class="tok-k">const</span> { runDumpConfig } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./dump-config.ts'</span>)</span>
+<span class="code-line"><span class="ln">46</span>    <span class="tok-f">runDumpConfig</span>(invocation.profile, invocation.defaultOnly, invocation.patches)</span>
+<span class="code-line"><span class="ln">47</span>    <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">48</span>  }</span>
+<span class="code-line"><span class="ln">49</span>  <span class="tok-k">default</span>:</span>
+<span class="code-line"><span class="ln">51</span>    invocation <span class="tok-k">satisfies</span> never</span>
+<span class="code-line"><span class="ln">52</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`dsh: unhandled invocation mode ${JSON.<span class="tok-f">stringify</span>(invocation)}`)</span>
+<span class="code-line"><span class="ln">53</span>}</span></code></pre>
+</figure>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>行级解读</h2>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">1</span><p>shebang。这是可执行脚本的入口行——npm 发布的 bin 会以这个文件为命令入口。</p></div>
+    <div class="lr"><span class="ln-ref">9</span><p><code>/* v8 ignore file */</code>：告诉覆盖率工具忽略本文件的测试覆盖——因为这个文件是「自执行的 dispatch」（模块加载即运行），真正的验收靠 built-bin acceptance 测试跑产物。</p></div>
+    <div class="lr"><span class="ln-ref">11-12</span><p>两个 node 内置 import：<code>readFileSync</code> 读版本号；<code>fileURLToPath</code> 把 ESM 的 <code>import.meta.url</code> 转成文件路径——ESM 里不能用 <code>__dirname</code>，这是替代手段。</p></div>
+    <div class="lr"><span class="ln-ref">13</span><p><code>loadLayeredEnv('dsh')</code>：从 <code>@deepseek-ai/dsh-app-boot</code> 加载分层环境变量快照（后面在 runProfile 里被 provide 进插件树，见 04 页）。「layered」= 进程 env + 根 <code>.env</code> 文件按层合并。</p></div>
+    <div class="lr"><span class="ln-ref">14</span><p><code>parseDshArgs</code> 来自 <code>./args.ts</code>——注意是 <strong>.ts 后缀</strong>的相对导入（仓库约定：跨包用包名，包内用 <code>.ts</code> 后缀）。下一站（01 页）讲它。</p></div>
+    <div class="lr"><span class="ln-ref">19-24</span><p><code>readVersion</code>：读自己包目录的 package.json 取 <code>version</code> 字段。<code>new URL('../package.json', import.meta.url)</code> 相对当前文件定位——注释解释为什么源码树（src/）和产物树（lib/）都坐在 apps/cli 下一层，所以这个相对跳转对两者都成立。</p></div>
+    <div class="lr"><span class="ln-ref">26</span><p><strong>整个进程的第一行真实逻辑</strong>：解析 argv（去掉前两个：node 路径和脚本路径），拿到 <code>invocation</code>。这个函数的返回类型是判别联合 <code>DshInvocation</code>（01 页详述）。</p></div>
+    <div class="lr"><span class="ln-ref">28</span><p>顶层 <code>await</code>：ESM 模块顶层允许 await。switch 按 mode 分发。注意三种 mode 都是<strong>动态 import</strong>——这是设计决策，见 §4。</p></div>
+    <div class="lr"><span class="ln-ref">29-38</span><p><strong>主路径 <code>profile</code></strong>（<code>dsh web</code> / <code>dsh --profile headless "task"</code> 都走这）：动态 import <code>profile-boot.ts</code>，调 <code>runProfile</code>。传四个参数：环境快照、profile 名、<code>--patch</code> overlay 路径、以及「内部参数」（profile 名之后的所有东西，原样交给插件树）。这一调用最终长出一整棵插件树（02→04 页）。</p></div>
+    <div class="lr"><span class="ln-ref">39-43</span><p><code>plugin</code> 模式：管理 profile 的插件依赖，转发给 pnpm。与主链无关，略过。</p></div>
+    <div class="lr"><span class="ln-ref">44-48</span><p><code>dump-config</code> 模式：打印组装好的配置树然后退出，不真正 boot。它和主链共用 02 页的组装函数，所以值得知道它的存在。</p></div>
+    <div class="lr"><span class="ln-ref">51-52</span><p><strong>穷尽性检查</strong>：<code>invocation satisfies never</code> 是 TypeScript 的编译期断言——如果将来 <code>DshInvocation</code> 加了新变体，这行会编译失败，逼你处理。AGENTS.md 里「switch 判别标签、closed union 以 assertNever 兜底」约定的第一种形态（这里是 satisfies 版本，效果相同）。</p></div>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>一个设计问题：为什么动态 import</h2>
+  <p>为什么 <code>runProfile</code>/<code>runPlugin</code>/<code>runDumpConfig</code> 不静态 import，而要在 switch 里 <code>await import()</code>？文件头的 JSDoc 说了原因：</p>
+  <blockquote>Dynamic imports per mode keep unrelated modes out of each dispatch path——每个 mode 的无关模块不进对方的派发路径。</blockquote>
+  <p>如果静态 import 三个文件，那么无论你跑哪个 mode，Node 都会加载全部三个模块（以及它们的依赖树）。动态 import 让 <code>dsh plugin</code> 不需要加载 profile 启动链（含 Cordis Loader 等重依赖），也让 <code>--help</code>/参数错误的路径（在 parseDshArgs 里直接 process.exit）不碰任何重模块——帮助文本和报错要快。</p>
+  <div class="callout info">
+    <p><strong>从这里往下看主链</strong>：<code>dsh web</code> 的下一步是 <code>profile</code> 分支 → <code>runProfile</code>（04 页）。但在 runProfile 之前，先看 <code>parseDshArgs</code> 怎么把 argv 变成结构化的 <code>invocation</code>（01 页）——这是理解「launcher flags 与 app flags 的边界」的关键。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="index.html"><span class="dir">← 树状总览</span><span class="t">总览与阅读树</span></a>
+  <a class="next" href="01-boot.html"><span class="dir">下一步 · 01</span><span class="t">args.ts：解析与分发 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

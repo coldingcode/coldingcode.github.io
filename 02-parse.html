@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 loadProfile · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+  </ul>
+  <div class="nav-group">主链 · 进程启动</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html" class="active"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">主链 · 一条消息的一生</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Main Chain A · Step 02</p>
+  <h1>loadProfile：profile 发现与补丁层组合</h1>
+  <p class="lede"><code class="path">packages/boot/app-boot/src/profile.ts</code>（420 行）是「配置树」的物质来源：找到 profile 目录、解析它的 <code>dsh.profile.bundles</code>、把每个 bundle 的补丁文件读成补丁列表，再加上 profile 自己的用户层。<strong>五层补丁中的前两层在这里就位。</strong></p>
+</header>
+
+<div class="chain">
+  <span class="seg">bin.ts:31 runProfile</span>
+  <span class="arrow">→</span>
+  <span class="seg">profile-boot.ts:98 prepareProfile</span>
+  <span class="arrow">→</span>
+  <span class="here">profile.ts:371 loadProfile</span>
+  <span class="arrow">→</span>
+  <span class="seg">(下一步) profile.ts:413 composeEntries → 03 boot</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">先看数据形状：Profile 类型</a></li>
+    <li><a href="#s2">loadProfile：主体</a></li>
+    <li><a href="#s3">resolveBundleDir：双锚点解析</a></li>
+    <li><a href="#s4">composeEntries：补丁叠加</a></li>
+    <li><a href="#s5">五层补丁清单</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>先看数据形状：Profile 类型</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/boot/app-boot/src/profile.ts</span><span>核心类型</span><span class="ln-range">72-96, 114-117</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">72</span><span class="tok-k">export interface</span> ProfileLayer {</span>
+<span class="code-line"><span class="ln">73</span>  packageName: string       <span class="tok-c">// dsh.profile.bundles 里列的名字</span></span>
+<span class="code-line"><span class="ln">74</span>  packageDir: string        <span class="tok-c">// bundle 包的绝对目录</span></span>
+<span class="code-line"><span class="ln">75</span>  patchPath: string         <span class="tok-c">// bundle 的补丁文件绝对路径</span></span>
+<span class="code-line"><span class="ln">76</span>  patches: PatchOptions[]   <span class="tok-c">// 解析后的补丁列表</span></span>
+<span class="code-line"><span class="ln">77</span>}</span>
+<span class="code-line"><span class="ln">84</span><span class="tok-k">export interface</span> Profile {</span>
+<span class="code-line"><span class="ln">85</span>  name: string</span>
+<span class="code-line"><span class="ln">86</span>  dir: string</span>
+<span class="code-line"><span class="ln">87</span>  layers: ProfileLayer[]   <span class="tok-c">// bundle 层，按 dsh.profile.bundles 顺序</span></span>
+<span class="code-line"><span class="ln">88</span>  patchPath: string        <span class="tok-c">// profile 自己的 cordis.patch.yml 路径</span></span>
+<span class="code-line"><span class="ln">89</span>  patches: PatchOptions[]  <span class="tok-c">// 用户层补丁；文件不存在时为空</span></span>
+<span class="code-line"><span class="ln">90</span>}</span>
+<span class="code-line"><span class="ln">114</span><span class="tok-k">export const</span> PROFILE_TEMPLATES: Record&lt;string, <span class="tok-k">readonly</span> string[]&gt; = {</span>
+<span class="code-line"><span class="ln">115</span>  web: [<span class="tok-s">'@deepseek-ai/dsh-base'</span>, <span class="tok-s">'@deepseek-ai/dsh-web-app'</span>],</span>
+<span class="code-line"><span class="ln">116</span>  headless: [<span class="tok-s">'@deepseek-ai/dsh-base'</span>, <span class="tok-s">'@deepseek-ai/dsh-headless'</span>],</span>
+<span class="code-line"><span class="ln">117</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">72-77</span><p>一个 bundle 层 = 包名 + 目录 + 补丁路径 + <strong>已解析的补丁列表</strong>。注意补丁在 loadProfile 里就已经解析好了（不是懒加载）——组装阶段是纯数据操作。</p></div>
+    <div class="lr"><span class="ln-ref">84-90</span><p>Profile = bundle 层们 + 用户层。用户层（patches）与 bundle 层分离存放——因为两者在热更新里的地位不同（04 页：用户层可热重载，bundle 层是基底）。</p></div>
+    <div class="lr"><span class="ln-ref">114-117</span><p>出厂模板：<code>web</code> 和 <code>headless</code> 两个 profile 各有自己的 bundle 组合。<strong>两个 profile 共享同一个 base</strong>——这就是「模式差异」的实现：差异只在于多挂了哪个 bundle。</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>loadProfile：主体</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/boot/app-boot/src/profile.ts</span><span>loadProfile 全文</span><span class="ln-range">371-403</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">371</span><span class="tok-k">export function</span> <span class="tok-f">loadProfile</span>(binName, name, installAnchor, home = <span class="tok-f">resolveDshHome</span>(), options = {}): Profile {</span>
+<span class="code-line"><span class="ln">375</span>  <span class="tok-k">const</span> dir = <span class="tok-f">resolveProfileDir</span>(name, home)</span>
+<span class="code-line"><span class="ln">376</span>  <span class="tok-k">if</span> (!<span class="tok-f">existsSync</span>(<span class="tok-f">join</span>(dir, <span class="tok-s">'package.json'</span>))) {</span>
+<span class="code-line"><span class="ln">377</span>    <span class="tok-k">const</span> template = PROFILE_TEMPLATES[name]</span>
+<span class="code-line"><span class="ln">378</span>    <span class="tok-k">if</span> (template === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">379</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`${binName}: profile ${JSON.<span class="tok-f">stringify</span>(name)} does not exist; create it with ...`)</span>
+<span class="code-line"><span class="ln">380</span>    }</span>
+<span class="code-line"><span class="ln">383</span>    <span class="tok-f">initProfile</span>(dir, template)</span>
+<span class="code-line"><span class="ln">384</span>  }</span>
+<span class="code-line"><span class="ln">385</span>  <span class="tok-k">const</span> manifest = <span class="tok-f">normalizeShippedProfile</span>(name, dir, <span class="tok-f">readProfileManifest</span>(binName, dir))</span>
+<span class="code-line"><span class="ln">387</span>  <span class="tok-k">const</span> bundles = manifest.dsh?.profile?.bundles ?? []</span>
+<span class="code-line"><span class="ln">388</span>  <span class="tok-k">const</span> layers = bundles.<span class="tok-f">map</span>((packageName): ProfileLayer =&gt; {</span>
+<span class="code-line"><span class="ln">389</span>    <span class="tok-k">const</span> packageDir = <span class="tok-f">resolveBundleDir</span>(binName, packageName, installAnchor, dir)</span>
+<span class="code-line"><span class="ln">390</span>    <span class="tok-k">const</span> bundleManifest = JSON.<span class="tok-f">parse</span>(<span class="tok-f">readFileSync</span>(<span class="tok-f">join</span>(packageDir, <span class="tok-s">'package.json'</span>), <span class="tok-s">'utf8'</span>))</span>
+<span class="code-line"><span class="ln">391</span>    <span class="tok-k">const</span> declared = bundleManifest.dsh?.bundle?.patch</span>
+<span class="code-line"><span class="ln">392</span>    <span class="tok-k">if</span> (declared === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">393</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`${binName}: profile bundle ${packageName} declares no dsh.bundle in its package.json`)</span>
+<span class="code-line"><span class="ln">394</span>    }</span>
+<span class="code-line"><span class="ln">395</span>    <span class="tok-k">const</span> patchPath = <span class="tok-f">join</span>(packageDir, declared)</span>
+<span class="code-line"><span class="ln">396</span>    <span class="tok-k">return</span> { packageName, packageDir, patchPath, patches: <span class="tok-f">loadOverlayPatches</span>(binName, patchPath) }</span>
+<span class="code-line"><span class="ln">397</span>  })</span>
+<span class="code-line"><span class="ln">398</span>  <span class="tok-k">const</span> patchPath = <span class="tok-f">join</span>(dir, PROFILE_PATCH_FILENAME)</span>
+<span class="code-line"><span class="ln">399</span>  <span class="tok-k">const</span> patches = options.userLayer !== <span class="tok-n">false</span> &amp;&amp; <span class="tok-f">existsSync</span>(patchPath)</span>
+<span class="code-line"><span class="ln">400</span>    ? <span class="tok-f">loadOverlayPatches</span>(binName, patchPath)</span>
+<span class="code-line"><span class="ln">401</span>    : []</span>
+<span class="code-line"><span class="ln">402</span>  <span class="tok-k">return</span> { name, dir, layers, patchPath, patches }</span>
+<span class="code-line"><span class="ln">403</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">375</span><p>profile 目录 = <code>$DSH_HOME/profiles/&lt;name&gt;</code>。注意 <code>resolveProfileDir</code>（104-111 行）里有名字合法性校验：空、含路径分隔符、<code>.</code>/<code>..</code>、<code>node_modules</code> 都被拒——防止路径逃逸。</p></div>
+    <div class="lr"><span class="ln-ref">376-384</span><p><strong>首次使用自动初始化</strong>：profile 目录不存在时，若名字有出厂模板（web/headless）就自动 <code>initProfile</code>（写 package.json + 空 cordis.patch.yml + pnpm-workspace.yaml）；没模板就报错并提示用 <code>dsh plugin</code> 创建。这就是「<code>dsh web</code> 第一次跑就能用」的原因。</p></div>
+    <div class="lr"><span class="ln-ref">385</span><p><code>normalizeShippedProfile</code>（297-312 行）：如果 bundle 列表恰好等于某个「安装方拥有」的历史元组，就规范化到当前出厂模板并写回。这是发布期兼容——老 profile 的 bundle 组合升级到新模板。</p></div>
+    <div class="lr"><span class="ln-ref">387</span><p>手写的 profile manifest 可以完全没有 dsh 段——此时 bundles 为空数组，等价于一个空 profile。</p></div>
+    <div class="lr"><span class="ln-ref">388-397</span><p><strong>bundle 层解析循环</strong>：每个名字 → 解析目录 → 读它的 package.json → 取 <code>dsh.bundle.patch</code> 字段 → 解析补丁文件。392-394 是 fail-loud：列出的包没有 dsh.bundle 声明就报错——把非 bundle 包当层是配置错误，不是「没有补丁」。</p></div>
+    <div class="lr"><span class="ln-ref">398-401</span><p><strong>用户层</strong>：profile 自己的 cordis.patch.yml。注意 <code>options.userLayer: false</code> 时跳过——这是 <code>--dump-default-config</code> 走的路径（01 页的 defaultOnly），保证 dump 不因坏掉的用户层而失败。</p></div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>resolveBundleDir：双锚点解析</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/boot/app-boot/src/profile.ts</span><span>安装优先的解析契约</span><span class="ln-range">344-355</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">344</span><span class="tok-k">export function</span> <span class="tok-f">resolveBundleDir</span>(binName, packageName, installAnchor, profileDir): string {</span>
+<span class="code-line"><span class="ln">347</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> anchor <span class="tok-k">of</span> [installAnchor, <span class="tok-f">join</span>(profileDir, <span class="tok-s">'package.json'</span>)]) {</span>
+<span class="code-line"><span class="ln">348</span>    <span class="tok-k">const</span> dir = <span class="tok-f">packageDirFromAnchor</span>(anchor, packageName)</span>
+<span class="code-line"><span class="ln">349</span>    <span class="tok-k">if</span> (dir !== <span class="tok-k">undefined</span>) <span class="tok-k">return</span> dir</span>
+<span class="code-line"><span class="ln">350</span>  }</span>
+<span class="code-line"><span class="ln">351</span>  <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">352</span>    `${binName}: cannot resolve profile bundle ${packageName} from the dsh installation or ${profileDir}; `</span>
+<span class="code-line"><span class="ln">353</span>    + `run 'dsh plugin --profile ${basename(profileDir)} install' ...`</span>
+<span class="code-line"><span class="ln">354</span>  )</span>
+<span class="code-line"><span class="ln">355</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">347</span><p><strong>两个锚点、安装优先</strong>：先按 dsh 安装位置（launcher 自己的 package.json）解析，再按 profile 目录解析。这是契约——JSDoc 原文：「installation-first order is the contract that <code>@deepseek-ai/dsh-base</code> always comes from the same installation as the running dsh, never from a profile-local copy」。你 clone 一份 bundle 放进 profile 也改变不了它从安装处来。</p></div>
+    <div class="lr"><span class="ln-ref">348</span><p><code>packageDirFromAnchor</code>（322-330 行）：不用 <code>require.resolve</code>（那需要包导出 package.json），而是拿 <code>createRequire(anchor).resolve.paths()</code> 的搜索路径逐个探测——与 Node 自己的 node_modules 查找顺序一致，保证「Loader 实际会 import 什么，解析到的就是什么」。</p></div>
+    <div class="lr"><span class="ln-ref">351-354</span><p>两个锚点都找不到 → 报错并给修复指引（用 <code>dsh plugin</code> 装）。fail-loud，不静默跳过。</p></div>
+  </div>
+
+  <p>配套的还有 <code>healProfilesModuleFallback</code>（223-255 行）：在 <code>$DSH_HOME/profiles/node_modules</code> 里为 dsh 依赖闭包的<strong>每个包</strong>建一个 symlink（BFS 遍历 dependencies + peerDependencies）。这样 out-of-tree 插件（装在 profile 自己 node_modules 里的）通过 Node 的父目录向上查找，能找到安装方的 cordis 等 peer——<strong>所有插件共享安装里的同一个 cordis 实例</strong>，不会出现两个 cordis。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>composeEntries：补丁叠加</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/boot/app-boot/src/profile.ts</span><span>组合成条目表</span><span class="ln-range">413-420</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">413</span><span class="tok-k">export function</span> <span class="tok-f">composeEntries</span>(layers, warn = () =&gt; {}): EntryOptions[] {</span>
+<span class="code-line"><span class="ln">416</span>  <span class="tok-k">return</span> <span class="tok-f">applyEntryPatches</span>([], <span class="tok-f">structuredClone</span>(layers.<span class="tok-f">flat</span>()), (message, ...args) =&gt; {</span>
+<span class="code-line"><span class="ln">417</span>    <span class="tok-k">let</span> index = 0</span>
+<span class="code-line"><span class="ln">418</span>    warn(message.<span class="tok-f">replace</span>(/%C/g, () =&gt; JSON.<span class="tok-f">stringify</span>(args[index++])))</span>
+<span class="code-line"><span class="ln">419</span>  })</span>
+<span class="code-line"><span class="ln">420</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">413</span><p>输入是「补丁列表的列表」——每一层是一个 PatchOptions[]，按应用顺序传入。输出是最终的条目表（id → Entry）。</p></div>
+    <div class="lr"><span class="ln-ref">416</span><p><strong>关键：<code>applyEntryPatches</code> 来自 vendored 的 <code>@deepseek-ai/cordis-plugin-include</code></strong>（<code class="path">vendor/include/src/index.ts</code>，377 行）——补丁算法的唯一定义点。它应用在<strong>空列表</strong>上（第一个参数 <code>[]</code>）。</p></div>
+    <div class="lr"><span class="ln-ref">416</span><p><strong>为什么 structuredClone？</strong>（这是全库最重要的 gotcha 之一，04 页还会遇到）：<code>insert</code> 行按引用 push 进挂载树，后续 id 定向补丁<strong>原地 mutate</strong>这些对象。不 clone 的话，用户 override 会「烤」进 bundle 的内存 insert 行——之后删除 override 也无法还原。所以每次组合前都 clone。</p></div>
+    <div class="lr"><span class="ln-ref">417-418</span><p>warn 回调：把 include 库的 <code>%C</code> 占位符格式转成 JSON 字符串。用于诊断「被跳过的补丁」（比如 patch 了一个不存在的 id）。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>五层补丁清单</h2>
+  <p>到这里，五层补丁的前两层（bundle 层、profile 用户层）已经在 loadProfile 里变成 <code>PatchOptions[]</code>。完整的五层在 04 页的 <code>composeProfile</code> 里拼齐：</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>层</th><th>来源</th><th>在本页还是 04 页就位</th></tr>
+    <tr><td>① bundle 层</td><td>每个 bundle 的 <code>dsh.bundle.patch</code> 文件，按 <code>dsh.profile.bundles</code> 顺序</td><td>本页 loadProfile:396</td></tr>
+    <tr><td>② profile 用户层</td><td><code>$DSH_HOME/profiles/&lt;name&gt;/cordis.patch.yml</code></td><td>本页 loadProfile:400</td></tr>
+    <tr><td>③ home 用户层</td><td><code>$DSH_HOME/cordis.patch.yml</code>（机器级偏好，高于 profile 层）</td><td>04 页 composeProfile:147</td></tr>
+    <tr><td>④ --patch overlay</td><td>命令行 overlay，按 argv 顺序</td><td>04 页 composeProfile:148</td></tr>
+    <tr><td>⑤ 遥测开关</td><td><code>DSH_TELEMETRY_DISABLED</code> 非空即禁用（含 '0'/'false'——隐私开关宁可误关）</td><td>04 页 resolveTelemetryPatch:80</td></tr>
+  </table></div>
+
+  <div class="callout warn">
+    <p><strong>patch 的替换语义是「整行替换」，不是深合并。</strong>一个 patch 命中某 id 时替换该行的整个 config。因此与模式相关的行不放在 base bundle，而归每个模式 bundle 各自重述完整配置。</p>
+  </div>
+
+  <div class="callout info">
+    <p><strong>cordis.patch.yml 不是 Loader 直接挂载的配置</strong>——它只是一份数据。真正的 root 配置是 profile-boot.ts 每次重写的空 <code>cordis.yml</code>（只为给 Loader 一个 include 根锚定 baseUrl）。这个「数据 vs 挂载」的区分在 03 页 boot() 里会再次出现。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="01-boot.html"><span class="dir">← 01</span><span class="t">args.ts：解析与分发</span></a>
+  <a class="next" href="03-cordis.html"><span class="dir">下一步 · 03</span><span class="t">boot() + Cordis 运行时 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>
