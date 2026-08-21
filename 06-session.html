@@ -16,6 +16,7 @@
   <div class="nav-group">总览</div>
   <ul class="nav-list">
     <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+    <li><a href="changelog.html"><span class="idx">★</span>版本更新</a></li>
   </ul>
   <div class="nav-group">主链 · 进程启动</div>
   <ul class="nav-list">
@@ -44,7 +45,7 @@
     <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
     <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -79,26 +80,26 @@
   <h2><span class="sec-num">§1</span>SessionEvent：信封</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/session/src/types.ts</span><span>事件信封（判别联合）</span><span class="ln-range">404-436</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">404</span><span class="tok-k">export type</span> SessionEvent&lt;T <span class="tok-k">extends</span> SessionEventType = SessionEventType&gt; = {</span>
-<span class="code-line"><span class="ln">405</span>  [K <span class="tok-k">in</span> SessionEventType]: {</span>
-<span class="code-line"><span class="ln">406</span>    type: K</span>
-<span class="code-line"><span class="ln">408</span>    seq: number       <span class="tok-c">// 单调序号：seq = log.length</span></span>
-<span class="code-line"><span class="ln">410</span>    time: number      <span class="tok-c">// Unix epoch ms</span></span>
-<span class="code-line"><span class="ln">411</span>    data: SessionEventMap[K]</span>
-<span class="code-line"><span class="ln">422</span>    ignorable?: <span class="tok-k">true</span>  <span class="tok-c">// 读者不认识此 type 时可安全跳过</span></span>
-<span class="code-line"><span class="ln">423</span>  } &amp; (K <span class="tok-k">extends</span> SurfaceEventType ? {</span>
-<span class="code-line"><span class="ln">432</span>    sourceEventSeqs?: number[]  <span class="tok-c">// 引用哪些早先事件产出了它</span></span>
-<span class="code-line"><span class="ln">434</span>    surfaceOp?: SurfaceOp       <span class="tok-c">// 如何进入 surface：append | replace</span></span>
-<span class="code-line"><span class="ln">435</span>  } : object)</span>
-<span class="code-line"><span class="ln">436</span>}[T]</span></code></pre>
+  <figcaption><span class="fname">packages/core/session/src/types.ts</span><span>事件信封（判别联合）</span><span class="ln-range">408-440</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">408</span><span class="tok-k">export type</span> SessionEvent&lt;T <span class="tok-k">extends</span> SessionEventType = SessionEventType&gt; = {</span>
+<span class="code-line"><span class="ln">409</span>  [K <span class="tok-k">in</span> SessionEventType]: {</span>
+<span class="code-line"><span class="ln">410</span>    type: K</span>
+<span class="code-line"><span class="ln">412</span>    seq: number       <span class="tok-c">// 单调序号：seq = log.length</span></span>
+<span class="code-line"><span class="ln">414</span>    time: number      <span class="tok-c">// Unix epoch ms</span></span>
+<span class="code-line"><span class="ln">415</span>    data: SessionEventMap[K]</span>
+<span class="code-line"><span class="ln">426</span>    ignorable?: <span class="tok-k">true</span>  <span class="tok-c">// 读者不认识此 type 时可安全跳过</span></span>
+<span class="code-line"><span class="ln">427</span>  } &amp; (K <span class="tok-k">extends</span> SurfaceEventType ? {</span>
+<span class="code-line"><span class="ln">436</span>    sourceEventSeqs?: number[]  <span class="tok-c">// 引用哪些早先事件产出了它</span></span>
+<span class="code-line"><span class="ln">438</span>    surfaceOp?: SurfaceOp       <span class="tok-c">// 如何进入 surface：append | replace</span></span>
+<span class="code-line"><span class="ln">439</span>  } : object)</span>
+<span class="code-line"><span class="ln">440</span>}[T]</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">404-436</span><p>判别联合（不是独立 type/data 联合）：<code>switch (event.type)</code> 直接收窄 <code>event.data</code>。整个仓库的日志处理都靠这一点。</p></div>
+    <div class="lr"><span class="ln-ref">408-440</span><p>判别联合（不是独立 type/data 联合）：<code>switch (event.type)</code> 直接收窄 <code>event.data</code>。整个仓库的日志处理都靠这一点。</p></div>
     <div class="lr"><span class="ln-ref">408</span><p><strong>seq 契约</strong>：seq = 它进日志时的 log.length。这是全系统契约（§2 会看到落点）。</p></div>
-    <div class="lr"><span class="ln-ref">422</span><p><code>ignorable: true</code> = 纯信息事件，不认识的读者可跳过。<strong>缺席 = 必需</strong>：遇到未识别且无标记的事件必须拒绝重建。设计取向：忘记打标记导致过度拒绝（不便），好过默默恢复一个被掏空的会话（灾难）。</p></div>
-    <div class="lr"><span class="ln-ref">423-435</span><p><code>surfaceOp</code>/<code>sourceEventSeqs</code> <strong>只存在于三个消息生产类型</strong>：user/message、assistant/message、tool/result。其他类型带这些字段会编译失败——append 签名里 <code>T extends SurfaceEventType ? [opts: SurfaceIntent] : []</code> 强制。</p></div>
+    <div class="lr"><span class="ln-ref">426</span><p><code>ignorable: true</code> = 纯信息事件，不认识的读者可跳过。<strong>缺席 = 必需</strong>：遇到未识别且无标记的事件必须拒绝重建。设计取向：忘记打标记导致过度拒绝（不便），好过默默恢复一个被掏空的会话（灾难）。</p></div>
+    <div class="lr"><span class="ln-ref">427-439</span><p><code>surfaceOp</code>/<code>sourceEventSeqs</code> <strong>只存在于三个消息生产类型</strong>：user/message、assistant/message、tool/result。其他类型带这些字段会编译失败——append 签名里 <code>T extends SurfaceEventType ? [opts: SurfaceIntent] : []</code> 强制。</p></div>
   </div>
 </section>
 

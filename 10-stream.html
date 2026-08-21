@@ -16,6 +16,7 @@
   <div class="nav-group">总览</div>
   <ul class="nav-list">
     <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+    <li><a href="changelog.html"><span class="idx">★</span>版本更新</a></li>
   </ul>
   <div class="nav-group">主链 · 进程启动</div>
   <ul class="nav-list">
@@ -44,7 +45,7 @@
     <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
     <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.0-rc.7<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -53,15 +54,15 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 10</p>
   <h1>llm/stream：请求 → 适配器 → 块流</h1>
-  <p class="lede">09 页造出的冻结请求在这里离开 harness，进入 LLM 适配器。这一页看 <code class="path">packages/llm/llm/src/index.ts</code>（947 行）里的 <code>LlmRuntime</code>——seam 的核心：<code>llm/stream</code> waterfall 如何找到 adapter、<code>adapterStream</code> 如何把一切失败归一化为终态 chunk。</p>
+  <p class="lede">09 页造出的冻结请求在这里离开 harness，进入 LLM 适配器。这一页看 <code class="path">packages/llm/llm/src/index.ts</code>（1026 行）里的 <code>LlmRuntime</code>——seam 的核心：<code>llm/stream</code> waterfall 如何找到 adapter、<code>adapterStream</code> 如何做代际绑定与失败归一化。0.1.1-rc.2 起它还负责「图片 → 纯文本模型」的输入投影。</p>
 </header>
 
 <div class="chain">
-  <span class="seg">09 buildRequest:449 prepareCall · 11 step:345 stream(request)</span>
+  <span class="seg">09 buildRequest:468 prepareCall · 11 step:346 stream(request)</span>
   <span class="arrow">→</span>
-  <span class="here">llm/src/index.ts:917 streamWithRegistration → :843 adapterStream</span>
+  <span class="here">llm/src/index.ts:989 streamWithRegistration → :898 adapterStream</span>
   <span class="arrow">→</span>
-  <span class="seg">(分叉) adapter.stream → llm-deepseek/src/adapter.ts</span>
+  <span class="seg">(分叉) adapter.prepareCall / dispatch → llm-deepseek/src/adapter.ts</span>
   <span class="arrow">→</span>
   <span class="seg">(下一步) 11 step 消费 chunk 流</span>
 </div>
@@ -71,7 +72,7 @@
   <ol>
     <li><a href="#s1">LlmRuntime：服务与注册表</a></li>
     <li><a href="#s2">streamWithRegistration：waterfall 的终局</a></li>
-    <li><a href="#s3">adapterStream：失败归一化边界</a></li>
+    <li><a href="#s3">adapterStream：代际绑定 + 失败归一化</a></li>
     <li><a href="#s4">forAdapter：replay 状态的归属检查</a></li>
   </ol>
 </nav>
@@ -80,24 +81,24 @@
   <h2><span class="sec-num">§1</span>LlmRuntime：服务与注册表</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>服务骨架与 adapter 解析</span><span class="ln-range">284-297, 816-820</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">284</span><span class="tok-k">export class</span> <span class="tok-t">LlmRuntime</span> <span class="tok-k">extends</span> Service {</span>
-<span class="code-line"><span class="ln">285</span>  <span class="tok-k">private</span> adapters = <span class="tok-k">new</span> Map&lt;string, AdapterRegistration&gt;()</span>
-<span class="code-line"><span class="ln">286</span>  <span class="tok-k">private</span> directory = <span class="tok-k">new</span> Map&lt;string, LlmConfigurableProvider&gt;()</span>
-<span class="code-line"><span class="ln">292</span>  <span class="tok-f">constructor</span>(ctx: Context) {</span>
-<span class="code-line"><span class="ln">293</span>    <span class="tok-k">super</span>(ctx, <span class="tok-s">'llm'</span>)</span>
-<span class="code-line"><span class="ln">294</span>  }</span>
-<span class="code-line"><span class="ln">816</span>  <span class="tok-k">private</span> <span class="tok-f">registration</span>(provider: string): AdapterRegistration {</span>
-<span class="code-line"><span class="ln">817</span>    <span class="tok-k">const</span> registration = <span class="tok-k">this</span>.adapters.<span class="tok-f">get</span>(provider)</span>
-<span class="code-line"><span class="ln">818</span>    <span class="tok-k">if</span> (!registration) <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(`no adapter registered for provider <span class="tok-s">"${provider}"</span>`, <span class="tok-s">'NO_ADAPTER'</span>)</span>
-<span class="code-line"><span class="ln">819</span>    <span class="tok-k">return</span> registration</span>
-<span class="code-line"><span class="ln">820</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>服务骨架与 adapter 解析</span><span class="ln-range">311-322, 871-875</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">311</span><span class="tok-k">export class</span> <span class="tok-t">LlmRuntime</span> <span class="tok-k">extends</span> Service {</span>
+<span class="code-line"><span class="ln">312</span>  <span class="tok-k">private</span> adapters = <span class="tok-k">new</span> Map&lt;string, AdapterRegistration&gt;()</span>
+<span class="code-line"><span class="ln">313</span>  <span class="tok-k">private</span> directory = <span class="tok-k">new</span> Map&lt;string, LlmConfigurableProvider&gt;()</span>
+<span class="code-line"><span class="ln">319</span>  <span class="tok-f">constructor</span>(ctx: Context) {</span>
+<span class="code-line"><span class="ln">320</span>    <span class="tok-k">super</span>(ctx, <span class="tok-s">'llm'</span>)</span>
+<span class="code-line"><span class="ln">321</span>  }</span>
+<span class="code-line"><span class="ln">871</span>  <span class="tok-k">private</span> <span class="tok-f">registration</span>(provider: string): AdapterRegistration {</span>
+<span class="code-line"><span class="ln">872</span>    <span class="tok-k">const</span> registration = <span class="tok-k">this</span>.adapters.<span class="tok-f">get</span>(provider)</span>
+<span class="code-line"><span class="ln">873</span>    <span class="tok-k">if</span> (!registration) <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(`no adapter registered for provider <span class="tok-s">"${provider}"</span>`, <span class="tok-s">'NO_ADAPTER'</span>)</span>
+<span class="code-line"><span class="ln">874</span>    <span class="tok-k">return</span> registration</span>
+<span class="code-line"><span class="ln">875</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">284-286</span><p><code>LlmRuntime extends Service</code> 且 <code>super(ctx, 'llm')</code>——<code>ctx.llm</code> 由此而来（不是 ctx.provide）。两张表：<code>adapters</code>（provider route → 注册的适配器）与 <code>directory</code>（可配置 provider 目录，供模型发现）。</p></div>
-    <div class="lr"><span class="ln-ref">293</span><p>Service 注册点。全库的 seam 都长这样：<code>class X extends Service { super(ctx, 'name') }</code>。</p></div>
-    <div class="lr"><span class="ln-ref">816-820</span><p>provider 解析的唯一路径：找不到就是 <code>NO_ADAPTER</code>（LlmError）——09 页 453 行特别宽容的就是这个错误码。</p></div>
+    <div class="lr"><span class="ln-ref">311-313</span><p><code>LlmRuntime extends Service</code> 且 <code>super(ctx, 'llm')</code>——<code>ctx.llm</code> 由此而来（不是 ctx.provide）。两张表：<code>adapters</code>（provider route → 注册的适配器）与 <code>directory</code>（可配置 provider 目录，供模型发现）。</p></div>
+    <div class="lr"><span class="ln-ref">320</span><p>Service 注册点。全库的 seam 都长这样：<code>class X extends Service { super(ctx, 'name') }</code>。</p></div>
+    <div class="lr"><span class="ln-ref">871-875</span><p>provider 解析的唯一路径：找不到就是 <code>NO_ADAPTER</code>（LlmError）——09 页 472 行特别宽容的就是这个错误码。</p></div>
   </div>
 </section>
 
@@ -105,76 +106,94 @@
   <h2><span class="sec-num">§2</span>streamWithRegistration：waterfall 的终局</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>stream 的公共入口与 waterfall 包装</span><span class="ln-range">911-927</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">911</span>  <span class="tok-c">/** 公共入口：普通路径不带 prepared 注册 */</span></span>
-<span class="code-line"><span class="ln">914</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">streamWithRegistration</span>(options)</span>
-<span class="code-line"><span class="ln">915</span>  }</span>
-<span class="code-line"><span class="ln">917</span>  <span class="tok-k">private</span> <span class="tok-f">streamWithRegistration</span>(options, prepared?): AsyncIterable&lt;StreamChunk&gt; {</span>
-<span class="code-line"><span class="ln">921</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.ctx.<span class="tok-f">waterfall</span>(</span>
-<span class="code-line"><span class="ln">922</span>      <span class="tok-k">this</span>,</span>
-<span class="code-line"><span class="ln">923</span>      <span class="tok-s">'llm/stream'</span>,</span>
-<span class="code-line"><span class="ln">924</span>      options,</span>
-<span class="code-line"><span class="ln">925</span>      () =&gt; <span class="tok-k">this</span>.<span class="tok-f">adapterStream</span>(options, prepared),</span>
-<span class="code-line"><span class="ln">926</span>    )</span>
-<span class="code-line"><span class="ln">927</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>stream 的公共入口与 waterfall 包装</span><span class="ln-range">983-997</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">983</span>  <span class="tok-c">/** 公共入口：普通路径不带 prepared 注册 */</span></span>
+<span class="code-line"><span class="ln">986</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">streamWithRegistration</span>(options)</span>
+<span class="code-line"><span class="ln">987</span>  }</span>
+<span class="code-line"><span class="ln">989</span>  <span class="tok-k">private</span> <span class="tok-f">streamWithRegistration</span>(options, prepared?): AsyncIterable&lt;StreamChunk&gt; {</span>
+<span class="code-line"><span class="ln">993</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.ctx.<span class="tok-f">waterfall</span>(</span>
+<span class="code-line"><span class="ln">994</span>      <span class="tok-k">this</span>,</span>
+<span class="code-line"><span class="ln">995</span>      <span class="tok-s">'llm/stream'</span>,</span>
+<span class="code-line"><span class="ln">996</span>      options,</span>
+<span class="code-line"><span class="ln">997</span>      () =&gt; <span class="tok-k">this</span>.<span class="tok-f">adapterStream</span>(options, prepared),</span>
+<span class="code-line"><span class="ln">998</span>    )</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">911-915</span><p>公共 <code>stream</code> 不带 prepared（11 页 345 行的 fallback 路径走这里）；prepared 路径（prepareCall 返回的闭包）在 800-812 行直接调 streamWithRegistration 并带上注册。</p></div>
-    <div class="lr"><span class="ln-ref">921-926</span><p><strong><code>llm/stream</code> 是 waterfall</strong>——这是全 harness 拦截模型请求的扩展点。返回值是权威流：监听器可以<strong>短路</strong>（不调 next 直接返回自己的 AsyncIterable，如 llm-replay 的回放流）或<strong>包裹</strong>（调 next 后改写 chunk 流，如 llm-retry、invariant 校验）。fallback 是 <code>adapterStream</code>——next() 到达这里就是「真的调用模型」。</p></div>
+    <div class="lr"><span class="ln-ref">983-987</span><p>公共 <code>stream</code> 不带 prepared（11 页 346 行的 fallback 路径走这里）；prepared 路径（prepareCall 返回的闭包）在 850-861 行直接调 streamWithRegistration 并带上 PreparedDispatch。</p></div>
+    <div class="lr"><span class="ln-ref">993-997</span><p><strong><code>llm/stream</code> 是 waterfall</strong>——这是全 harness 拦截模型请求的扩展点。返回值是权威流：监听器可以<strong>短路</strong>（不调 next 直接返回自己的 AsyncIterable，如 llm-replay 的回放流）或<strong>包裹</strong>（调 next 后改写 chunk 流，如 llm-retry、invariant 校验）。fallback 是 <code>adapterStream</code>——next() 到达这里就是「真的调用模型」。</p></div>
   </div>
 </section>
 
 <section id="s3">
-  <h2><span class="sec-num">§3</span>adapterStream：失败归一化边界</h2>
+  <h2><span class="sec-num">§3</span>adapterStream：代际绑定 + 失败归一化边界</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>终局适配器边界</span><span class="ln-range">843-905</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">843</span>  <span class="tok-k">private async</span> * <span class="tok-f">adapterStream</span>(options, prepared?): AsyncGenerator&lt;StreamChunk&gt; {</span>
-<span class="code-line"><span class="ln">847</span>    <span class="tok-k">let</span> iterator: AsyncIterator&lt;StreamChunk&gt;</span>
-<span class="code-line"><span class="ln">848</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">849</span>      <span class="tok-k">const</span> registration = prepared?.registration ?? <span class="tok-k">this</span>.<span class="tok-f">registration</span>(options.provider)</span>
-<span class="code-line"><span class="ln">850</span>      <span class="tok-k">const</span> resolvedConfig = prepared === <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">851</span>        ? (<span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">resolveCallFor</span>(registration, options, options.signal)).config</span>
-<span class="code-line"><span class="ln">852</span>        : prepared.config</span>
-<span class="code-line"><span class="ln">853</span>      <span class="tok-k">if</span> (prepared !== <span class="tok-k">undefined</span> &amp;&amp; !<span class="tok-f">callConfigEquals</span>(options, resolvedConfig)) {</span>
-<span class="code-line"><span class="ln">854</span>        <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(<span class="tok-s">'prepared LLM call config changed before adapter dispatch'</span>, <span class="tok-s">'INVALID_PREPARED_CALL'</span>)</span>
-<span class="code-line"><span class="ln">855</span>      }</span>
-<span class="code-line"><span class="ln">859</span>      <span class="tok-k">const</span> resolvedOptions = <span class="tok-f">callConfigEquals</span>(options, resolvedConfig)</span>
-<span class="code-line"><span class="ln">860</span>        ? options</span>
-<span class="code-line"><span class="ln">861</span>        : Object.<span class="tok-f">isFrozen</span>(options)</span>
-<span class="code-line"><span class="ln">862</span>          ? <span class="tok-f">deepFreeze</span>({ ...options, ...resolvedConfig })</span>
-<span class="code-line"><span class="ln">863</span>          : { ...options, ...resolvedConfig }</span>
-<span class="code-line"><span class="ln">864</span>      <span class="tok-k">const</span> adapter = registration.adapter</span>
-<span class="code-line"><span class="ln">865</span>      <span class="tok-k">const</span> stream = adapter.<span class="tok-f">stream</span>(<span class="tok-k">this</span>.<span class="tok-f">forAdapter</span>(resolvedOptions, adapter))</span>
-<span class="code-line"><span class="ln">866</span>      iterator = stream[Symbol.asyncIterator]()</span>
-<span class="code-line"><span class="ln">867</span>    } <span class="tok-k">catch</span> (error) {</span>
-<span class="code-line"><span class="ln">868</span>      <span class="tok-f">yield</span> <span class="tok-f">adapterFailureChunk</span>(error, options.signal)</span>
-<span class="code-line"><span class="ln">869</span>      <span class="tok-k">return</span></span>
-<span class="code-line"><span class="ln">870</span>    }</span>
-<span class="code-line"><span class="ln">872</span>    <span class="tok-k">let</span> completed = <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">873</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">874</span>      <span class="tok-k">while</span> (<span class="tok-n">true</span>) {</span>
-<span class="code-line"><span class="ln">881</span>        <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">882</span>          <span class="tok-k">const</span> next = <span class="tok-k">await</span> iterator.<span class="tok-f">next</span>()</span>
-<span class="code-line"><span class="ln">883</span>          item = next.done ? { done: <span class="tok-n">true</span> } : { done: <span class="tok-n">false</span>, value: next.value }</span>
-<span class="code-line"><span class="ln">884</span>        } <span class="tok-k">catch</span> (error) {</span>
-<span class="code-line"><span class="ln">885</span>          item = { done: <span class="tok-n">true</span> }</span>
-<span class="code-line"><span class="ln">886</span>          <span class="tok-f">yield</span> <span class="tok-f">adapterFailureChunk</span>(error, options.signal)</span>
-<span class="code-line"><span class="ln">887</span>        }</span>
-<span class="code-line"><span class="ln">888</span>        <span class="tok-k">if</span> (item.done) <span class="tok-k">break</span></span>
-<span class="code-line"><span class="ln">889</span>        <span class="tok-f">yield</span> item.value</span>
-<span class="code-line"><span class="ln">905</span>    }</span></code></pre>
+  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>终局适配器边界（0.1.1-rc.2 结构）</span><span class="ln-range">898-965</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">898</span>  <span class="tok-k">private async</span> * <span class="tok-f">adapterStream</span>(options, prepared?: PreparedDispatch): AsyncGenerator&lt;StreamChunk&gt; {</span>
+<span class="code-line"><span class="ln">902</span>    <span class="tok-k">let</span> iterator: AsyncIterator&lt;StreamChunk&gt;</span>
+<span class="code-line"><span class="ln">903</span>    <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">904</span>      <span class="tok-k">const</span> registration = prepared?.registration ?? <span class="tok-k">this</span>.<span class="tok-f">registration</span>(options.provider)</span>
+<span class="code-line"><span class="ln">905</span>      <span class="tok-k">const</span> adapter = registration.adapter</span>
+<span class="code-line hl"><span class="ln">909</span>      <span class="tok-k">if</span> (prepared === <span class="tok-k">undefined</span>) {   <span class="tok-c">// 普通路径也走代际绑定</span></span><span class="note">0.1.1-rc.2 起</span></span>
+<span class="code-line"><span class="ln">910</span>        <span class="tok-k">const</span> adapterCall = <span class="tok-k">await</span> adapter.<span class="tok-f">prepareCall</span>(options.provider, options.model, options.signal)</span>
+<span class="code-line"><span class="ln">911</span>        modelInfo = <span class="tok-k">this</span>.<span class="tok-f">normalizeModelInfo</span>(registration, options.model, adapterCall.model)</span>
+<span class="code-line"><span class="ln">912</span>        resolvedConfig = <span class="tok-k">this</span>.<span class="tok-f">resolveCallWithInfo</span>(options, modelInfo).config</span>
+<span class="code-line"><span class="ln">913</span>        dispatch = options =&gt; adapterCall.<span class="tok-f">stream</span>(options)</span>
+<span class="code-line"><span class="ln">914</span>      } <span class="tok-k">else</span> {</span>
+<span class="code-line"><span class="ln">915</span>        modelInfo = prepared.modelInfo</span>
+<span class="code-line"><span class="ln">916</span>        resolvedConfig = prepared.config</span>
+<span class="code-line"><span class="ln">917</span>        dispatch = prepared.dispatch</span>
+<span class="code-line"><span class="ln">918</span>      }</span>
+<span class="code-line"><span class="ln">919</span>      <span class="tok-k">if</span> (prepared !== <span class="tok-k">undefined</span> &amp;&amp; !<span class="tok-f">callConfigEquals</span>(options, resolvedConfig)) {</span>
+<span class="code-line"><span class="ln">920</span>        <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(</span>
+<span class="code-line"><span class="ln">921</span>          <span class="tok-s">'prepared LLM call config changed before adapter dispatch'</span>,</span>
+<span class="code-line"><span class="ln">922</span>          <span class="tok-s">'INVALID_PREPARED_CALL'</span>,</span>
+<span class="code-line"><span class="ln">923</span>        )</span>
+<span class="code-line"><span class="ln">924</span>      }</span>
+<span class="code-line"><span class="ln">925</span>      <span class="tok-k">const</span> resolvedOptions = <span class="tok-f">callConfigEquals</span>(options, resolvedConfig)</span>
+<span class="code-line"><span class="ln">926</span>        ? options</span>
+<span class="code-line"><span class="ln">927</span>        : Object.<span class="tok-f">isFrozen</span>(options)</span>
+<span class="code-line"><span class="ln">928</span>          ? <span class="tok-f">deepFreeze</span>({ ...options, ...resolvedConfig })</span>
+<span class="code-line"><span class="ln">929</span>          : { ...options, ...resolvedConfig }</span>
+<span class="code-line hl"><span class="ln">930</span>      <span class="tok-k">const</span> projectedOptions = modelInfo.inputModalities !== <span class="tok-k">undefined</span>  <span class="tok-c">// 图片投影</span></span><span class="note">文本模型不能吃图</span></span>
+<span class="code-line"><span class="ln">931</span>        &amp;&amp; !modelInfo.inputModalities.<span class="tok-f">includes</span>(<span class="tok-s">'image'</span>)</span>
+<span class="code-line"><span class="ln">932</span>        &amp;&amp; resolvedOptions.messages.<span class="tok-f">some</span>(message =&gt; <span class="tok-f">contentHasImage</span>(message.content))</span>
+<span class="code-line"><span class="ln">933</span>        ? Object.<span class="tok-f">isFrozen</span>(resolvedOptions)</span>
+<span class="code-line"><span class="ln">934</span>          ? <span class="tok-f">deepFreeze</span>({ ...resolvedOptions, messages: <span class="tok-f">projectImagesForTextModel</span>(...)} )</span>
+<span class="code-line"><span class="ln">935</span>          : { ...resolvedOptions, messages: <span class="tok-f">projectImagesForTextModel</span>(...) }</span>
+<span class="code-line"><span class="ln">936</span>        : resolvedOptions</span>
+<span class="code-line"><span class="ln">937</span>      <span class="tok-k">const</span> stream = <span class="tok-f">dispatch</span>(<span class="tok-k">this</span>.<span class="tok-f">forAdapter</span>(projectedOptions, adapter))</span>
+<span class="code-line"><span class="ln">938</span>      iterator = stream[Symbol.asyncIterator]()</span>
+<span class="code-line"><span class="ln">939</span>    } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">940</span>      <span class="tok-f">yield</span> <span class="tok-f">adapterFailureChunk</span>(error, options.signal)</span>
+<span class="code-line"><span class="ln">941</span>      <span class="tok-k">return</span></span>
+<span class="code-line"><span class="ln">942</span>    }</span>
+<span class="code-line"><span class="ln">946</span>    <span class="tok-k">while</span> (<span class="tok-n">true</span>) {</span>
+<span class="code-line"><span class="ln">949</span>        <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">950</span>          <span class="tok-k">const</span> next = <span class="tok-k">await</span> iterator.<span class="tok-f">next</span>()</span>
+<span class="code-line"><span class="ln">951</span>          item = next.done ? { done: <span class="tok-n">true</span> } : { done: <span class="tok-n">false</span>, value: next.value }</span>
+<span class="code-line"><span class="ln">952</span>        } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">953</span>          completed = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">954</span>          <span class="tok-f">yield</span> <span class="tok-f">adapterFailureChunk</span>(error, options.signal)</span>
+<span class="code-line"><span class="ln">955</span>          <span class="tok-k">return</span></span>
+<span class="code-line"><span class="ln">956</span>        }</span>
+<span class="code-line"><span class="ln">957</span>        <span class="tok-k">if</span> (item.done) {</span>
+<span class="code-line"><span class="ln">958</span>          completed = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">959</span>          <span class="tok-k">return</span></span>
+<span class="code-line"><span class="ln">960</span>        }</span>
+<span class="code-line"><span class="ln">964</span>        <span class="tok-f">yield</span> item.value</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">849-852</span><p>两条路径的 config 来源：prepared（09 页）直接用它冻结的 config；普通路径现场 <code>resolveCallFor</code>（adapter 按模型目录物化默认值）。</p></div>
-    <div class="lr"><span class="ln-ref">853-855</span><p>prepared 路径的第二个守卫（第一个在 09 页的 stream 闭包里）：到 adapter 边界前<strong>再验一次</strong> config 没漂移——中间件可能已经改写过 options。</p></div>
-    <div class="lr"><span class="ln-ref">859-863</span><p>如果 adapter 物化的 config 与 options 不同（普通路径），合并出一个 resolvedOptions；如果 options 已冻结（loop 请求都是 frozen）则 deepFreeze 新对象——冻结性传播。</p></div>
-    <div class="lr"><span class="ln-ref">864-866</span><p><strong>真的调用模型</strong>：<code>adapter.stream(...)</code>。传入前先过 <code>forAdapter</code>（§4）。拿到的是 AsyncIterable，取 async iterator。</p></div>
-    <div class="lr"><span class="ln-ref">867-870</span><p><strong>选择/派发阶段的失败归一化</strong>：任何错误（NO_ADAPTER、resolve 失败、adapter.stream 同步抛）都变成<strong>一个</strong>终态 finish chunk 后正常结束——生成器不 throw，消费者看到的是流协议内的错误。</p></div>
-    <div class="lr"><span class="ln-ref">874-889</span><p>迭代循环：每次 <code>iterator.next()</code> 的 reject 同样归一化为终态 chunk。之后 done 即结束。</p></div>
-    <div class="lr"><span class="ln-ref">931-939</span><p><code>adapterFailureChunk</code>：<code>normalizeLlmFailure</code> 把任意抛出值（adapter 是第三方边界，什么都可能抛）归一化为可序列化 LlmFailure；signal 已 abort 或 code 是 ABORTED 时 reason 为 aborted，否则 error。</p></div>
+    <div class="lr"><span class="ln-ref">904-917</span><p><strong>0.1.1-rc.2 的代际绑定结构</strong>：两条路径都收敛到同一组三元（modelInfo / resolvedConfig / dispatch）。普通路径也先 <code>adapter.prepareCall(...)</code>（LlmAdapter.prepareCall，247 行）——模型解析与最终 stream 调用绑定到<strong>同一个 adapter 代际</strong>，设置变更发生在两者之间时不可能拼错。prepared 路径直接复用 09 页冻结的三元。</p></div>
+    <div class="lr"><span class="ln-ref">919-924</span><p>prepared 路径的第二个守卫（第一个在 09 页的 stream 闭包里）：到 adapter 边界前<strong>再验一次</strong> config 没漂移——中间件可能已经改写过 options。</p></div>
+    <div class="lr"><span class="ln-ref">925-929</span><p>如果 adapter 物化的 config 与 options 不同（普通路径），合并出一个 resolvedOptions；如果 options 已冻结（loop 请求都是 frozen）则 deepFreeze 新对象——冻结性传播。</p></div>
+    <div class="lr"><span class="ln-ref">930-936</span><p><strong>图片投影（0.1.1-rc.2 新增）</strong>：模型模态声明不含 image、而消息里有图片时，用 <code>projectImagesForTextModel</code>（<code class="path">llm/src/content.ts</code>，202 行）把图片块投影成文本模型可接受的形态。模态信息来自代际捕获的 <code>modelInfo.inputModalities</code>——不是靠猜。</p></div>
+    <div class="lr"><span class="ln-ref">937-938</span><p><strong>真的调用模型</strong>：<code>dispatch(...)</code>——prepared 路径是 prepareCall 时捕获的同一代际 stream 入口；普通路径是 adapterCall.stream。传入前先过 <code>forAdapter</code>（§4）。</p></div>
+    <div class="lr"><span class="ln-ref">939-942</span><p><strong>选择/派发阶段的失败归一化</strong>：任何错误（NO_ADAPTER、resolve 失败、dispatch 同步抛）都变成<strong>一个</strong>终态 finish chunk 后正常结束——生成器不 throw，消费者看到的是流协议内的错误。</p></div>
+    <div class="lr"><span class="ln-ref">946-964</span><p>迭代循环：每次 <code>iterator.next()</code> 的 reject 同样归一化为终态 chunk。注意 962-963 的注释——「在 yield 之前结束 adapter 所有的 try」：消费者/中间件的失败被 resume 进生成器时必须保持原样 throw，不能被这里的 try 吃掉。这是失败边界的另一半。</p></div>
+    <div class="lr"><span class="ln-ref">1003-1008</span><p><code>adapterFailureChunk</code>：<code>normalizeLlmFailure</code> 把任意抛出值（adapter 是第三方边界，什么都可能抛）归一化为可序列化 LlmFailure；signal 已 abort 或 code 是 ABORTED 时 reason 为 aborted，否则 error。</p></div>
   </div>
 
   <div class="callout key">
@@ -186,23 +205,23 @@
   <h2><span class="sec-num">§4</span>forAdapter：replay 状态的归属检查</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>forAdapter</span><span class="ln-range">822-836</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">822</span>  <span class="tok-c">/** Remove replay state whose historical route is owned by another adapter. */</span></span>
-<span class="code-line"><span class="ln">823</span>  <span class="tok-k">private</span> <span class="tok-f">forAdapter</span>(options, adapter): GenerateOptions {</span>
-<span class="code-line"><span class="ln">824</span>    <span class="tok-k">const</span> messages = options.messages.<span class="tok-f">map</span>((message) =&gt; {</span>
-<span class="code-line"><span class="ln">826</span>      <span class="tok-k">if</span> (message.role !== <span class="tok-s">'assistant'</span> || source.kind !== <span class="tok-s">'model'</span> || source.replayState === <span class="tok-k">undefined</span>) <span class="tok-k">return</span> message</span>
-<span class="code-line"><span class="ln">827</span>      <span class="tok-k">if</span> (<span class="tok-k">this</span>.adapters.<span class="tok-f">get</span>(source.provider)?.adapter === adapter) <span class="tok-k">return</span> message</span>
-<span class="code-line"><span class="ln">828</span>      <span class="tok-k">return</span> <span class="tok-f">freezeMessage</span>({ ...message, source: { kind: <span class="tok-s">'model'</span>, provider: source.provider, model: source.model } })</span>
-<span class="code-line"><span class="ln">830</span>    })</span>
-<span class="code-line"><span class="ln">833</span>    <span class="tok-k">if</span> (messages.<span class="tok-f">every</span>((message, index) =&gt; message === options.messages[index])) <span class="tok-k">return</span> options</span>
-<span class="code-line"><span class="ln">834</span>    <span class="tok-k">const</span> filtered = { ...options, messages }</span>
-<span class="code-line"><span class="ln">835</span>    <span class="tok-k">return</span> Object.<span class="tok-f">isFrozen</span>(options) ? <span class="tok-f">deepFreeze</span>(filtered) : filtered</span>
-<span class="code-line"><span class="ln">836</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>forAdapter</span><span class="ln-range">878-892</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">878</span>  <span class="tok-c">/** Remove replay state whose historical route is owned by another adapter. */</span></span>
+<span class="code-line"><span class="ln">879</span>  <span class="tok-k">private</span> <span class="tok-f">forAdapter</span>(options, adapter): GenerateOptions {</span>
+<span class="code-line"><span class="ln">880</span>    <span class="tok-k">const</span> messages = options.messages.<span class="tok-f">map</span>((message) =&gt; {</span>
+<span class="code-line"><span class="ln">882</span>      <span class="tok-k">if</span> (message.role !== <span class="tok-s">'assistant'</span> || source.kind !== <span class="tok-s">'model'</span> || source.replayState === <span class="tok-k">undefined</span>) <span class="tok-k">return</span> message</span>
+<span class="code-line"><span class="ln">883</span>      <span class="tok-k">if</span> (<span class="tok-k">this</span>.adapters.<span class="tok-f">get</span>(source.provider)?.adapter === adapter) <span class="tok-k">return</span> message</span>
+<span class="code-line"><span class="ln">884</span>      <span class="tok-k">return</span> <span class="tok-f">freezeMessage</span>({ ...message, source: { kind: <span class="tok-s">'model'</span>, provider: source.provider, model: source.model } })</span>
+<span class="code-line"><span class="ln">886</span>    })</span>
+<span class="code-line"><span class="ln">889</span>    <span class="tok-k">if</span> (messages.<span class="tok-f">every</span>((message, index) =&gt; message === options.messages[index])) <span class="tok-k">return</span> options</span>
+<span class="code-line"><span class="ln">890</span>    <span class="tok-k">const</span> filtered = { ...options, messages }</span>
+<span class="code-line"><span class="ln">891</span>    <span class="tok-k">return</span> Object.<span class="tok-f">isFrozen</span>(options) ? <span class="tok-f">deepFreeze</span>(filtered) : filtered</span>
+<span class="code-line"><span class="ln">892</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">822-828</span><p>replayState 是某 adapter 专属的回放状态（如缓存的 provider 内部状态）。切换 adapter 后，历史消息里属于<strong>其他 adapter</strong>的 replayState 必须剥掉——否则新 adapter 会拿着别人的内部状态。属于当前 adapter 的保留。</p></div>
-    <div class="lr"><span class="ln-ref">833-835</span><p>优化与一致性：没剥任何消息就原样返回 options（不分配新对象）；剥了则新建，且若原 options 已冻结则新对象也 deepFreeze——冻结性贯穿请求链。</p></div>
+    <div class="lr"><span class="ln-ref">878-884</span><p>replayState 是某 adapter 专属的回放状态（如缓存的 provider 内部状态）。切换 adapter 后，历史消息里属于<strong>其他 adapter</strong>的 replayState 必须剥掉——否则新 adapter 会拿着别人的内部状态。属于当前 adapter 的保留。</p></div>
+    <div class="lr"><span class="ln-ref">889-891</span><p>优化与一致性：没剥任何消息就原样返回 options（不分配新对象）；剥了则新建，且若原 options 已冻结则新对象也 deepFreeze——冻结性贯穿请求链。</p></div>
   </div>
 </section>
 
