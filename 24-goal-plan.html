@@ -26,6 +26,34 @@
   <span class="seg">(回心脏) goal 续跑经 agent/* 事件回到 kick/turn</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：一个跨 turn 的目标</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 24-1 · goal 驱动的续跑</div>
+    <pre># 用户：/goal "把这个目录的所有 TODO 修完"
+# command-goal 注册目标（commands 旁路，23 页）
+# 一个 turn 修完 3 个 TODO，还剩 2 个 → turn 以 completed 关闭（05 页）
+# goal-round-driver（inject=['agents','goals','sessions']）：
+#   监听 agent/* 事件 → 检查 goal 状态（sessions 读日志判断完成度）
+#   → 未完成 → 经 agent 事件发起下一个 turn（续跑）
+# → 直到 5 个 TODO 全修完 → goal 完成 → 不再续跑
+# 全程不需要用户再输入——goal 是「持续任务」，跨多个 turn</pre>
+    <div class="src">来源：24 页 §3 + goal-round-driver/src/index.ts:19</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 24-2 · 计划模式的切换</div>
+    <pre># 用户：/plan "重构认证模块"
+# PlanModeController（plan-mode/src/index.ts:202）：
+#   切换工具面（tools：计划专用工具集）
+#   切换提示词面（systemPrompt：计划模式指引）
+#   状态落盘（logged state）→ 可回放
+# 模型产出计划文档 → 用户批准 → 切回执行模式
+# 注意：loop 没改一行（05 页）——换的是模型看到的东西（12/14 页）</pre>
+    <div class="src">来源：24 页 §3-4 + 12/14 页的注入面</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

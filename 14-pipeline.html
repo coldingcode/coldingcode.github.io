@@ -85,6 +85,38 @@
   <span class="seg">(旁支入口) 15 页：具体工具（bash）从哪来</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：bash("ls -la") 的三段流水线</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 14-1 · execute 的三段实况</div>
+    <pre># 13 页 prepare 调 ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare(call.exec)
+#   → 本页 createExecution（1364 行）
+#     坍缩检查：mode 不是 code → collapsed=false
+#     view(agent) 里可见 bash → 正常路径
+#   → tools/pre-execute waterfall（scopeTarget(registry, agent) 过滤）：
+#     permission-presets 判定「读目录」为免审 → PreToolDecision: allow
+#     （若判定必审 → ask → approval/request → 用户批准/拒绝，29 页）
+#   → guards 通过 → prepared.kind = 'dispatch'
+# 13 页 dispatch → tools/execute waterfall → next() = dispatchToolBody
+#   → bash 工具的 execute 函数本体（17 页 330 行）执行
+# 13 页 finalize → tools/post-execute waterfall：
+#     结果 accept，无 additionalContexts
+#   → freeze(exec) → tools/result emit（深冻结最终结果）
+# 13 页 appendToolResult 落盘（seq 9）</pre>
+    <div class="src">来源：14 页行级解读 + 17 页 bash body + 29 页审批域</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 14-2 · Code Mode 下的同一调用</div>
+    <pre># 若会话 mode='code'，模型直接叫 bash：
+# 1381 行 collapsed=true（可见但 code 模式坍缩）
+# → 确定性拒绝为 UNKNOWN_TOOL，pre-execute/ask/guards 全都看不到
+# → 理由：不能给策略机会去批准一个必然失败的调用
+# 模型只能调 run_code，在程序里经 SDK 调 bash（子调度桥回同一流水线）</pre>
+    <div class="src">来源：14 页 §2 + code-mode.ts 的 run_code 桥</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

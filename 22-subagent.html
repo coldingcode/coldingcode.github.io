@@ -26,6 +26,36 @@
   <span class="seg">(回心脏) 子代理同样跑 05-14 页的循环，只是会话 header 带 parentSession</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：模型把「读代码」委派给子代理</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 22-1 · spawn 模式的完整生命周期</div>
+    <pre># 主会话里模型调用 subagent 工具：
+# tool-subagent 执行（inject=['agents','tools','subagents'...]）
+# → SubagentRuntime（subagent/src/index.ts:171）发起委派
+# → spawn-in-process provider（inject=['subagents']）：
+#    ① sessions.create(子会话, meta:{ parentSession: 主会话id, delegationDepth: 1 })
+#    ② AgentFactory 创建子 agent（同进程，跑 05-14 页同一套循环）
+#    ③ 子会话日志独立：~/.dsh/sessions/&lt;子sid&gt;.jsonl
+# 子 agent 完成 → 结果消息回主会话 → 主会话日志只多一条「委派结果」
+#
+# 真实 fixture 里的血缘（06 页示例轨迹 06-1）：
+{ "type": "session", "id": "eeeeeeee-1111-4222-8333-444444444444",
+  "parentSession": "{{SID}}", "delegationDepth": 1 }   ← 子会话头</pre>
+    <div class="src">来源：22 页 §3 + 06 页 SessionHeader 的 parentSession/delegationDepth + 真实 fixture</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 22-2 · fork 与 spawn 的取舍</div>
+    <pre># fork：模型想「基于当前上下文另开一路探索」
+# → fork-in-process：fork 边界必须连续 seq、不在 open turn（06 页约束）
+# → 子会话 = 父历史 seed + 自己的新事件；父历史是 seed 不是复制
+# spawn：全新上下文（如「去查这个库的文档」）→ 全新会话更干净
+# 判断标准（24 页同款）：结果要不要留在当前日志里</pre>
+    <div class="src">来源：22 页 §3 + 06 页 fork 边界约束</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

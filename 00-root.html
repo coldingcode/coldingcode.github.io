@@ -83,6 +83,32 @@
   <span class="seg">(下一步) args.ts:112</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：pnpm dsh web 的起点</h2>
+  <p>全书用一条真实命令作主线示例——官方文档的启动命令 <code>dsh web</code>。它在本页的形态是：</p>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 00-1 · <span class="cmd">pnpm dsh web</span> 实际执行的内容</div>
+    <pre># package.json:136 的 "dsh" script：
+"dsh": "node --import tsx/esm apps/cli/src/bin.ts"
+
+# 所以 pnpm dsh web 实际执行：
+node --import tsx/esm apps/cli/src/bin.ts web
+
+# bin.ts 里 argv = ['web']（slice(2) 去掉了 node 与脚本路径）
+# 本页 27 行：invocation = parseDshArgs(['web'], '0.1.1-rc.2')</pre>
+    <div class="src">来源：package.json:136（真实 script 行）· apps/cli/src/bin.ts:26-27</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 00-2 · 同一命令在发布版里是 <span class="cmd">npx @deepseek-ai/dsh web</span></div>
+    <pre># README.zh.md 的官方命令。两者只有「入口」不同：
+# 源码版走 tsx 钩子跑 TypeScript 源文件；发布版跑打包产物。
+# 本页全部行号对两者同样成立——src/ 与 lib/ 都在 apps/cli 下一层。</pre>
+    <div class="src">来源：README.zh.md「运行」节 · bin.ts:19-25 注释</div>
+  </div>
+  <p>这条命令的下一站：<a href="01-boot.html">01 args 解析</a>。</p>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

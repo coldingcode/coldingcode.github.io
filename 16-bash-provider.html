@@ -83,6 +83,36 @@
   <span class="seg">(下层) ctx.subprocess.spawn → subprocess-local 进程树</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：ls -la 的 env 四段合并</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 16-1 · 子进程最终看到的环境变量</div>
+    <pre># bash-local spawnSpec（194-196 行）：env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv }
+# ① scrubbedParentEnv（subprocess-local）：
+#    宿主 env 去掉 DEEPSEEK_API_KEY 等凭证 + 去掉 DSH_* → 基线
+# ② ENV_OVERRIDES（bash-local 27-32 行）：
+#    NO_COLOR=1, TERM=dumb, PAGER=cat, GIT_PAGER=cat
+#    → ls 的输出没有 ANSI 颜色，分页器不会挂起
+# ③ spec.env：本次调用方没传 → 无
+# ④ spec.dshEnv（来自 17 页 shellEnv.collect）：
+#    DSH_SESSION_ID=..., DSH_WORKSPACE=... 等 harness 事实
+#    → 最后合并，普通 env 无法覆盖
+# 结果：ls -la 跑在「干净基线 + 工具友好覆盖 + harness 事实」的环境里</pre>
+    <div class="src">来源：16 页 §3 的四段表 + bash-local/src/index.ts:27-32, 194-196（真实行号）</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 16-2 · 超时分类：谁算 timedOut</div>
+    <pre># spec.timeoutMs=120000（bash-local 默认）
+# 120 秒到 → deadline 的 BASH_TIMEOUT 触发
+# 230 行：timeoutOf(signal,'BASH_TIMEOUT') → timedOut=true
+# 用户在第 30 秒取消 → d.signal.aborted 但非 BASH_TIMEOUT
+# 231 行：aborted=true（外层 deadline 算 abort，不算 timedOut）
+# 两个 cause 分类清楚 → 14 页 post-execute 与 11 页的结果呈现可区分</pre>
+    <div class="src">来源：16 页 223-236 行（真实行号）</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

@@ -26,6 +26,34 @@
   <span class="seg">(回心脏) fs 写意图经事件 gate → 策略放行/拒绝 → 工具结果</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：模型写文件的意图闸门</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 26-1 · write-intent 的拦截</div>
+    <pre># 模型：write({path:'src/auth.ts', content:'...'})
+# → tool-fs 执行（inject=['tools','fs','systemPrompt']）
+# → 写之前发 fs/write-intent（fs/src/index.ts:58，waterfall）：
+#   payload = { target: {path:'src/auth.ts'}, actor: exec.agent }
+# fs-observation-policy 的监听器（fs-observation-policy/src/index.ts:116-119）：
+#   占据决策槽、不调 next() → 策略判定：
+#     只读检查 → 放行（返回 intent）
+#     写到工作区外 → 拒绝（返回 undefined 或改写）
+# 判定结果回传 tool-fs → 执行或拒绝 → tool/result
+# 对比 shell（15 页）：这里没有 ctx.get('policy') 调用——策略是「拦」下来的</pre>
+    <div class="src">来源：26 页 §3 + fs-observation-policy 的 116-119 行真实注释</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 26-2 · 一个事件 gate 只能有一个决策者</div>
+    <pre># 如果第二个插件也监听 fs/write-intent 且不调 next：
+# 它短路掉第一个 policy 的判定（08 页 waterfall 语义）
+# → 决策冲突 → 第一个 policy 形同虚设
+# 教训：事件 gate 型 policy 的组合必须靠 policy 内部编排，
+# 不能指望事件链叠加（26 页易错点）</pre>
+    <div class="src">来源：26 页 §5 + 08 页 waterfall 短路语义</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

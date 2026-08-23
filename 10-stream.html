@@ -85,6 +85,38 @@
   <span class="seg">(下一步) 11 step 消费 chunk 流</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：step 1 的流实况</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 10-1 · 一个 chunk 从 adapter 到日志</div>
+    <pre># 11 页 346 行：stream = preparedCall.stream(request)
+#   → 本页 streamWithRegistration（989 行）→ llm/stream waterfall
+#   → 无中间件 → next() → adapterStream（898 行）
+#   → adapter.prepareCall（910 行，代际绑定）→ dispatch（937 行）→ DeepSeekAdapter
+# DeepSeek 返回 SSE 流 → translate 成 harness chunk：
+#   { "type":"text-delta", "index":0, "text":"我来" }
+#   { "type":"text-delta", "index":0, "text":"帮你" } ...
+# 11 页逐 chunk 落盘（350 行）：
+#   { "type":"assistant/chunk", "seq":4, "data":{ "turn":1,"step":1,
+#       "chunk":{ "type":"text-delta","index":0,"text":"我来" } } }
+#   { "type":"assistant/chunk", "seq":5, ... } ...
+# 每个 chunk 同时喂给 BlockAssembler（351 行）</pre>
+    <div class="src">来源：10/11 页行级解读；chunk 行格式与真实 fixture 的 assistant/chunk 行一致（06 页示例轨迹 06-1）</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 10-2 · 如果 DeepSeek 在流中途断连</div>
+    <pre># adapter 的 iterator.next() reject（断连）
+# → adapterStream 949-955 行：completed=true
+#   yield adapterFailureChunk(error)：
+#     { "type":"finish", "reason":{ "kind":"error",
+#         "failure":{ "message":"fetch failed","code":"NETWORK" } } }
+# → 生成器正常结束（不 throw）
+# → 11 页 assembler.finish.kind === 'error' → agent/request-error waterfall 仲裁</pre>
+    <div class="src">来源：10 页 946-956 行 + 11 页 373-389 行</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

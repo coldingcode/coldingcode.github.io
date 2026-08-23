@@ -83,6 +83,34 @@
   <span class="seg">(回心脏) replace 后 deriveMessages 重建（06 页 replaceGeneration）</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：长对话触发压缩的完整过程</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 21-1 · 触发 → 摘要 → replace → 重建</div>
+    <pre># 假设我们的会话聊了 50 个 turn，token-meter 累计 100k（超过配置阈值 80k）
+# ① 触发：token-meter 发通知 → compaction 走 agent.runMaintenance()（05 页 142 行）
+#    phase 切 maintenance（对外仍 idle）——期间的 wake 被 latch（05 页 178 行）
+# ② 摘要：compaction-basic 用 LLM 生成摘要（inject 里的 llm → 10 页同一条 llm/stream）
+# ③ 落 replace 事件（假设施加在 seq 200）：
+{ "type":"user/message", "seq":200, "time":..., "surfaceOp":{ "op":"replace","start":2,"end":150 },
+  "sourceEventSeqs":[2,5,8,...,150],   ← 必须覆盖每一个被遮蔽节点
+  "data":{ "content":[{"type":"text","text":"[前情摘要] 用户要整理目录，已完成..."}] } }
+# ④ surface 校验（06 页 assertProvenance）：start/end 都在 surface 上、seq 全集 ✓
+# ⑤ replaceGeneration+1 → deriveMessages 缓存重建（06 页 726 行）
+# ⑥ 下一个请求的 boundaryMessages 里，seq 2-150 被一条摘要替代（09 页 507 行）</pre>
+    <div class="src">来源：21 页 §3 + 06 页 surface replace 校验 + 05 页 maintenance</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 21-2 · 人类与模型看到的差异</div>
+    <pre># 模型（deriveMessages 的 surface）：... 摘要 ... → 上下文大幅缩短
+# 人类（isAppendSurfaceEvent 过滤）：50 个 turn 的原文全部还在日志里
+# UI 渲染 transcript 时用 append-origin 过滤 → 用户还能回看全部历史
+# 这就是 06 页「surface 是模型可见投影，不是人类 transcript」的实例</pre>
+    <div class="src">来源：06 页 isAppendSurfaceEvent + 21 页易错点</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

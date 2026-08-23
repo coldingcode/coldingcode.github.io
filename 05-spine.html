@@ -83,6 +83,49 @@
   <span class="seg">(下一步) turn 内 :266 preStep → 08 页</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：用户说「帮我列一下当前目录」</h2>
+  <p>卷一全程跟踪一条消息：用户在 web UI 里输入<strong>「帮我列一下当前目录」</strong>。它从 inbox 到模型回答，沿途落下的完整事件序列（每一条都是后面 06-14 页的主题）：</p>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 05-1 · 整条消息的 turn/step 全景</div>
+    <pre>turn 1 ──────────────────────────────────────────────────────
+  step 1 ────────────────────────────────────────────────────
+    [inbox]  claim: next-step[] + next-turn[「帮我列一下当前目录」]   ← 07 页
+    [event]  turn/start {turn:1}          ← 本页 255 行
+    [event]  step/start {turn:1,step:1}   ← 本页 279 行
+    [event]  user/message「帮我列一下当前目录」surfaceOp:append ← 282-283 行
+    [prep]   preStep 四动作               ← 08 页
+    [event]  request/header {config,system,tools} reason:initial ← 09 页
+    [llm]    assistant/chunk×N「我来帮你列一下目录」              ← 10/11 页
+    [event]  assistant/message（完成锚点，引用上面 chunk 的 seq）
+    [llm]    模型请求工具 bash("ls -la")                          ← 11 页 412 行
+    [event]  tool/call {callId:"c1", name:"bash", arguments:"..."} ← 13 页
+    [tools]  pre-execute→execute→post-execute                    ← 14 页
+    [event]  tool/result {callId:"c1", 内容=目录列表, sourceEventSeqs:[callSeq]}
+    [event]  step/end {turn:1,step:1}   ← 本页 292 行
+  step 2 ────────────────────────────────────────────────────
+    [inbox]  claim: next-step[]（工具结果已在日志，无新输入）
+    [event]  step/start {turn:1,step:2}
+    [llm]    模型看到工具结果，生成最终回答
+    [event]  assistant/message「目录里有这些文件...」
+    [event]  step/end {turn:1,step:2}
+    [check]  turnEnds=completed 且 nextStep 空 → agent/turn-stopping（295 行）
+    [event]  turn/end {turn:1, reason:completed}  ← 本页 319 行
+  kick 收敛：inbox 无货 → turn() 返回 false → phase 回 idle（219 行）</pre>
+    <div class="src">来源：事件顺序与行号全部来自本页/06-14 页的源码；JSONL 行格式来自仓库真实 fixture（packages/test-support/acp-snapshot/tests/fixtures/suite/plain-turn/）</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 05-2 · 一个 turn 两个 step 的原因</div>
+    <pre># step 1 结束时模型请求了工具（11 页 414 行 executeToolCalls）
+# 结果不 concludesTurn → step 返回 null（11 页 418 行）
+# → turnEnds 仍为 null → 不 break → target='next-step' → step 2
+# step 2 模型只输出文本 → 返回 completed → turnEnds 记录 → 关 turn
+# 这就是「一轮包含零个或多个步骤」的最小实例。</pre>
+    <div class="src">来源：05 页 287-299 行 + 11 页 418 行</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

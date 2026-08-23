@@ -83,6 +83,41 @@
   <span class="seg">(下一步) 08 preStep:229 inbox.claim</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：我们的消息在 inbox 里的三个 splice</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 07-1 · 消息进入 → 认领 → 清空</div>
+    <pre># ① 用户点发送 → followup → send('next-turn', wakeup=true)（05 页 122 行）
+#    → inbox.splice('next-turn', Infinity, 0, [msg]) → mutate（本页 158 行）
+#    归一化：start=Infinity → 钳到队尾 0；插入 1 条 → 落盘：
+{ "type":"agent/inbox/spliced", "seq":N, "data":{
+    "target":"next-turn", "start":0, "inserted":[{"id":"m1",...}] } }
+#    （无 removedCount → 纯插入；无 outcome）
+
+# ② turn 1 的 preStep claim（08 页 229 行）→ claim('next-turn', 1)（本页 71 行）
+#    先清 next-step（空）→ 再取 next-turn 队首 1 条 → 两条纯删除 splice 落盘：
+{ "data":{ "target":"next-step",  "start":0 } }                       ← 空操作不落盘（170 行）
+{ "data":{ "target":"next-turn",  "start":0, "removedCount":1 } }     ← 认领，无 outcome
+#    → live 通知 agent/inbox/claimed {message, turn:1}（76 行）
+
+# ③ 用户取消（假设）→ cancel → inbox.clear()（58 行）
+#    清 next-step 再清 next-turn → 这次 discardRemoved=true：
+{ "data":{ "target":"next-turn", "start":0, "removedCount":1, "outcome":"canceled" } }
+#    outcome:'canceled' 是对账依据（§4 foldConsumedWork）</pre>
+    <div class="src">来源：inbox.ts 行级解读 + 05 页 send/claim 路径；splice 记录字段来自 inbox.ts:172-178</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 07-2 · resume 时这页如何重放</div>
+    <pre># 进程重启 → 新 Inbox 构造（本页 32 行）
+# 从 header.seedLength 起扫日志里的 agent/inbox/spliced
+# 命中上面 ② 的认领记录 → apply() 重放 → next-turn 队列空
+# 命中一个进程崩溃前没重放的插入 → 消息回到队列
+# 这就是「待办不丢」：真相在日志，内存只是投影。</pre>
+    <div class="src">来源：inbox.ts:32-39 + 20 页持久化章</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

@@ -83,6 +83,39 @@
   <span class="seg">(下一步) 14 ctx.tools[TOOL_RUNTIME_SCHEDULER] 分段接口</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：bash 调用在调度器里的实况</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 13-1 · 单工具调用的 runGroup</div>
+    <pre># 11 页 414 行 executeToolCalls(ctx, 1, 1, [bash 调用块], signal, acceptContext)
+# planned = [{ block, exec:{ callId:'c1', name:'bash', arguments:{command:'ls -la'},
+#                            agent, signal } }]
+# 88 行：executionMode(bash) = 'parallel'（bash 并发安全）→ group = 全部
+# runGroup：startCall(0)
+#   167 行：落 tool/call → seq 8（11 页示例轨迹 11-1）
+#   169 行：prepare → 14 页 pre-execute → 'dispatch'
+#   173 行：dispatch(bash body) 并发执行
+#   208 行：commitReady → 顺序提交
+#   155 行：appendToolResult → seq 9，sourceEventSeqs:[8]
+# 工具结果 content 里有目录列表；concluded=false
+# → { concluded:false } → 11 页 418 行返回 null → step 2 继续</pre>
+    <div class="src">来源：13 页行级解读 + 11 页示例轨迹 11-1 的 seq 序列</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 13-2 · 模型一次要了 3 个工具时的池</div>
+    <pre># 模型块：[read(a), bash(b), web_search(c)]，全 parallel-safe
+# maxParallelToolCalls=2（默认）：池容量 2
+# startCall(0): tool/call seq 10 → prepare → dispatch（inFlight=1）
+# startCall(1): tool/call seq 11 → prepare → dispatch（inFlight=2，池满）
+# c 等待；b 先 settle → commitReady 提交 b 的结果（顺序游标等 a）
+# a settle → 提交 a → 填池 startCall(2)=c ...
+# 结果的 tool/result 顺序 = 模型调用顺序（a,b,c），但执行是并发的
+# —— 只有 dispatch/body 重叠；策略、结果、context 全部按序。</pre>
+    <div class="src">来源：13 页 fillPool/commitReady（198-230 行）+ 11 页调度入口</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

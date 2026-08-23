@@ -26,6 +26,31 @@
   <span class="seg">(回心脏) UI 渲染 06 页日志的投影；Python 客户端经 32 页 SDK 协议驱动 agents</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：web UI 渲染我们的会话</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 33-1 · UI 显示 11 页日志的正确姿势</div>
+    <pre># 11 页示例轨迹 11-1 的 seq 0-16 日志
+# apiproxy（32 页）把 session/event 推给浏览器
+# ui-conversation 渲染 transcript：
+#   遍历事件，用 isAppendSurfaceEvent 过滤（06 页）
+#   → 用户看到：turn 1 的完整对话（含 chunk 重建的模型回复）
+#   若日志里有 compaction 的 replace 摘要（21 页示例轨迹 21-1）：
+#   → 摘要被过滤掉 → 用户仍看到 50 个 turn 的原文
+# UI 不发明状态——数据永远是日志的投影（33 页 §1）</pre>
+    <div class="src">来源：33 页 §1 + 06 页 isAppendSurfaceEvent + 21 页</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 33-2 · 平台沙箱的分工</div>
+    <pre># Linux 上：native/landlock-run（Landlock addon）实现文件访问限制
+# Windows 上：sandbox-windows-acl（2530 行 ACL 沙箱）实现同类限制
+# 两者都实现 29 页的沙箱 seam → 产品代码不写 if(platform)
+# 平台差异被 seam 吸收（33 页 §3 的结论）</pre>
+    <div class="src">来源：33 页 §3 + 29 页沙箱域</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

@@ -26,6 +26,30 @@
   <span class="seg">(回心脏) 查询结果喂 UI（32 页）或模型（tool-session-query）</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：模型查历史会话</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 30-1 · tool-session-query 的检索</div>
+    <pre># 模型：session_query({query:'上次那个目录整理的会话'})
+# → tool-session-query（1444 行）→ SessionQueryEngine（session-query/src/index.ts:81）
+# → SQLite 索引（session-query-sqlite）检索标题/内容
+# → 返回匹配会话列表（id、标题、时间）
+# 索引数据从哪来：消费 session/event 异步构建（20 页的查询侧）
+# → 模型引用某会话 → 恢复/读取该会话日志（20 页恢复路径）
+# 注意：索引最终一致（30 页易错点）——刚写的事件可能还没进索引</pre>
+    <div class="src">来源：30 页 §3 + 20 页查询侧</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 30-2 · storage 的用途</div>
+    <pre># storage（sqlite 后端）服务于随机读写：
+# 某插件缓存「上次选择的模型」到 storage
+# 重启后读回——与 20 页 JSONL 的追加日志互补：
+# 日志是事实（可重放），storage 是派生（可重建）</pre>
+    <div class="src">来源：30 页 §3 易错点</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

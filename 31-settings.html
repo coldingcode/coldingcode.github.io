@@ -26,6 +26,31 @@
   <span class="seg">(回心脏) 配置变化经热重组/事件到达各 provider</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：改一个设置与换一个 key</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 31-1 · settings.yaml 的热更新</div>
+    <pre># 本机真实文件：~/.dsh/settings.yaml
+# 编辑：agentLoop: { maxParallelToolCalls: 4 }
+# → settings-file provider 变更通知 → 订阅者重读
+# → 13 页调度器的池容量变 4（下次执行生效，无需重启）
+# 与 04 页 patch 热更新的分工：
+#   settings = 数据热更新（运行时值）
+#   patch = 结构热更新（换插件/重配置）</pre>
+    <div class="src">来源：31 页 §3 + 13 页 maxParallelToolCalls</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 31-2 · API key 的按请求解析</div>
+    <pre># ~/.dsh/.credentials.yaml 或环境变量存 DEEPSEEK_API_KEY
+# 10 页 adapter 每次 stream 时经 credentials 解析（不是启动时）
+# → 换 key：改文件/环境变量 → 下次请求用新 key
+# → key 不进 09 页的冻结 config、不进 request/header 日志
+# （31 页易错点：config 会落盘，key 混进去就是泄密）</pre>
+    <div class="src">来源：31 页 §5 + 10 页 adapter 的 key 解析</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

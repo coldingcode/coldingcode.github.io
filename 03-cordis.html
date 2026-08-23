@@ -85,6 +85,58 @@
   <span class="seg">(下一步) 04 runProfile 收尾</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：dsh web 挂出的真实插件树（节选）</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 03-1 · <span class="cmd">pnpm dsh --profile web --dump-config</span> 的真实输出开头</div>
+    <pre># == @deepseek-ai/dsh-base
+- id: timer
+  name: '@deepseek-ai/cordis-plugin-timer'
+# == @deepseek-ai/dsh-base, patched by @deepseek-ai/dsh-web-app
+- id: hmr
+  name: '@deepseek-ai/cordis-plugin-hmr'
+  config:
+    root:
+      - .
+  disabled: true          ← web-app 把 hmr 禁掉了（04 页 279 行补 watch-only 的原因）
+# == @deepseek-ai/dsh-base
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+- id: session
+  name: '@deepseek-ai/dsh-session'
+- id: typert
+  name: '@deepseek-ai/dsh-typert-registry'
+- id: typert-loader
+  name: '@deepseek-ai/dsh-typert-loader'
+- id: typert-gateway
+  name: '@deepseek-ai/dsh-api-gateway'
+- id: session-title
+  name: '@deepseek-ai/dsh-session-title'
+  config:
+    fallbackMaxWords: 5
+    fallbackMaxBytes: 40
+    maxTitleBytes: 80
+...
+
+# 共 135 个条目（base 78 行 + web-app 的 UI 条目 + 平台禁用等）
+# 每个 - id: 一行就是一棵将要挂载的 fiber</pre>
+    <div class="src">来源：本机真实执行 pnpm dsh --profile web --dump-config（135 个条目）。注释 # == 行标出每个条目来自哪一层——这就是 03 页 boot() 之前 composeEntries 的产物</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 03-2 · boot() 对这份输出的下一步</div>
+    <pre># boot(NAME, rootConfig, patches, prepare)
+# 764 行:  const ctx = new Context()        ← 所有 135 个 fiber 的宿主
+# 771 行:  await ctx.plugin(Loader)         ← 装配置→fiber 的引擎
+# 774 行:  await mountRootInclude(...)      ← 挂载上面 135 个条目
+# 782 行:  await ctx.get('loader')?.await() ← 等 135 个 fiber 全部 settle
+# 784 行:  await assertEntriesActivated(...)← 有 FAILED/PENDING 就 fail-loud
+# 如果一切正常：135 个插件已激活，注册了 ctx.llm / ctx.shell / ctx.tools / ...</pre>
+    <div class="src">来源：app-boot/src/index.ts:757-802（03 页 §1 的行级解读）</div>
+  </div>
+  <p>下一站：<a href="04-run-profile.html">04 runProfile</a>——看这棵树怎么被信号与热更新守护。</p>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

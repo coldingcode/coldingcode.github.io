@@ -85,6 +85,57 @@
   <span class="seg">(下一步) profile.ts:413 composeEntries → 03 boot</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：dsh web 在你机器上的 profile</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 02-1 · 真实 profile 目录的内容（本机 $DSH_HOME = C:\Users\充电宝\.dsh）</div>
+    <pre>$ ls ~/.dsh
+profiles/  sessions/  settings.yaml  storages/
+
+$ ls ~/.dsh/profiles
+node_modules/  web/
+
+$ cat ~/.dsh/profiles/web/package.json
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ]
+    }
+  }
+}</pre>
+    <div class="src">来源：本机真实目录。dsh.profile.bundles 就是 02 页 loadProfile:387 读的那个字段；web 目录是首次运行 dsh web 时 initProfile（383 行）自动创建的（PROFILE_TEMPLATES.web，114-117 行）</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 02-2 · 本次 loadProfile 的返回值形状</div>
+    <pre># loadProfile('dsh', 'web', INSTALL_ANCHOR) 返回（02 页 402 行）：
+{
+  name: 'web',
+  dir: 'C:/Users/充电宝/.dsh/profiles/web',
+  layers: [
+    { packageName: '@deepseek-ai/dsh-base',
+      packageDir: 'D:/dev/sourcecode/deepseek-harness/packages/bundle/base',   ← 安装优先！
+      patchPath: '.../packages/bundle/base/cordis.patch.yml',
+      patches: [78 个 insert/disable 补丁] },
+    { packageName: '@deepseek-ai/dsh-web-app',
+      packageDir: '.../packages/bundle/web-app',
+      patchPath: '.../web-app/cordis.patch.yml',
+      patches: [UI 条目补丁] },
+  ],
+  patchPath: 'C:/Users/充电宝/.dsh/profiles/web/cordis.patch.yml',
+  patches: []          ← 用户层是空数组（本机还没写过任何定制）
+}</pre>
+    <div class="src">来源：02 页 Profile 类型（profile.ts:84-90）+ 本机真实 profile</div>
+  </div>
+  <p>下一站：<a href="03-cordis.html">03 boot()</a>——五层补丁里的前两层已经变成 PatchOptions[]。</p>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

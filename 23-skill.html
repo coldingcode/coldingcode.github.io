@@ -26,6 +26,30 @@
   <span class="seg">(回心脏) 技能内容经 inject 进 inbox → preStep 进模型上下文</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：模型加载一个技能</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 23-1 · 拉取式：模型主动调 skill 工具</div>
+    <pre># 技能发现：skill-filesystem 扫描 ~/.dsh/skills/ 与工作区的 SKILL.md
+#   → 注册进 SkillRegistry（skill/src/index.ts:357）
+# 模型不知道某技能的细节 → 调用 skill 工具（tool-skill 注册，161 行）：
+#   ① 列出技能 → "你有哪些技能" → [ {name:'pdf-to-text', description:'...'} ]
+#   ② 读取技能 → 返回 SKILL.md 正文（作为 tool/result 进入 13/14 页流水线）
+# 模型现在按技能指引行动——全程模型主动、时机确定</pre>
+    <div class="src">来源：23 页 §3 拉取式 + tool-skill/src/index.ts:25,161</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 23-2 · 推送式：AGENTS.md 的注入</div>
+    <pre># agent-instructions 扫描工作区 → 发现子目录的 AGENTS.md
+# → agent.inject(AGENTS.md 内容)（08 页 inject：next-step，不唤醒）
+# → 下个 step 边界 preStep claim 到它（08 页 229 行）
+# → 以 user/message 进入模型上下文（08 页示例轨迹 08-1 的改写场景）
+# 与 23-1 的差异：inject 可能错过当前请求（preStep 已 claim 之后到达）</pre>
+    <div class="src">来源：23 页 §3 + 08 页 inject 语义</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

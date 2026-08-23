@@ -85,6 +85,40 @@
   <span class="seg">(下一步) 10 llm/stream</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：step 1 请求的折叠实况</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 09-1 · 首次请求的 buildRequest 输入输出</div>
+    <pre># 调用（11 页 340 行）：
+# buildRequest(1, 1, assembly.tools, system, session.deriveMessages(), signal)
+# 其中 boundaryMessages = deriveMessages() 的当前投影：
+#   [ user/message「帮我列一下当前目录」(seq=2) ]     ← 从日志投影，不是内存对象
+
+# ① 折叠上次配置（438 行）：日志里还没有 request/header → persistedHeader=undefined
+#    → seedConfig = { provider:'deepseek-official', model:'deepseek-v4-pro',
+#                     reasoningEffort:'max' }        ← 来自 AgentOptions
+# ② agent/request waterfall（457 行）：无监听器改写 → proposedConfig = seedConfig
+# ③ prepareCall（468 行）：绑定 adapter 注册 + 物化模型默认值
+#    → config = { ...proposedConfig, maxTokens: 模型目录的默认 32768 }
+#      （真实默认：llm-deepseek 的 DEFAULT_MAX_TOKENS）
+# ④ header 落盘（484-488 行）：reason:'initial'
+#    { "type":"request/header", "data":{ "header":{
+#        "config":{...}, "adapterDefaults":{maxTokens:true}, "system":"...", "tools":[...] },
+#      "reason":"initial" } }
+# ⑤ 最终请求（505 行）：markAgentLoopRequest(deepFreeze({...}))</pre>
+    <div class="src">来源：09 页行级解读 + 真实 fixture 的 request/header 行格式（06 页示例轨迹 06-1）</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 09-2 · 第二个请求为什么不再记 header</div>
+    <pre># step 2 的 buildRequest：baseline = 上次的 header（484 行 requestHeader()）
+# config/system/tools 都没变 → headerEquals(baseline, header) === true
+# → 不落新 request/header 事件（488 行的 else-if 不命中）
+# → 日志里 header 历史只有一条 initial——「配置如何演变」的记录是稀疏的</pre>
+    <div class="src">来源：09 页 483-489 行 + 06 页 requestHeader 的增量缓存</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

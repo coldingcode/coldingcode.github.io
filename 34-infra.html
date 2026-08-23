@@ -26,6 +26,30 @@
   <span class="seg">(回心脏) invariants 在 internal/dispatch 拦截验证各页的不变量</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：invariant 当场抓错</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 34-1 · 违反「模型可见 ⟺ 已记录」时发生什么</div>
+    <pre># 假设有人写了一个 bug：直接改请求的 messages（绕过日志）
+# 开发模式挂载了 dsh-invariants（runtime-diagnostics/invariants）
+# → 11 页的 invariant（agent-loop/src/invariant.ts）在 llm/stream 前校验：
+#   request frozen ✓ 但 messages ≠ session.deriveMessages() ✗
+# → 抛出 INVARIANT 错误 → 当场炸（fail-loud）
+# 没有 invariants：这个 bug 会静默通过——模型看到的与日志记录的不一致，
+# 回放/恢复/审计全部失真。invariant 把纪律变成可执行断言（34 页 §2）</pre>
+    <div class="src">来源：34 页 §2 + 11 页 invariant.ts</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 34-2 · typert 让两端类型不漂移</div>
+    <pre># apiproxy（32 页）定义 API 契约 → typert/generator（6251 行）生成类型图
+# → client 包从类型图消费类型（编译期检查）
+# 改 API 契约 → 客户端编译失败 → 漂移在编译期暴露
+# 这就是 cordis.patch.yml 里 typert-registry/loader/gateway 三行的作用（34 页 §1）</pre>
+    <div class="src">来源：34 页 §1 + 32 页 apiproxy</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

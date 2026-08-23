@@ -85,6 +85,43 @@
   <span class="seg">(终点) 返回 completed / max-tokens / null</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：step 1 的完整落盘序列</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 11-1 · seq 连续的完整日志（假设从 turn/start=0 起）</div>
+    <pre>seq 0  turn/start        {turn:1}                          ← 05 页 255 行
+seq 1  step/start         {turn:1,step:1}                   ← 05 页 279 行
+seq 2  user/message       「帮我列一下当前目录」(surfaceOp:append) ← 282 行
+seq 3  request/header     {header,reason:'initial'}         ← 09 页 485 行
+seq 4  assistant/chunk    「我来」                           ← 本页 350 行
+seq 5  assistant/chunk    「帮你」                           ← 同上
+seq 6  assistant/chunk    「列目录」+ tool-call 块             ← 同上
+seq 7  assistant/message  完成锚点 sourceEventSeqs:[4,5,6]   ← 本页 400-408 行
+seq 8  tool/call          {callId:'c1',name:'bash',arguments:'{"command":"ls -la"}'} ← 13 页
+seq 9  tool/result        {callId:'c1',content:[...],sourceEventSeqs:[8]} ← 13 页
+seq 10 step/end           {turn:1,step:1}                   ← 05 页 292 行
+# → 模型欠工具结果一个回复 → step 返回 null → turn 循环继续（418 行）
+seq 11 step/start         {turn:1,step:2}
+seq 12 request/header?    无——headerEquals 相同（09 页示例 09-2）
+seq 13 assistant/chunk    最终回答...
+seq 14 assistant/message  回答锚点
+seq 15 step/end           {turn:1,step:2}
+seq 16 turn/end           {turn:1,reason:'completed'}       ← 05 页 319 行</pre>
+    <div class="src">来源：序列与行号全部来自源码；信封格式与 fixture 一致。注意 12 号位置没有 request/header——09 页示例 09-2 的原因</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 11-2 · 如果用户在「我来帮你」时取消了</div>
+    <pre># seq 5 之后用户取消 → signal.aborted
+# chunk 循环 throwIfAborted（349 行）抛 → catch（354 行）
+# → assembler.interruptedBlocks() = ['我来','帮你']（非空白 text 前缀）
+# → 落一条 assistant/message {interrupted:true}（358-367 行）
+# → rethrow（370 行）→ turn 以 aborted 关闭
+# 结果：seq 6 的位置是一条 interrupted 锚点——用户看到的前半句进了模型历史</pre>
+    <div class="src">来源：11 页 §4 + 0.1.1-rc.2 的 interrupted 机制</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

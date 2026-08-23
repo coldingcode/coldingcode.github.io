@@ -83,6 +83,38 @@
   <span class="seg">(下一步) 11 step:337 renderPrompt(assembly)</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：step 1 的组装实况</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 12-1 · assemble 的合并输入输出</div>
+    <pre># 08 页 230 行调用 systemPrompt.assemble(...)
+# 各插件已注册的片段（假设）：
+#   global:  section 'harness:identity'  order:-100  text:"You are dsh..."
+#            section 'deployment:persona' order:0     text:"{{persona}}"
+#   tool 指引 section 'tool-guidance'   order:100
+#   variables: { persona: provider→'一个严谨的工程师助手' }
+#   toolProviders: [tools 包的 provider → 可见工具 schema 白名单投影]
+# 合并（本页 467-508 行）：
+#   variables = { persona: '一个严谨的工程师助手' }
+#   sections 按 order 排序：identity(-100) → persona(0) → tool-guidance(100)
+#   collected = [{name:'bash',description,parameters}, {name:'read',...}, ...]
+# → PromptAssembly 过 system-prompt/assemble waterfall（无改写 → 原样）
+# → 11 页 337 行 renderPrompt：{{persona}} → '一个严谨的工程师助手'
+# → system 文本进 09 页 canonicalHeader → request/header.system</pre>
+    <div class="src">来源：12 页行级解读 + fixture 的 request/header 行里 system:"SYS PROMPT" 的位置（06 页示例 06-1）</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 12-2 · 为什么模型看到的 tools 只有三字段</div>
+    <pre># 14 页 registry 里的 ToolDefinition 有 execute/timeoutMs/isConcurrencySafe...
+# 但 12 页 495-499 行只投影 {name, description, parameters}：
+# { "name":"bash", "description":"Run a command...", "parameters":{...} }
+# execute 等实现细节永不下发——模型只需要知道「能叫什么、怎么传参」
+# 这正是 06 页 fixture 里 tools 数组的字段（只有 t1/D1/parameters）</pre>
+    <div class="src">来源：12 页 495-499 行 + 14 页 schemaOf 白名单</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

@@ -83,6 +83,38 @@
   <span class="seg">(回到主干) 13/14 页的调度器与流水线执行它</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：bash 工具的三个路径实况</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 17-1 · 前台路径（我们的 ls -la）</div>
+    <pre># 模型调用 bash({ command:'ls -la' })
+# → execute（330 行）→ ctx.shellEnv.collect(exec)（341 行）
+# → ctx.shell.run(ctx.shell.resolve({...}))（380 行）
+# → ShellRunResult { exitCode:0, stdout:'total 8\ndrwxr-xr-x ...', timedOut:false }
+# → renderResult（render.ts）→ 模型看到的文本：
+#   "total 8
+#    drwxr-xr-x ..."
+#   （退出码 0 无 marker；非零会附加 [exit code: N]）
+# → 14 页 post-execute → tool/result 落盘（seq 9）</pre>
+    <div class="src">来源：17 页行级解读 + 16 页 ShellRunResult</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 17-2 · 后台路径与沙箱升级路径</div>
+    <pre># 后台：模型请求 background:true
+# 354 行 ctx.get('jobs') 有值 → 370 行 ctx.shell.start(resolve(request))
+# → ShellProcess → background.ts 的 processOutcome → jobs 任务
+# → 结果变成「任务已启动，id=...」；模型稍后用 tool-jobs 查看（25 页）
+
+# 沙箱升级：挂载了 bash-sandbox 时（15 页示例 15-2）
+# 模型传 sandbox_permissions:['network'] 请求升级
+# → 223-227 行 approveEscalation → approver.request
+# → approval/request waterfall → 用户批准/拒绝（29 页）
+# → 批准后按升级的权限跑；拒绝则按原权限或失败</pre>
+    <div class="src">来源：17 页 330-382 行 + 25 页 jobs + 29 页审批</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

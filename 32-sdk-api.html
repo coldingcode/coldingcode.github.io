@@ -26,6 +26,33 @@
   <span class="seg">(回心脏) 外部调用经 AgentRegistry 的 create/resume 进入 05 页循环</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：一个程序驱动 dsh</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 32-1 · Python SDK 的一次完整调用</div>
+    <pre># 仓库真实示例：examples/jsonrpc-agent（README 说「Python SDK 驱动的无人值守代理」）
+# Python 侧（python/sdk/src/deepseek_harness/client.py）：
+#   client = Client("http://127.0.0.1:3080")   ← JSON-RPC over HTTP
+#   session = client.new_session()
+#   session.prompt("修复这个测试")
+# dsh 侧：sdk server（inject=['agents']，sdk/server/src/index.ts:22）
+#   → AgentRegistry.create（05 页）→ 跑 05-14 页循环
+#   → 事件流回 Python 客户端（session/event → JSON-RPC 通知）
+# 协议只做翻译，循环完全复用——这就是 32 页「入口极薄」的意思</pre>
+    <div class="src">来源：32 页 §3 + examples/jsonrpc-agent + python/sdk</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 32-2 · MCP 服务器变成 dsh 工具</div>
+    <pre># 外部 MCP 服务器（如记忆服务）→ examples/mcp-memory overlay
+# mcp-client（inject=['tools']）连接服务器 → 枚举其工具
+# → 每个 MCP 工具注册进 14 页 registry
+# → 12 页 assemble 时它们与原生工具并列进模型提示词
+# 模型调用与原生工具无差别——工具通道的「本地化」</pre>
+    <div class="src">来源：32 页 §3 + examples/mcp-memory</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

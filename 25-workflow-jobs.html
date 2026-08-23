@@ -26,6 +26,31 @@
   <span class="seg">(回心脏) workflow 的 agent 池与 jobs 的结果都回到会话日志</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：后台任务与 todo</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 25-1 · bash 后台命令 → jobs</div>
+    <pre># 模型：bash({command:'npm test', background:true})
+# 17 页 354 行 ctx.get('jobs') 有值 → 370 行 ctx.shell.start(...)
+# → ShellProcess → background.ts 的 processOutcome → jobs-local 注册任务
+# 模型：tool-jobs 查看 → "任务 j1 运行中"
+# 测试跑完 → 任务 outcome:completed → 模型再查 → 结果文本
+# 整个过程模型的 turn 不阻塞——jobs 是「时间上外挂」的作业</pre>
+    <div class="src">来源：17 页 354-370 行 + 25 页 jobs-local</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 25-2 · todo/write 与模型的关系</div>
+    <pre># 模型修 TODO 时调用 todo_write({ todos:[{content:'修 auth', status:'in_progress'},...] })
+# 落盘：{ "type":"todo/write", "seq":N, "data":{ "todos":[...] } }
+# 关键：todo/write 是 log-only（06 页 SurfaceEventType 只有三个类型）
+# → 不进 deriveMessages → 模型下一请求看不到它（除非 UI 注入）
+# UI 显示待办列表（全量快照，最新写入胜出）
+# 模型靠「自己调用时的最新快照」管理——不是持久记忆</pre>
+    <div class="src">来源：25 页 §3 + 06 页 todo/write 的 JSDoc</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

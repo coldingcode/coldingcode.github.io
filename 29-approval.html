@@ -26,6 +26,33 @@
   <span class="seg">(回心脏) 审批结果决定 14 页流水线 allow/deny/ask</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：模型要联网时的升级审批</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 29-1 · sandbox_permissions 升级（挂载 bash-sandbox 时）</div>
+    <pre># 沙箱化 shell 下，模型想 curl 一个外网 URL：
+# bash({command:'curl ...', sandbox_permissions:['network']})
+# → tool-bash 能力探针：ctx.shell.sandboxMode 非 undefined（17 页 192 行）
+# → approveEscalation（17 页 223-227 行）→ approver.request
+# → approval/request waterfall（user-approval/src/index.ts:192 的服务）
+# → 用户在 UI 看到「模型请求 network 权限」→ 批准/拒绝
+# → 批准：本次调用带升级权限执行；拒绝：按原沙箱权限（无网络）执行或失败
+# 这是「默认沙箱 + 升级要审批」两段式的完整实例</pre>
+    <div class="src">来源：17 页 223-227 行 + 29 页 §3</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 29-2 · 权限预设决定免审还是必审</div>
+    <pre># 模型：bash('ls -la')（本地 shell，无沙箱升级）
+# 14 页 pre-execute → permission-presets（inject=['shell','approval','sessions']）：
+#   读命令类型 → 「只读命令」→ 预设规则命中 → allow（免审）
+# 模型：bash('rm -rf build/') → 「破坏性命令」→ 预设要求审批
+#   → PreToolDecision: ask → approval/request → 用户确认
+# 预设的「会话记忆」：本会话已批准过的同类命令可跳过（sessions 依赖的用途）</pre>
+    <div class="src">来源：29 页 §3 + permission-presets/src/index.ts:175,196</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

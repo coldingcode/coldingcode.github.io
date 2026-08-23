@@ -26,6 +26,31 @@
   <span class="seg">(回心脏) tool-web 的结果走 13/14 页调度与流水线</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：模型搜一条信息</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 28-1 · web_search 的完整路径</div>
+    <pre># 模型：web_search({query:'deepseek-harness 最新版本'})
+# → tool-web（inject=['tools','web','systemPrompt']）执行
+# → ctx.web 解析到 web-search-deepseek provider（DeepSeek 搜索 API）
+# → API key 按请求经 credentials（31 页）解析——不缓存进 config
+# → 搜索结果条目 → tool/result → 13/14 页流水线 → 模型引用结果回答
+# 换 provider：cordis.patch.yml 换 web-search-exa / web-search-perplexity
+#   → tool-web 一行不改（15 页 seam 结论的又一实例）</pre>
+    <div class="src">来源：28 页 §3 + 31 页凭据</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 28-2 · 抓取与搜索的分工</div>
+    <pre># 搜索给了标题+摘要，模型想看全文 → web_fetch({url})
+# → web-fetch-http provider（inject=['web']）：HTTP GET + 正文提取
+# → 截断到上限（防超大页面撑爆上下文，28 页易错点）
+# → 结果进 13/14 页流水线
+# 两段式：搜索发现 URL，抓取取正文——与 22 页 subagent 的 spawn/fork 一样的「正交分工」</pre>
+    <div class="src">来源：28 页 §3</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

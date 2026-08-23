@@ -98,6 +98,16 @@
 </section>
 
 <section id="s2">
+  <h2><span class="sec-num">§2</span>示例贯穿：全书配套真实轨迹（2026-08-23）</h2>
+  <p>用户反馈：纯讲解难吃透，要<strong>带入示例</strong>看。新增「示例轨迹」组件（米色 <code>.trace</code> 块），全书 33 页每页一个「示例」节：</p>
+  <ul>
+    <li><strong>卷零（00-04）</strong>：用真实命令 <code>pnpm dsh web</code> 贯穿——真实 argv 分解、本机真实 profile 目录（~/.dsh）、真实 dump-config 输出（135 个条目）、真实 help 文本、五层补丁的真实内容。</li>
+    <li><strong>卷一（05-17）</strong>：用一条消息「帮我列一下当前目录」贯穿——完整的 turn/step 事件序列（seq 0-16 逐条标注）、真实 fixture 的 JSONL 行格式（plain-turn）、inbox 三个 splice、preStep 四动作实况、请求折叠、流 chunk、压缩/取消/interrupted 分支。</li>
+    <li><strong>卷二（20-34）</strong>：每章配该能力域的实况轨迹（持久化的崩溃恢复、压缩的 replace 事件、子代理的血缘头、审批的升级流程等），并与卷一的 seq 序列交叉引用。</li>
+    <li>所有示例标注「来源」行（真实文件/真实行号/真实输出），与解读严格分离——轨迹是可复现的数据，不是叙事。</li>
+  </ul>
+
+  <h2><span class="sec-num">§3</span>结构性重构：从叙事到全书（2026-08-23）</h2>
   <h2><span class="sec-num">§2</span>结构性重构：从叙事到全书（2026-08-23）</h2>
   <p>用户反馈：旧结构只讲了「叙事逻辑」（核心机制的故事），没有把<strong>整个项目线性地讲清</strong>。重构为三卷全书结构：</p>
   <ul>
@@ -107,7 +117,7 @@
     <li>导航改为三卷分组；新增 <code>assets/nav.js</code> 共享导航。</li>
   </ul>
 
-  <h2><span class="sec-num">§3</span>rc.7 → 0.1.1-rc.2：同步（2026-08-21）</h2>
+  <h2><span class="sec-num">§4</span>rc.7 → 0.1.1-rc.2：同步（2026-08-21）</h2>
   <p>本轮 pull 的变更量：<strong>3319 个文件、+83084/-21535</strong>（含两个 rc 版本的全部合入）。站点锚定的 18 个文件里有实质语义变更的集中在四处，均已更新：</p>
 
   <h3>① 取消时固化文本前缀（interrupted 锚点）—— 11 页更新</h3>
@@ -140,8 +150,8 @@
   </ul>
 </section>
 
-<section id="s4">
-  <h2><span class="sec-num">§4</span>rc.5 → rc.7：首轮同步（2026-08-19）</h2>
+<section id="s5">
+  <h2><span class="sec-num">§5</span>rc.5 → rc.7：首轮同步（2026-08-19）</h2>
   <p>首次同步时上游从 rc.5 升到 rc.7。当时站点精读的核心文件几乎没动，只有一处实质语义变更：</p>
   <ul>
     <li><strong>assembler.ts 的 max-tokens keep/drop 收敛</strong>（PR #2596 deepseek-maxToken-consistency）：新增 <code>assembled()</code> 统一决策——<code>blocks()</code> 与 <code>replayState</code> 同源派生，max-tokens 截断丢弃无法安全执行的 tool-call 块；replay envelope 块数不对齐时 replayState 归 undefined。已写入 11 页。</li>
@@ -150,8 +160,8 @@
   </ul>
 </section>
 
-<section id="s5">
-  <h2><span class="sec-num">§5</span>同步方法（供后续复用）</h2>
+<section id="s6">
+  <h2><span class="sec-num">§6</span>同步方法（供后续复用）</h2>
   <p>每轮 pull 后的标准流程：</p>
   <ol>
     <li><code>git pull --ff-only</code>，记录新 HEAD 与 release 版本。</li>

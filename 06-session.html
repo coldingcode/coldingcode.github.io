@@ -83,6 +83,45 @@
   <span class="seg">(下一步) 07 Inbox.mutate 也调 append</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：真实 JSONL 的每一行长什么样</h2>
+  <p>真实会话日志（<code class="path">packages/test-support/acp-snapshot/tests/fixtures/suite/plain-turn/behavior.json</code> 里钉住的格式）与我们的示例消息对照：</p>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 06-1 · 真实 fixture 的 session.jsonl 行</div>
+    <pre>{ "type": "session", "id": "{{SID}}", "createdAt": 200, "cwd": "{{CWD}}", "delegationDepth": 0 }
+{ "type": "request/header", "seq": 0, "time": 5, "data": { "header": {
+    "config": { "model": "fake" }, "system": "SYS PROMPT",
+    "tools": [{ "name": "t1", "description": "D1", "parameters": { "type": "object" } }] },
+  "reason": "initial" } }
+{ "type": "assistant/chunk", "seq": 1, "time": 5, "data": {
+    "turn": 1, "step": 1, "chunk": { "type": "text-delta", "index": 0, "text": "hi" } } }</pre>
+    <div class="src">来源：仓库真实 fixture（plain-turn/behavior.json）。第一行是 session 头（不在事件日志里，对应本页 header 概念）；后两行是事件——注意 seq 从 0 连续、信封是 {type, seq, time, data}</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 06-2 · 我们的消息经过 append 变成什么</div>
+    <pre># turn() 282 行调用：session.append('user/message', message, {surfaceOp:'append'})
+# 输入：{ role:'user', content:[{type:'text',text:'帮我列一下当前目录'}], source:{kind:'user'} }
+# append 的变换（本页 604-655 行）：
+# ① snapshotJsonValue 无损 JSON 校验 → 通过（纯文本）
+# ② deepFreeze 冻结 → 事件对象不可变
+# ③ seq = log.length（此时假设 log 已有 2 条：turn/start=0、step/start=1）→ seq=2
+# ④ log.push → 内存日志第 3 条；session/event 通知持久化插件
+# 落盘事件：
+{ "type":"user/message", "seq":2, "time":..., "data":{...原样...}, "surfaceOp":"append" }</pre>
+    <div class="src">来源：06 页 append 行级解读 + 05 页 282-283 行</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 06-3 · 为什么这个事件「模型可见」</div>
+    <pre># surface 校验（634 行 validateNext）：user/message 是三个消息生产类型之一，
+# surfaceOp:'append' 合法 → 追加到 surface 尾部
+# → 之后 09 页 buildRequest 的 deriveMessages() 会把它投影进模型请求
+# 若换成 surfaceOp:{op:'replace',start:0,end:0}（compaction 摘要），
+# 它就会替换 surface 上的节点——日志不变，模型所见变（21 页）。</pre>
+    <div class="src">来源：surface.ts 的 planSurfaceEvent + 21 页压缩章</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

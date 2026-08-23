@@ -26,6 +26,32 @@
   <span class="seg">(回心脏) 终端的增量输出经 jobs（25 页）或直接进工具结果</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：跨多次工具调用的终端会话</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 27-1 · 终端 vs 普通 bash 的差异</div>
+    <pre># 普通 bash（17 页）：每次调用 spawn 新进程
+#   bash("pwd") → 新 bash → 退出；bash("cd x && pwd") → 又一个新 bash
+# 终端（terminal-bash，inject=['terminals','sandboxPolicy','subprocess']）：
+#   terminal_exec("pwd")       → 会话 t1 的 PTY 进程执行
+#   terminal_exec("cd src")    → 同一 PTY，目录状态保留
+#   terminal_exec("pwd")       → /workspace/src（前一条 cd 生效了）
+# 持久性在 TerminalSessionService（terminal/src/index.ts:105）的契约里</pre>
+    <div class="src">来源：27 页 §3 + 16 页 spawnTerminal</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 27-2 · LSP 的结构化问答</div>
+    <pre># 模型：lsp("auth.ts 里 authenticate 的定义在哪？")
+# lsp-stdio（inject=['fs','lsp','subprocess']）：
+#   subprocess.spawn 语言服务器进程（16 页下层）
+#   JSON-RPC: textDocument/definition → 结果 {file:'src/auth.ts', line:42}
+# 对比 grep 文本搜索：LSP 给的是符号级答案
+# 换 subprocess provider（e2b 远程）→ LSP 与终端一起搬（15 页结论）</pre>
+    <div class="src">来源：27 页 §3 + 15 页共享执行世界</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

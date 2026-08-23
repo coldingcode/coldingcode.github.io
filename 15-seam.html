@@ -83,6 +83,36 @@
   <span class="seg">(旁支子页) 16 bash-local · 17 tool-bash</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：一次 bash 调用跨过两个 seam 的完整路径</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 15-1 · 从模型工具到进程的调用链</div>
+    <pre>模型调用 bash("ls -la")
+  → 14 页流水线 → tool-bash 的 execute（17 页 330 行）
+  → ctx.shellEnv.collect(exec)                    ← DSH_* 快照
+  → ctx.shell.resolve(request)                    ← ShellExecutor 抽象（15 页 85 行）
+  → LocalBashExecutor（16 页）：默认值/上限/env 合并 → ShellExecSpec
+  → ctx.shell.run(spec)（17 页 380 行）
+  → LocalBashExecutor.runArgv（16 页 223 行）：
+      deadline(signal, timeoutMs, 'BASH_TIMEOUT')
+      ctx.subprocess.spawn(spawnSpec(spec, ['bash','-c','ls -la'], ...))
+  → LocalSubprocessRuntime（16 页 §4）：detached 进程树 + 输出采集
+  → 结果上行：ShellRunResult → renderResult（退出码 marker）→ 14 页 post → tool/result</pre>
+    <div class="src">来源：15 页全景图 + 16/17 页行级解读。整条链上没有 shell/* 事件——纯 Service 注入（15 页 §3 的判定）</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 15-2 · 换 provider 只改一行配置</div>
+    <pre># 把 bash-local 换成 bash-sandbox（cordis.patch.yml）：
+# - id: bash-sandbox
+#   name: '@deepseek-ai/dsh-bash-sandbox'
+# 挂载后：ctx.shell 解析到沙箱化 executor，tool-bash 一行不改
+# （17 页的 consumer 只依赖 'shell' 服务，不依赖具体实现）
+# 沙箱 executor 的 sandboxMode 非 undefined → tool-bash 启用升级审批（17 页 192 行）</pre>
+    <div class="src">来源：15 页三件套 + 17 页能力探针</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

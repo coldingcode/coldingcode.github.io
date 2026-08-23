@@ -85,6 +85,36 @@
   <span class="seg">(终点) 活插件树 → 05 脊柱</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：dsh web 的五层拼齐 + 热更新</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 04-1 · 本次 dsh web 的五层补丁实际内容</div>
+    <pre># composeProfile('web', []) 的真实结果（对照 04 页 142-171 行）：
+# ① bundle 层：dsh-base 的 78 行 + dsh-web-app 的行（02 页示例轨迹 02-2 的 patches）
+# ② profile 用户层：~/.dsh/profiles/web/cordis.patch.yml → 真实内容是空数组 []
+# ③ home 用户层：~/.dsh/cordis.patch.yml → 不存在 → loadOptionalPatches 返回 []
+# ④ --patch overlay：本次没传 → []
+# ⑤ 遥测开关：DSH_TELEMETRY_DISABLED 未设 → 无补丁
+#
+# 所以本次的最终条目表 = 135 个条目（03 页 dump 的真实数字）
+# 五层中只有第①层有内容——这就是「出厂即默认」的形态。</pre>
+    <div class="src">来源：本机真实文件（profile patch 是空 []）+ 04 页 composeProfile</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 04-2 · 热更新验证（本机可复现）</div>
+    <pre># 1. 启动 dsh web（长驻进程）
+# 2. 编辑 ~/.dsh/profiles/web/cordis.patch.yml，例如禁用 timer：
+#    - id: timer
+#      disabled: true
+# 3. 进程不重启：watchUserPatches（285 行）发现变化 → composeLive() 重算
+#    → Loader 卸载旧 timer fiber（其注册全部逆转）→ 无新 timer 挂载
+# 4. 再删掉这两行 → timer 恢复。改配置即改树。</pre>
+    <div class="src">来源：04 页 279-290 行 + profile-boot.ts 的 watchUserPatches</div>
+  </div>
+  <p>卷零完成。下一卷：<a href="05-spine.html">05 脊柱</a>——这棵树里 <code>dsh-agent-loop</code> 的心脏。</p>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>

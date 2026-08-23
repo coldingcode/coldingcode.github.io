@@ -85,6 +85,36 @@
   <span class="seg">(下一步) 09 buildRequest</span>
 </div>
 
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：step 1 的 preStep 四动作实况</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 08-1 · 四动作的输入输出</div>
+    <pre># ① claim（229 行）：next-step=[]，next-turn=['帮我列一下当前目录']
+#    → claimed = ['帮我列一下当前目录']
+# ② assemble（230 行）：systemPrompt.assemble(assembleContextFor(agent, signal))
+#    → assembly = { sections:[harness 身份, persona, 工具指引...],
+#                   tools:[bash, read, write, ... 的 schema],
+#                   contexts:[...] }            ← 12 页详述
+# ③ project（234 行）：runtimeContext 无变化（首步）→ context = undefined
+# ④ waterfall agent/pre-step（235 行）：
+#    fallback 返回 { kind:'enter',
+#      messages: context===undefined ? claimed : [...claimed, context] }
+#      = { kind:'enter', messages:['帮我列一下当前目录'] }
+#    假设某个插件（如 agent-instructions）在链上插了一条 AGENTS.md 上下文：
+#    → 最终 { kind:'enter', messages:[原消息, AGENTS.md 上下文] }</pre>
+    <div class="src">来源：08 页行级解读；AGENTS.md 注入路径见 23 页</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 08-2 · 如果插件 reject 会发生什么</div>
+    <pre># 某插件返回 { kind:'reject' }（不调 next）→ 短路
+# → turn() 267 行：turnEnds={kind:'blocked'}，turn 关闭，无 step 事件
+# 注意：claimed 的消息已经离开 inbox（claim 在 waterfall 之前）！
+# 日志里没有它的 user/message——被拒的消息就丢弃（05 页的语义）</pre>
+    <div class="src">来源：08 页 §2 + 05 页 266-269 行</div>
+  </div>
+</section>
+
+
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>
