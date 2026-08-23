@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>21 压缩与上下文 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>全书目录</a></li>
+    <li><a href="changelog.html"><span class="idx">★</span>版本更新</a></li>
+  </ul>
+  <div class="nav-group">卷零 · 入口与组装</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">卷一 · 核心循环深读</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">卷一（旁支） · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-group">卷二 · 能力全景</div>
+  <ul class="nav-list">
+    <li><a href="20-persist.html"><span class="idx">20</span>持久化与恢复</a></li>
+    <li><a href="21-compaction.html" class="active"><span class="idx">21</span>压缩与上下文</a></li>
+    <li><a href="22-subagent.html"><span class="idx">22</span>子代理</a></li>
+    <li><a href="23-skill.html"><span class="idx">23</span>技能与命令</a></li>
+    <li><a href="24-goal-plan.html"><span class="idx">24</span>目标与计划</a></li>
+    <li><a href="25-workflow-jobs.html"><span class="idx">25</span>工作流与任务</a></li>
+    <li><a href="26-fs.html"><span class="idx">26</span>文件系统</a></li>
+    <li><a href="27-terminal-lsp.html"><span class="idx">27</span>终端与 LSP</a></li>
+    <li><a href="28-web.html"><span class="idx">28</span>Web 能力</a></li>
+    <li><a href="29-approval.html"><span class="idx">29</span>审批、权限与沙箱</a></li>
+    <li><a href="30-storage.html"><span class="idx">30</span>存储与会话查询</a></li>
+    <li><a href="31-settings.html"><span class="idx">31</span>设置、凭据与身份</a></li>
+    <li><a href="32-sdk-api.html"><span class="idx">32</span>SDK 与 API 服务</a></li>
+    <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
+    <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 21</p>
+  <h1>压缩与上下文：surface replace 的消费者</h1>
+  <p class="lede">06 页见过 <code>SurfaceOp: replace</code> 的机制（compaction 用它在 surface 上遮蔽历史）。这一章看 producer 侧：<strong>谁触发压缩、压缩出的摘要如何变成 replace 事件、token 计量如何驱动它</strong>。它还是 <code>runMaintenance</code>（05 页三态之一）的最典型调用者。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 05 页 maintenance 相 · 06 页 surface replace</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：compaction / compaction-basic / token-meter / tool-result-pruner</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) replace 后 deriveMessages 重建（06 页 replaceGeneration）</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：触发 → 摘要 → replace</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>compaction-basic → @deepseek-ai/dsh-compaction-basic</code>（基础引擎实现）</li>
+    <li><code>token-meter → @deepseek-ai/dsh-token-meter</code>（1027 行）——用量计量，压缩的触发依据</li>
+    <li><code>command-compact → @deepseek-ai/dsh-command-compact</code>（136 行）——<code>/compact</code> 用户命令</li>
+    <li><code>spill-local / spill-policy → dsh-spill-local / dsh-spill-policy</code>——工具输出溢出到磁盘的闸门（13 页 tail-keep 的姊妹机制）</li>
+    <li><code>tool-result-pruner → dsh-compaction-tool-result-pruner</code>——工具结果的裁剪</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/compaction/compaction/</code></td><td>6 文件 / 792 行</td><td><strong>Service Definition</strong>：<code>CompactionEngine extends Service</code>（src/index.ts:96）——抽象压缩引擎</td></tr>
+    <tr><td><code class="path">packages/compaction/compaction-basic/</code></td><td>6 文件 / 1621 行</td><td><strong>Provider</strong>：<code>static inject = ['llm', 'tokenMeter', 'sessions']</code>（src/index.ts:104）——用 LLM 生成摘要的引擎</td></tr>
+    <tr><td><code class="path">packages/llm/token-meter/</code></td><td>10 文件 / 1027 行</td><td><code>TokenMeter extends Service</code>（src/index.ts:74）——从 usage 事件累计 token 用量</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：触发 → 摘要 → replace</h2>
+  <ol>
+    <li><strong>触发</strong>：token-meter 累计用量超过阈值（config 可调——AGENTS.md 的「无硬编码可调参数」约定），或用户 <code>/compact</code> 命令。</li>
+    <li><strong>执行</strong>：走 <code>agent.runMaintenance()</code>（05 页）——<strong>压缩在真 idle 阶段运行，对外仍是 idle 状态</strong>，与 turn 不打架。</li>
+    <li><strong>摘要</strong>：compaction-basic 把历史交给 LLM 生成摘要（它的 inject 里有 <code>llm</code>——压缩本身也是一次模型调用，走 10 页的同一 llm/stream）。</li>
+    <li><strong>replace</strong>：摘要作为一条带 <code>surfaceOp: {op:'replace', start, end}</code> 的 <code>user/message</code> 落盘——06 页的 surface 校验（<code>assertProvenance</code> 要求 sourceEventSeqs 覆盖每一个被遮蔽节点）在此生效。</li>
+    <li><strong>重建</strong>：<code>replaceGeneration</code> 变化 → <code>deriveMessages</code> 缓存重建——模型下一请求看到的就是摘要（09 页 507 行 messages 的来源）。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/compaction/compaction/src/index.ts</span><span>压缩引擎的 Service Definition</span><span class="ln-range">96</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">96</span><span class="tok-k">export abstract class</span> <span class="tok-t">CompactionEngine</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/compaction/compaction-basic/src/index.ts</span><span>引擎实现的依赖面</span><span class="ln-range">104</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">104</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'llm'</span>, <span class="tok-s">'tokenMeter'</span>, <span class="tok-s">'sessions'</span>]</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">96</span><p>又是 seam 模板：抽象引擎（Definition）+ 实现（Provider）。换压缩策略 = 换 provider（比如未来一个「本地小模型摘要」引擎）。</p></div>
+    <div class="lr"><span class="ln-ref">104</span><p>依赖面说明一切：<code>llm</code>（生成摘要）、<code>tokenMeter</code>（判断该不该压）、<code>sessions</code>（落 replace 事件）。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>摘要事件是模型可见的 replace，不是人类可见的删除</strong>——人类读历史用 <code>isAppendSurfaceEvent</code>（06 页），摘要事件是 replacement 副本，只属于模型。UI 显示摘要时同样要靠 append-origin 过滤。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>压缩期间的新输入会怎样？</strong>maintenance 相的 wakeRequested latch（05 页 178 行）——压缩中被唤醒的请求挂起，压缩结束后重放。这就是 05 页「maintenance 与 aborted 的 driver 无法送达唤醒，必须 latch」的具体场景。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="20-persist.html"><span class="dir">← 20</span><span class="t">持久化与恢复</span></a>
+  <a class="next" href="22-subagent.html"><span class="dir">下一步 · 22</span><span class="t">子代理 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>32 SDK 与 API 服务 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 32</p>
+  <h1>SDK 与 API 服务：进程边界的另一边</h1>
+  <p class="lede">到目前为止全部能力都在进程内。这一章看进程边界：<strong>JSON-RPC SDK</strong>（程序化驱动 harness）、<strong>ACP 服务</strong>（Agent Client Protocol 自动化协议）、<strong>api/remotes 与 apiproxy</strong>（Web 的 BFF 层）、<strong>MCP 客户端</strong>（把外部 MCP 服务器变成 dsh 工具）。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 05 页 ctx.agents（一切接口的根）· 06 页 session/event（推送流）</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：sdk / acp / api-remotes / apiproxy / mcp-client / hooks</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 外部调用经 AgentRegistry 的 create/resume 进入 05 页循环</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：三条对外通道</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>typert* / api-gateway</code>（03 页的 typert 家族）——类型图生成 + RPC 网关</li>
+    <li><strong>可选挂载</strong>：acp（<code>inject = ['agents']</code>，src/index.ts:45）、sdk server（<code>inject = ['agents']</code>，src/index.ts:22）、mcp-client（<code>inject = ['tools']</code>，src/index.ts:31）、apiproxy（<code>ApiProxyService extends Service</code>，src/index.ts:69）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/sdk/</code></td><td>—</td><td>JSON-RPC 协议 + server（<code>inject = ['agents']</code>）+ TypeScript client（6 文件 / 952 行）</td></tr>
+    <tr><td><code class="path">packages/acp/acp/</code></td><td>—</td><td>ACP 自动化协议服务器（<code>inject = ['agents']</code>）——Agent Client Protocol（Zed 等编辑器生态）</td></tr>
+    <tr><td><code class="path">packages/host/apiproxy/</code></td><td>5 文件 / 4463 行</td><td>Web BFF：<code>ApiProxyService extends Service implements ApiProxy</code>（src/index.ts:69）——浏览器 UI 与宿主之间的 HTTP 代理层</td></tr>
+    <tr><td><code class="path">packages/api/remotes/</code></td><td>5 文件 / 327 行</td><td>远程 BFF 组装（agent-lookup / remote-events）</td></tr>
+    <tr><td><code class="path">packages/mcp/mcp-client/</code></td><td>5 文件 / 1171 行</td><td>MCP 客户端：把外部 MCP 服务器暴露为 dsh 工具（<code>inject = ['tools']</code>）</td></tr>
+    <tr><td><code class="path">packages/hooks/</code></td><td>—</td><td>Claude Code/Codex hook 桥 + 线协议库（hook-protocol 9 文件 / 854 行）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：三条对外通道</h2>
+  <ol>
+    <li><strong>机器通道（SDK / ACP）</strong>：外部程序经 JSON-RPC（SDK）或 ACP 协议驱动 agents——<code>inject = ['agents']</code> 说明它们站在 05 页的注册表上。SDK 是 dsh 自己的协议，ACP 是行业协议。</li>
+    <li><strong>浏览器通道（apiproxy / remotes）</strong>：Web UI（33 页）与宿主之间的 BFF——HTTP 请求 → 宿主内部调用 → 事件流回推。apiproxy 4463 行是宿主侧最大的服务之一。</li>
+    <li><strong>工具通道（mcp-client）</strong>：把外部 MCP 服务器的工具映射进 14 页 registry——模型看到它们与原生工具无差别。方向相反：dsh 是客户端，外部是服务器。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/acp/acp/src/index.ts</span><span>ACP 服务器</span><span class="ln-range">45</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">45</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'agents'</span>]</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/mcp/mcp-client/src/index.ts</span><span>MCP 客户端</span><span class="ln-range">31</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">31</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'tools'</span>]</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/host/apiproxy/src/index.ts</span><span>Web BFF</span><span class="ln-range">69</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">69</span><span class="tok-k">export class</span> <span class="tok-t">ApiProxyService</span> <span class="tok-k">extends</span> Service <span class="tok-k">implements</span> ApiProxy {</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">45</span><p>ACP 与 SDK server 都只依赖 agents——外部协议的入口极薄：协议翻译 + 注册表调用（create/resume），循环完全复用。</p></div>
+    <div class="lr"><span class="ln-ref">31</span><p>mcp-client 只依赖 tools——它不碰 agents，只往 14 页的 registry 里加工具。MCP 服务器的能力经它「本地化」。</p></div>
+    <div class="lr"><span class="ln-ref">69</span><p>apiproxy 是 Web 的宿主侧根——它 implement ApiProxy 契约（浏览器侧的类型生成自同一契约，typert 的产物）。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>进程边界的校验义务</strong>（AGENTS.md 的边界清单）：wire 输入必须验证——ACP/SDK 的参数是外部 JSON，进 05 页之前要过 parser（不能假设类型）。这是 06 页「信任静态类型只在同进程边界」约定的另一半。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>hooks 桥的意义</strong>：Claude Code/Codex 的 hook 协议让外部工具链在 dsh 的事件点上插桩——它是「互操作」域，不是核心循环的一部分。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="31-settings.html"><span class="dir">← 31</span><span class="t">设置、凭据与身份</span></a>
+  <a class="next" href="33-client-python.html"><span class="dir">下一步 · 33</span><span class="t">客户端、Python 与 Native →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('32')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

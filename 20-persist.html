@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>20 持久化与恢复 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<aside class="nav">
+  <div class="nav-head">
+    <div class="nav-logo">DSH</div>
+    <div class="nav-title">源码精读</div>
+    <div class="nav-sub">DeepSeek Harness</div>
+  </div>
+  <div class="nav-group">总览</div>
+  <ul class="nav-list">
+    <li><a href="index.html"><span class="idx">⌂</span>全书目录</a></li>
+    <li><a href="changelog.html"><span class="idx">★</span>版本更新</a></li>
+  </ul>
+  <div class="nav-group">卷零 · 入口与组装</div>
+  <ul class="nav-list">
+    <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
+    <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
+    <li><a href="02-parse.html"><span class="idx">02</span>loadProfile：五层</a></li>
+    <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
+    <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
+  </ul>
+  <div class="nav-group">卷一 · 核心循环深读</div>
+  <ul class="nav-list">
+    <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
+    <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
+    <li><a href="07-agent.html"><span class="idx">07</span>Inbox：双队列投影</a></li>
+    <li><a href="08-prestep.html"><span class="idx">08</span>preStep：四个动作</a></li>
+    <li><a href="09-buildreq.html"><span class="idx">09</span>buildRequest：日志→请求</a></li>
+    <li><a href="10-stream.html"><span class="idx">10</span>llm/stream：流式调用</a></li>
+    <li><a href="11-step.html"><span class="idx">11</span>step：循环、落盘、分支</a></li>
+    <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
+    <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
+    <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
+  </ul>
+  <div class="nav-group">卷一（旁支） · Shell 能力缝</div>
+  <ul class="nav-list">
+    <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
+    <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
+    <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-group">卷二 · 能力全景</div>
+  <ul class="nav-list">
+    <li><a href="20-persist.html" class="active"><span class="idx">20</span>持久化与恢复</a></li>
+    <li><a href="21-compaction.html"><span class="idx">21</span>压缩与上下文</a></li>
+    <li><a href="22-subagent.html"><span class="idx">22</span>子代理</a></li>
+    <li><a href="23-skill.html"><span class="idx">23</span>技能与命令</a></li>
+    <li><a href="24-goal-plan.html"><span class="idx">24</span>目标与计划</a></li>
+    <li><a href="25-workflow-jobs.html"><span class="idx">25</span>工作流与任务</a></li>
+    <li><a href="26-fs.html"><span class="idx">26</span>文件系统</a></li>
+    <li><a href="27-terminal-lsp.html"><span class="idx">27</span>终端与 LSP</a></li>
+    <li><a href="28-web.html"><span class="idx">28</span>Web 能力</a></li>
+    <li><a href="29-approval.html"><span class="idx">29</span>审批、权限与沙箱</a></li>
+    <li><a href="30-storage.html"><span class="idx">30</span>存储与会话查询</a></li>
+    <li><a href="31-settings.html"><span class="idx">31</span>设置、凭据与身份</a></li>
+    <li><a href="32-sdk-api.html"><span class="idx">32</span>SDK 与 API 服务</a></li>
+    <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
+    <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
+  </ul>
+  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+</aside>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 20</p>
+  <h1>持久化与恢复：日志如何落盘、崩溃如何修复</h1>
+  <p class="lede">06 页讲了「进日志 = 已提交」，磁盘写入是异步的。这一章看异步的另一端：谁把日志写到磁盘、写什么格式、重启后如何恢复、崩溃遗留的未闭合 turn 如何修复。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 06 页 Session.append → session/event 通知</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：session-persistence / session-persistence-jsonl / session-query-sqlite</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 恢复的 seed 走 06 页构造器校验</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：firehose → flush → 恢复 → repair</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <p>cordis.patch.yml（dsh-base bundle）里属于本域的四行：</p>
+  <ul>
+    <li><code>session-persistence-jsonl → @deepseek-ai/dsh-session-persistence-jsonl</code>——JSONL 后端</li>
+    <li><code>session-query-sqlite → @deepseek-ai/dsh-session-query-sqlite</code>——SQLite 查询索引</li>
+    <li><code>session-checkpoint-policy → @deepseek-ai/dsh-session-checkpoint-policy</code>（113 行）——按请求持久化检查点（06 页提过：loop 不在 turn 边界 flush，checkpoint 归它）</li>
+    <li><code>attachment-local → @deepseek-ai/dsh-attachment-local</code>——附件（图片等）本地存储</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/session/session-persistence/</code></td><td>6 文件 / 2160 行</td><td><strong>Service Definition</strong>：<code>SessionPersistence extends Service</code>（src/index.ts:84）——抽象的存储生命周期契约（load/store/remove、版本检查）</td></tr>
+    <tr><td><code class="path">packages/session/session-persistence-jsonl/</code></td><td>7 文件 / 1939 行</td><td><strong>Provider</strong>：JSONL 后端——<code>static inject = ['sessions']</code>（src/index.ts:124），把日志逐事件追加到 .jsonl 文件</td></tr>
+    <tr><td><code class="path">packages/session/session-query-sqlite/</code></td><td>—</td><td><strong>查询侧</strong>：SQLite 索引（会话列表、搜索）——与持久化后端解耦，是「查询」不是「存储」</td></tr>
+    <tr><td><code class="path">packages/session/session-checkpoint-policy/</code></td><td>2 文件 / 113 行</td><td>持久化检查点策略：决定何时 <code>session/flush</code></td></tr>
+    <tr><td><code class="path">packages/attachment/attachment-local/</code></td><td>8 文件 / 1270 行</td><td>附件本地存储（图片等非文本数据走这里，不进 JSONL）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：firehose → flush → 恢复 → repair</h2>
+  <p>整条链分四段，与 06 页的四个对外事件一一对应：</p>
+  <ol>
+    <li><strong>追加写（firehose）</strong>：jsonl 后端订阅 <code>session/event</code>，把每个事件规范序列化追加到 <code>&lt;sessionId&gt;.jsonl</code>。事件在内存里是深冻结的、无损 JSON 校验过的——后端可以逐字写（06 页 append 的「快照」就是为这一刻准备的）。</li>
+    <li><strong>检查点（flush）</strong>：<code>session/flush</code> 是 awaited 的并行持久化检查点；checkpoint-policy 决定「按请求」触发它——loop 不在 turn 边界 flush（06 页 types.ts 里 turn/end 的 JSDoc 原话）。</li>
+    <li><strong>恢复（seed）</strong>：重启时读 JSONL → 构造 seed 事件数组 → 走 06 页构造器<strong>同一条校验链</strong>（无损 JSON、seq 从 0 连续、surface 校验）→ <code>SESSION_FORMAT_VERSION</code> 不匹配则直接拒绝（版本钉 0，无迁移）。</li>
+    <li><strong>修复（repair）</strong>：<code class="path">packages/core/session/src/repair.ts</code>（133 行）扫描日志尾部未闭合的 turn/step/工具调用，合成确定性的 <code>tool/result</code>（<code>TOOL_NOT_STARTED</code>/<code>TOOL_OUTCOME_UNKNOWN</code>）、<code>step/end</code>、<code>turn/end</code>（reason: <code>interrupted</code>）。<strong>interrupted 这个 reason 是持久化后端专用的 crash 标记，loop 从不发出</strong>。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/session/session-persistence-jsonl/src/index.ts</span><span>后端与 sessions 服务的接缝</span><span class="ln-range">124</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">124</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'sessions'</span>]   <span class="tok-c">// 订阅 session/event 的前提</span></span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/session/session-persistence/src/index.ts</span><span>存储生命周期的抽象契约</span><span class="ln-range">84</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">84</span><span class="tok-k">export abstract class</span> <span class="tok-t">SessionPersistence</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">124</span><p>jsonl 后端只依赖 <code>sessions</code> 服务——它通过 <code>session/event</code> 事件与 <code>session/flush</code> 工作，不需要知道 loop 的存在。换后端 = 换这个 provider（sqlite 后端只需实现同一抽象）。</p></div>
+    <div class="lr"><span class="ln-ref">84</span><p>抽象契约在 session-persistence 包：load/store/remove + 版本拒绝语义。这是 seam 的 Service Definition——jsonl 是 Provider 之一。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>恢复必须走与 append 完全相同的校验链</strong>（06 页构造器）——一个能存不能恢复的日志比不存更糟。所以 seed 的校验强度与热路径 append 一致，失败在入口拦截而不是延迟到后续读取。</p>
+  </div>
+  <div class="callout warn">
+    <p><strong>「查询」与「存储」解耦</strong>：session-query-sqlite 是索引/搜索用的查询引擎（30 页），不是持久化后端。持久化靠 JSONL（追加、无损），查询靠 SQLite（随机访问）——两个后端各司其职。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="17-shell-consumer.html"><span class="dir">← 17</span><span class="t">tool-bash Consumer（卷一末）</span></a>
+  <a class="next" href="21-compaction.html"><span class="dir">下一步 · 21</span><span class="t">压缩与上下文 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

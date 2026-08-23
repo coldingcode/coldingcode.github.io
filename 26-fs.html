@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>26 文件系统 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 26</p>
+  <h1>文件系统：事件 gate 型 seam 的样板</h1>
+  <p class="lede">15 页给过判定口诀：<strong>provider 与 policy 靠事件名连接 = 事件 gate 型</strong>。fs 就是这种类型的样板——<code>fs/write-intent</code>、<code>fs/edit-intent</code>、<code>fs/observed</code> 三个事件让 policy 注入检查，而不是靠 <code>ctx.get()</code> 直接调。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 14 页工具流水线（tool-fs 的 body）· 15 页事件 gate 判定</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：fs / tool-fs / tool-fs-search / tool-str-replace-editor / fs-sandbox / fs-observation-policy</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) fs 写意图经事件 gate → 策略放行/拒绝 → 工具结果</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：事件 gate 的完整形态</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>fs-observation-policy → dsh-fs-observation-policy</code>——写意图的观察策略（事件 gate 的消费者）</li>
+    <li><code>tool-fs → dsh-tool-fs</code>（1517 行）——文件读写工具（inject = ['tools','fs','systemPrompt']，src/index.ts:22）</li>
+    <li><code>tool-fs-search → dsh-tool-fs-search</code>（1578 行）——文件搜索工具</li>
+    <li><code>tool-str-replace-editor → dsh-tool-str-replace-editor</code>（553 行）——字符串替换编辑</li>
+    <li><code>fs-sandbox → dsh-fs-sandbox</code>——沙箱化 fs 提供方（<code>static inject = ['sandboxPolicy']</code>，src/index.ts:60）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/fs/fs/</code></td><td>—</td><td><strong>Service Definition</strong>：<code>FileSystem extends Service</code>（src/index.ts:86）+ 事件声明——<code>fs/write-intent</code> 是 waterfall（src/index.ts:58）</td></tr>
+    <tr><td><code class="path">packages/fs/fs-observation-policy/</code></td><td>—</td><td><strong>Policy</strong>：监听 write-intent，<strong>占据唯一决策槽、不调 next()</strong>（src/index.ts:116-119）——这是与 Service 型 seam 最大的区别</td></tr>
+    <tr><td><code class="path">packages/fs/tool-fs/</code></td><td>12 文件 / 1517 行</td><td><strong>Consumer</strong>：文件读写工具（read 结果带 diff 视图——05 页老站提过的 presentResult meta）</td></tr>
+    <tr><td><code class="path">packages/fs/tool-fs-search/</code></td><td>8 文件 / 1578 行</td><td>搜索工具（内置 grep 语义）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：事件 gate 的完整形态</h2>
+  <ol>
+    <li><strong>provider 发意图</strong>：fs 工具要写文件前，发出 <code>fs/write-intent</code>（waterfall）——携带目标与 actor。</li>
+    <li><strong>policy 拦截</strong>：fs-observation-policy 的监听器<strong>不调 next()</strong>（占据决策槽）——返回策略的判定（放行/改写/拒绝）。这就是「事件 gate」：policy 不通过 <code>ctx.get</code> 被调用，而是通过事件链被<strong>拦</strong>下来。</li>
+    <li><strong>观察回传</strong>：<code>fs/observed</code> 报告实际发生的变化（供注入、UI 更新等下游）。</li>
+  </ol>
+  <p>与 15 页的 shell 对比：shell 的连接是 <code>ctx.shell.resolve → run</code>（调用链），fs 的连接是 <code>intent → 事件 → policy</code>（拦截链）。前者适合「能力替换」，后者适合「行为管制」。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/fs/fs/src/index.ts</span><span>事件声明与 Service Definition</span><span class="ln-range">58, 86</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">58</span>    <span class="tok-s">'fs/write-intent'</span>(target: FsTarget, actor: object | <span class="tok-k">undefined</span>, next: () =&gt; FsWriteIntent | <span class="tok-k">undefined</span> | Promise&lt;FsWriteIntent | <span class="tok-k">undefined</span>&gt;): Promise&lt;FsWriteIntent | <span class="tok-k">undefined</span>&gt;</span>
+<span class="code-line"><span class="ln">86</span><span class="tok-k">export abstract class</span> <span class="tok-t">FileSystem</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/fs/fs-observation-policy/src/index.ts</span><span>policy 占据决策槽</span><span class="ln-range">116-119</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">116</span>  <span class="tok-c">// fs/write-intent: occupy the single decision slot — do NOT call next().</span></span>
+<span class="code-line"><span class="ln">119</span>  ctx.<span class="tok-f">on</span>(<span class="tok-s">'fs/write-intent'</span>, (target, actor) =&gt; Promise.<span class="tok-f">resolve</span>().then(() =&gt; gate.<span class="tok-f">writeIntent</span>(target, actor)))</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">58</span><p>waterfall 事件声明：返回值是 <code>FsWriteIntent | undefined</code>——policy 的判定就是返回值（放行/改写/拒绝）。</p></div>
+    <div class="lr"><span class="ln-ref">86</span><p>FileSystem 的 Definition 与 shell 同构（都是 Service），区别在「连接方式」——fs 多了一层事件 gate。</p></div>
+    <div class="lr"><span class="ln-ref">116-119</span><p><strong>注释就是判定口诀的原文</strong>：occupy the single decision slot, do NOT call next()。事件 gate 型 policy 的典型形态——不调 next = 短路（08 页 waterfall 语义），决策完全由 policy 给出。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>事件 gate 的监听器不调 next() 是有意的</strong>——但这意味着只能有一个 policy 占据决策槽。第二个 policy 也会短路掉第一个的判定。多 policy 组合要靠 policy 内部编排，不能指望事件链叠加。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>fs 与 subprocess 共享执行世界</strong>（15 页提过）：把 fs + subprocess 提供方一起指向远程沙箱（e2b），bash、PTY、LSP 全部跟着搬——这就是为什么它们是两个独立的 seam 却设计成可指向同一后端。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="25-workflow-jobs.html"><span class="dir">← 25</span><span class="t">工作流与任务</span></a>
+  <a class="next" href="27-terminal-lsp.html"><span class="dir">下一步 · 27</span><span class="t">终端与 LSP →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('26')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

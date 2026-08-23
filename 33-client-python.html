@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>33 客户端、Python 与 Native · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 33</p>
+  <h1>客户端、Python 与 Native：三个外围平面</h1>
+  <p class="lede">最后一组外围：<strong>client 包群</strong>（Web UI 的 React 组件与浏览器运行时）、<strong>python/sdk</strong>（Python 语言的 harness 客户端 + 内置运行时）、<strong>native/</strong>（landlock 沙箱的 node-addon）。它们不参与核心循环，但完整了产品面。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 32 页 apiproxy（client 的宿主）· 06 页 session/event（渲染源）</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：packages/client/*（36 包）· python/sdk · native/landlock-run</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) UI 渲染 06 页日志的投影；Python 客户端经 32 页 SDK 协议驱动 agents</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">client 包群</a></li>
+    <li><a href="#s2">python/sdk</a></li>
+    <li><a href="#s3">native/landlock-run</a></li>
+    <li><a href="#s4">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>client 包群（36 包）</h2>
+  <p><code class="path">packages/client/</code> 是 Web UI 的全部：</p>
+  <ul>
+    <li><strong>浏览器运行时</strong>：<code>web-react</code>（React 桥）、<code>connection</code>（9 文件 / 937 行，与宿主 apiproxy 的连接）、<code>runtime</code>（56 行）</li>
+    <li><strong>UI 组件族</strong>：ui-conversation、ui-sidebar、ui-tool、ui-permission-presets、ui-model-selection、ui-subagent、ui-workflow-run、ui-directory-picker-browse……每个能力域一个 UI 包（命名即能力）。</li>
+    <li><strong>主题与基础</strong>：ui-theme（156 行）、ui-primitives（855 行）——设计系统层。</li>
+    <li><strong>浏览器安全约束的延伸</strong>：06 页提过 surface.ts/json.ts 是「浏览器安全子路径」（禁 node: 导入）——client 消费它们就是原因。UI 渲染的 transcript 用 <code>isAppendSurfaceEvent</code> 过滤（06 页），模型可见的 replace 不进人类视图。</li>
+  </ul>
+  <p>读 UI 的正确姿势：<strong>先读 apiproxy 的契约（32 页），再读对应 ui-* 包的渲染器</strong>——数据永远是 06 页日志的投影，UI 不发明状态。</p>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>python/sdk</h2>
+  <p><code class="path">python/sdk/src/deepseek_harness/</code> 是 Python 客户端（5 个模块：api / client / errors / models / __init__）：</p>
+  <ul>
+    <li><strong>协议客户端</strong>：与 32 页的 JSON-RPC SDK 对应——Python 程序驱动 harness agents。</li>
+    <li><strong>内置运行时</strong>：python/README 提到 bundled runtime——Python SDK 自带运行时环境（对模型可见的 Python 代码执行），与 14 页的 Code Mode 呼应（py-types.ts 渲染的 SDK 就跑在这种运行时里）。</li>
+    <li><strong>模型可见断言</strong>：python 的测试里有「model-visible surface」的 pin（PR #2462）——「模型可见 ⟺ 已记录」不变量在 Python 侧同样被测试钉住。</li>
+  </ul>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>native/landlock-run</h2>
+  <p><code class="path">native/landlock-run/</code> 是 <code>@deepseek-ai/node-addon-landlock-run</code> 的源：Linux Landlock 沙箱的 node-addon（平台包 linux-x64/linux-arm64）。它对应 29 页的沙箱域——Landlock 是 Linux 的「文件系统访问控制」内核机制，addon 把它暴露给 harness 的沙箱 provider。</p>
+  <p>结构：<code>packages/entry</code>（JS 面）+ 两个平台包（linux-x64 / linux-arm64）+ 顶层 source of record。Windows 的 ACL 沙箱（29 页的 sandbox-windows-acl）是它的平台对应物——<strong>沙箱能力是平台实现的，seam 是平台无关的</strong>。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>client 的 transcript ≠ surface</strong>（06 页再强调）：UI 显示的历史必须用 append-origin 过滤——compaction 摘要只属于模型。UI 直接渲染 surface 会把用户见过的对话「替换」掉。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>native addon 是「平台实现」不是「平台分支」</strong>：landlock-run（Linux）与 sandbox-windows-acl（Windows）都实现 29 页的沙箱 seam——产品代码不写 <code>if (platform)</code>，平台差异被 seam 吸收。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="32-sdk-api.html"><span class="dir">← 32</span><span class="t">SDK 与 API 服务</span></a>
+  <a class="next" href="34-infra.html"><span class="dir">下一步 · 34</span><span class="t">工程基础设施 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('33')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

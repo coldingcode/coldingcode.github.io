@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>30 存储与会话查询 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 30</p>
+  <h1>存储与会话查询：结构化数据的两个后端</h1>
+  <p class="lede">storage 域提供「键值/结构化存储」的 seam（<code>Storage extends Service</code>，含 sqlite 与 json 两个 provider）；session-query 域是「会话列表/搜索」的查询引擎（20 页提过的 sqlite 索引在此）。加上 session-projection（会话投影）与 session-stats（统计）。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 20 页持久化后端 · 06 页日志</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：storage / storage-sqlite / storage-json / session-query / session-query-sqlite / tool-session-query / session-projection</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 查询结果喂 UI（32 页）或模型（tool-session-query）</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：存储 seam 与查询引擎</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>session-query-sqlite → dsh-session-query-sqlite</code>——SQLite 查询索引（20 页的「查询侧」）</li>
+    <li><code>session-projection → dsh-session-projection</code>——会话投影（把日志投影成结构化的 UI 视图）</li>
+    <li><code>storage / storage-json / storage-sqlite</code>——通用存储 seam（部分在 profile 层追加挂载）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/storage/storage/</code></td><td>5 文件 / 331 行</td><td><strong>Service Definition</strong>：<code>Storage extends Service</code>（src/index.ts:47）</td></tr>
+    <tr><td><code class="path">packages/storage/storage-sqlite/</code></td><td>4 文件 / 476 行</td><td><strong>Provider</strong>：SQLite——<code>inject = ['storage']</code>（src/index.ts:21）</td></tr>
+    <tr><td><code class="path">packages/storage/storage-json/</code></td><td>5 文件 / 424 行</td><td><strong>Provider</strong>：JSON 文件后端</td></tr>
+    <tr><td><code class="path">packages/session-query/session-query/</code></td><td>11 文件 / 1718 行</td><td><strong>Service Definition</strong>：<code>SessionQueryEngine extends Service</code>（src/index.ts:81），<code>static inject = ['sessions']</code>（82 行）</td></tr>
+    <tr><td><code class="path">packages/session-query/tool-session-query/</code></td><td>7 文件 / 1444 行</td><td><strong>Consumer</strong>：模型查询历史会话的工具</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：存储 seam 与查询引擎</h2>
+  <ol>
+    <li><strong>storage = 通用结构化存储</strong>：sqlite/json 两个 provider，同一 Storage 契约。它服务于需要「随机读写」的插件（设置缓存、索引），与 20 页的 JSONL 追加日志互补。</li>
+    <li><strong>session-query = 会话检索</strong>：把会话日志同步进 SQLite 索引，支持列表/搜索（标题、时间、内容）。查询引擎的 Definition 依赖 sessions 服务（82 行）。</li>
+    <li><strong>tool-session-query = 模型的检索工具</strong>：模型可以查历史会话——这是「跨会话记忆」的一种实现。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/session-query/session-query/src/index.ts</span><span>查询引擎契约</span><span class="ln-range">81-82</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">81</span><span class="tok-k">export abstract class</span> <span class="tok-t">SessionQueryEngine</span> <span class="tok-k">extends</span> Service {</span>
+<span class="code-line"><span class="ln">82</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'sessions'</span>]</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/storage/storage/src/index.ts</span><span>存储服务</span><span class="ln-range">47</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">47</span><span class="tok-k">export class</span> <span class="tok-t">Storage</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">81-82</span><p>查询引擎依赖 sessions——它从日志事件流构建索引（session/event 的另一消费者）。查询与存储解耦的证据：定义里没有持久化后端的影子。</p></div>
+    <div class="lr"><span class="ln-ref">47</span><p>storage 是唯一不挂进 base bundle 的「存储」——它是通用设施，由需要的插件按需挂载（可选挂载）。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>索引与日志的一致性</strong>：查询引擎消费 <code>session/event</code> 异步构建索引——它永远是「最终一致」的。读查询结果做决策的代码不能假设索引实时（flush 前有窗口）。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>storage 与 persistence 的分工再强调</strong>（20 页同款）：追加日志（JSONL）是「事实」，随机存储（storage/sqlite）是「派生」——事实丢失可重放，派生丢失可重建。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="29-approval.html"><span class="dir">← 29</span><span class="t">审批、权限与沙箱</span></a>
+  <a class="next" href="31-settings.html"><span class="dir">下一步 · 31</span><span class="t">设置、凭据与身份 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('30')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

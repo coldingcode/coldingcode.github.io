@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>28 Web 能力 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 28</p>
+  <h1>Web 能力：搜索与抓取的另一个三件套</h1>
+  <p class="lede">web seam 与 15 页的 shell 完全同构：<code>WebRuntime</code>（Definition）+ 搜索/抓取 provider + <code>tool-web</code>（Consumer）。搜索后端可换（DeepSeek 搜索、Perplexity、Exa）——这就是 seam 的「换 provider 不改 consumer」在另一个域的重演。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 15 页 seam 模板 · 14 页工具流水线</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：web / web-fetch-http / web-search-deepseek / tool-web / web-search-perplexity / web-search-exa</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) tool-web 的结果走 13/14 页调度与流水线</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：搜索与抓取的分工</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>web → @deepseek-ai/dsh-web</code>——运行时（Definition）</li>
+    <li><code>web-search-deepseek → dsh-web-search-deepseek</code>（565 行）——DeepSeek 搜索后端</li>
+    <li><code>tool-web → dsh-tool-web</code>（1008 行）——模型可见的搜索/抓取工具</li>
+    <li><strong>可选挂载</strong>：<code>web-fetch-http</code>（476 行，HTTP 抓取 provider）、<code>web-search-perplexity</code>（296 行）、<code>web-search-exa</code>（303 行）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/web/web/</code></td><td>—</td><td><strong>Service Definition</strong>：<code>WebRuntime extends Service</code>（src/index.ts:74）——搜索/抓取契约</td></tr>
+    <tr><td><code class="path">packages/web/web-search-deepseek/</code></td><td>4 文件 / 565 行</td><td><strong>Provider</strong>：DeepSeek 搜索 API</td></tr>
+    <tr><td><code class="path">packages/web/web-fetch-http/</code></td><td>4 文件 / 476 行</td><td><strong>Provider</strong>：HTTP 抓取——<code>inject = ['web']</code>（src/index.ts:31）</td></tr>
+    <tr><td><code class="path">packages/web/tool-web/</code></td><td>5 文件 / 1008 行</td><td><strong>Consumer</strong>：<code>inject = ['tools', 'web', 'systemPrompt']</code>（src/index.ts:24）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：搜索与抓取的分工</h2>
+  <ol>
+    <li><strong>搜索（search）</strong>：provider 调搜索 API（DeepSeek 搜索 / Perplexity / Exa），返回结果条目。</li>
+    <li><strong>抓取（fetch）</strong>：provider 抓取 URL 正文——web-fetch-http 是本地 HTTP 实现。</li>
+    <li><strong>消费</strong>：tool-web 把两者合成模型可见的工具（<code>web_search</code>/<code>web_fetch</code>），结果经 13/14 页的调度与流水线。</li>
+  </ol>
+  <p>与 15 页 shell 对照读：<strong>完全同一套三件套骨架</strong>，只是「能力」从执行命令换成了访问网络。读到这里，你已经有能力不看文档猜出任何新 seam 的结构。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/web/web/src/index.ts</span><span>Web 运行时</span><span class="ln-range">74</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">74</span><span class="tok-k">export class</span> <span class="tok-t">WebRuntime</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/web/tool-web/src/index.ts</span><span>工具的三依赖</span><span class="ln-range">24</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">24</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'tools'</span>, <span class="tok-s">'web'</span>, <span class="tok-s">'systemPrompt'</span>]</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">74</span><p>web 的 Definition。与 ShellExecutor（15 页）的唯一区别是能力内容——结构一模一样。</p></div>
+    <div class="lr"><span class="ln-ref">24</span><p>inject 数组与 tool-bash（17 页 31 行）逐项对应：tools（注册）、能力本体（web）、systemPrompt（schema 进提示词）。缺 shellEnv 是因为网络工具不需要环境事实。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout info">
+    <p><strong>搜索 provider 的凭证从哪来？</strong>与 llm adapter 一样走 credentials seam（31 页）——provider 不硬编码 key，按请求解析。这保持了「provider 可替换、配置可热更新」。</p>
+  </div>
+  <div class="callout warn">
+    <p><strong>抓取内容的信任边界</strong>：web 内容是外部输入，进入工具结果前要考虑大小截断与编码（类似 16 页的 tail-keep 问题）——超大页面会撑爆上下文。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="27-terminal-lsp.html"><span class="dir">← 27</span><span class="t">终端与 LSP</span></a>
+  <a class="next" href="29-approval.html"><span class="dir">下一步 · 29</span><span class="t">审批、权限与沙箱 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('28')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

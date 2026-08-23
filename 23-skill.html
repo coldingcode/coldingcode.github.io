@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>23 技能与命令 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 23</p>
+  <h1>技能与命令：把知识变成工具、把动作变成命令</h1>
+  <p class="lede">技能（skill）是「给模型的即用知识包」，命令（command）是「无需模型轮次的直接动作」。两者都是模型能力的补充面：skill 通过注入进入上下文，command 通过 <code>ctx.commands</code> 免轮次分派。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 08 页 inject（不唤醒）· 12 页 prompt 片段</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：skill / skill-filesystem / tool-skill / commands / agent-instructions / command-feedback</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 技能内容经 inject 进 inbox → preStep 进模型上下文</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：注册 → 注入 → 消费</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>agent-instructions → @deepseek-ai/dsh-agent-instructions</code>（1863 行）——AGENTS.md/CLAUDE.md 指令文件（08 页「subdir AGENTS.md」inject 的来源）</li>
+    <li><code>skill → @deepseek-ai/dsh-skill</code>——技能注册表</li>
+    <li><code>skill-filesystem → dsh-skill-filesystem</code>（1071 行）——从磁盘发现 SKILL.md</li>
+    <li><code>skill-badge</code>（disabled）——badge 展示</li>
+    <li><code>tool-skill → dsh-tool-skill</code>（461 行）——模型查询/加载技能的工具</li>
+    <li><code>commands → @deepseek-ai/dsh-commands</code>——免轮次命令分派</li>
+    <li><code>command-feedback → dsh-command-feedback</code>——/feedback 命令</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/skill/skill/</code></td><td>2 文件 / 898 行</td><td><strong>Service Definition</strong>：<code>SkillRegistry extends Service</code>（src/index.ts:357）——技能注册/发现/读取</td></tr>
+    <tr><td><code class="path">packages/skill/skill-filesystem/</code></td><td>2 文件 / 1071 行</td><td><strong>Provider</strong>：<code>inject = ['skills']</code>（src/index.ts:46）——从目录树发现 SKILL.md</td></tr>
+    <tr><td><code class="path">packages/skill/tool-skill/</code></td><td>2 文件 / 461 行</td><td><strong>Consumer</strong>：<code>inject = ['agents', 'tools', 'skills']</code>（src/index.ts:25），<code>ctx.tools.register(skillTool)</code>（161 行）</td></tr>
+    <tr><td><code class="path">packages/context/agent-instructions/</code></td><td>7 文件 / 1863 行</td><td>AGENTS.md 扫描与注入——inject 的实际执行者</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：注册 → 注入 → 消费</h2>
+  <ol>
+    <li><strong>发现</strong>：skill-filesystem 扫描目录树里的 SKILL.md，注册进 <code>SkillRegistry</code>（名字、描述、正文）。</li>
+    <li><strong>工具暴露</strong>：tool-skill 把「查技能列表、读技能正文」做成模型工具——模型需要某项技能时主动调它（拉取式）。</li>
+    <li><strong>指令注入</strong>：agent-instructions 扫描工作区/子目录的 AGENTS.md（含父目录向上查找），把内容经 <code>agent.inject()</code> 放进 inbox——不唤醒（08 页 inject 语义），等下一次 step 边界被 claim 进上下文（拉取式之外还有推送式）。</li>
+    <li><strong>命令分派</strong>：<code>ctx.commands</code> 上的命令由 UI 直接触发，<strong>无需模型轮次</strong>——它是「旁路」（如 /compact 直接调压缩引擎，21 页）。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/skill/skill/src/index.ts</span><span>技能注册表</span><span class="ln-range">357</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">357</span><span class="tok-k">export class</span> <span class="tok-t">SkillRegistry</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/skill/tool-skill/src/index.ts</span><span>技能工具的三依赖面</span><span class="ln-range">25, 161</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">25</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'agents'</span>, <span class="tok-s">'tools'</span>, <span class="tok-s">'skills'</span>]</span>
+<span class="code-line"><span class="ln">161</span>  ctx.tools.<span class="tok-f">register</span>(skillTool)   <span class="tok-c">// 拉取式的入口</span></span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">357</span><p>技能域的 Definition。注意它是「注册表」而非「执行器」——技能本身没有运行时，正文就是它的全部。</p></div>
+    <div class="lr"><span class="ln-ref">25</span><p>tool-skill 的 inject 里有 <code>agents</code>——因为它需要 <code>agent.inject()</code> 把技能正文注入当前会话（与 agent-instructions 同一通道）。</p></div>
+    <div class="lr"><span class="ln-ref">161</span><p>「技能如何变成模型能力」的答案：注册进 tools（14 页 registry），schema 进提示词（12 页），模型调用它读取技能。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>技能注入走 inbox 不唤醒</strong>（08 页 inject 语义）——一条技能注入若在 preStep 已 claim 之后到达，会<strong>错过当前请求</strong>，落到下一步。这是「拉取式（工具）优于推送式（注入）」的原因之一：模型主动调 skill 工具的时机是确定的。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>命令是旁路不是轮次</strong>：commands 不需要模型参与——这就是为什么 command-compact（21 页）能直接调压缩引擎。它和「工具」的区别：工具需要模型决策后调用，命令由用户/UI 直接触发。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="22-subagent.html"><span class="dir">← 22</span><span class="t">子代理</span></a>
+  <a class="next" href="24-goal-plan.html"><span class="dir">下一步 · 24</span><span class="t">目标与计划 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('23')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

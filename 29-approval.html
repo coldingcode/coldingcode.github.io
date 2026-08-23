@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>29 审批、权限与沙箱 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 29</p>
+  <h1>审批、权限与沙箱：模型动作的闸门</h1>
+  <p class="lede">这是 harness 的「信任边界」域：审批（approval）拦「要不要做」，权限（permission）管「哪些动作免审批」，沙箱（sandbox）限「做的时候能碰什么」。三者叠在 14 页工具流水线的 pre-execute 与 15/16 页的执行世界上。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 14 页 pre-execute 的 ask · 17 页 approveEscalation · 16 页 subprocess</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：user-approval / permission-presets / sandbox / sandbox-local / sandbox-policy / bash-sandbox / pwsh-sandbox</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 审批结果决定 14 页流水线 allow/deny/ask</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：审批链 → 权限预设 → 沙箱升级</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>approval → @deepseek-ai/dsh-user-approval</code>——审批服务</li>
+    <li><code>permission → @deepseek-ai/dsh-permission-presets</code>——权限预设（175 行）</li>
+    <li><code>sandbox → dsh-sandbox-local</code>——本地沙箱</li>
+    <li><code>sandbox-policy → dsh-sandbox-policy</code>——沙箱策略</li>
+    <li><code>bash-sandbox / pwsh-sandbox</code>——沙箱化 shell provider（15 页 sandboxMode 的 override 实现）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/interaction/user-approval/</code></td><td>—</td><td><code>ApprovalService extends Service</code>（src/index.ts:192）——<code>approval/request</code> waterfall 的派发方</td></tr>
+    <tr><td><code class="path">packages/interaction/permission-presets/</code></td><td>—</td><td><code>PermissionPresetService extends Service</code>（src/index.ts:175），<code>static inject = ['shell', 'approval', 'sessions']</code>（196 行）——预设规则判断「免审还是必审」</td></tr>
+    <tr><td><code class="path">packages/sandbox/sandbox-policy/</code></td><td>—</td><td><code>SandboxPolicyService extends Service</code>（src/index.ts:91）——沙箱模式解析</td></tr>
+    <tr><td><code class="path">packages/sandbox/sandbox-windows-acl/</code></td><td>12 文件 / 2530 行</td><td>Windows ACL 沙箱实现（平台专用）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：审批链 → 权限预设 → 沙箱升级</h2>
+  <ol>
+    <li><strong>审批链（14 页的 ask）</strong>：<code>tools/pre-execute</code> 返回 ask 时，走 <code>approval/request</code> waterfall——用户批准/拒绝。17 页的 <code>approveEscalation</code>（sandbox_permissions 升级）也走它。</li>
+    <li><strong>权限预设（免审清单）</strong>：permission-presets 决定哪些动作默认允许（如只读文件命令）、哪些必审（如写文件）。它的 inject 里同时有 shell 和 approval——预设既看动作类型，也调审批。</li>
+    <li><strong>沙箱（执行限制）</strong>：sandbox-policy 解析当前沙箱模式；bash-sandbox 是沙箱化的 shell provider（override 15 页的 sandboxMode）。Windows 上还有 ACL 沙箱（sandbox-windows-acl，2530 行——平台级能力）。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/interaction/permission-presets/src/index.ts</span><span>权限预设的依赖面</span><span class="ln-range">175, 196</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">175</span><span class="tok-k">export class</span> <span class="tok-t">PermissionPresetService</span> <span class="tok-k">extends</span> Service {</span>
+<span class="code-line"><span class="ln">196</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'shell'</span>, <span class="tok-s">'approval'</span>, <span class="tok-s">'sessions'</span>]</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/sandbox/sandbox-policy/src/index.ts</span><span>沙箱策略服务</span><span class="ln-range">91</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">91</span><span class="tok-k">export class</span> <span class="tok-t">SandboxPolicyService</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">175, 196</span><p>权限预设的三个依赖面说明它的位置：shell（看命令类型）、approval（发起审批）、sessions（按会话记忆免审状态）。它是「审批的预处理器」。</p></div>
+    <div class="lr"><span class="ln-ref">91</span><p>sandbox-policy 是纯策略解析——它不执行沙箱，只决定「哪个沙箱模式生效」。执行者是沙箱化 provider（bash-sandbox 等）。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>14 页的坍缩语义与审批的关系</strong>：mode: 'code' 下模型调非 run_code 工具，<strong>审批 ask 和 guards 都看不到</strong>（14 页 createExecution 的注释）——防止策略批准一个必然失败的调用。审批链不是万能的闸门，坍缩检查在它之前。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>沙箱升级的审批走 approval/request</strong>（17 页 223-227 行）——模型请求 <code>sandbox_permissions</code> 升级时，升级本身是一个审批请求。这形成了「默认沙箱 + 升级要审批」的两段式安全模型。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="28-web.html"><span class="dir">← 28</span><span class="t">Web 能力</span></a>
+  <a class="next" href="30-storage.html"><span class="dir">下一步 · 30</span><span class="t">存储与会话查询 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('29')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

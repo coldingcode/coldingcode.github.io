@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>31 设置、凭据与身份 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 31</p>
+  <h1>设置、凭据与身份：机器状态的三张面孔</h1>
+  <p class="lede">设置（settings）是「可热更新的用户配置」，凭据（credentials）是「可替换来源的密钥」，身份（identity）是「匿名但稳定的用户标识」。三者都遵守 AGENTS.md 的一条硬约定：<strong>可调参数必须可配置，配置可热更新</strong>。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 04 页热更新 · 10 页 adapter 的 API key 解析 · 16 页 env 基线</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：settings / settings-file / credentials / credentials-local / anonymous-user-id</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 配置变化经热重组/事件到达各 provider</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：三层配置面</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>settings → dsh-settings-file</code>（401 行）——文件后端的设置 provider</li>
+    <li><code>credentials → dsh-credentials-local</code>（966 行）——env/.env 后端的凭据 provider</li>
+    <li><code>identity（anonymous-user-id）</code>——匿名身份（131 行）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/settings/settings/</code></td><td>—</td><td><strong>Service Definition</strong>：<code>SettingsProvider extends Service</code>（src/index.ts:350）——命名空间化的设置读写 + 变更通知</td></tr>
+    <tr><td><code class="path">packages/settings/settings-file/</code></td><td>2 文件 / 401 行</td><td><strong>Provider</strong>：文件后端</td></tr>
+    <tr><td><code class="path">packages/credentials/credentials/</code></td><td>—</td><td><strong>Service Definition</strong>：<code>CredentialProvider extends Service</code>（src/index.ts:177）——凭证引用解析</td></tr>
+    <tr><td><code class="path">packages/credentials/credentials-local/</code></td><td>2 文件 / 966 行</td><td><strong>Provider</strong>：env + 根 .env 分层（00 页 loadLayeredEnv 的同族）</td></tr>
+    <tr><td><code class="path">packages/identity/anonymous-user-id/</code></td><td>2 文件 / 131 行</td><td>匿名稳定 id（遥测的归因键）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：三层配置面</h2>
+  <ol>
+    <li><strong>settings</strong>：命名空间化（如 <code>agentLoop</code>、<code>shell</code>）的键值 + 变更通知。provider 订阅变更事件重读——这就是「改设置即时生效」的通道（与 04 页的补丁热更新互补：settings 是数据热更新，patch 是结构热更新）。</li>
+    <li><strong>credentials</strong>：凭证引用（名字）→ 值 的解析。10 页 adapter 的 API key 按请求解析（不缓存进 config）——所以换 key 不需要重启。</li>
+    <li><strong>identity</strong>：一个机器生成的稳定匿名 id——遥测/统计的归因键，不是登录态。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/settings/settings/src/index.ts</span><span>设置提供方契约</span><span class="ln-range">350</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">350</span><span class="tok-k">export abstract class</span> <span class="tok-t">SettingsProvider</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/credentials/credentials/src/index.ts</span><span>凭据提供方契约</span><span class="ln-range">177</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">177</span><span class="tok-k">export abstract class</span> <span class="tok-t">CredentialProvider</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">350</span><p>设置域的 Definition。所有「部署时可变」的调优都走它——AGENTS.md 的「无硬编码可调参数」约定在代码层面的落点。</p></div>
+    <div class="lr"><span class="ln-ref">177</span><p>凭据域的 Definition。引用与值的分离是关键：consumer 只持引用（名字），provider 在请求时解析值——值从不进冻结的 config。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>凭证不进请求 config</strong>（10 页的冻结链）：config 会被深冻结、落 request/header 事件（09 页）——若 key 混进去，就等于把密钥写进日志。所以 10 页 adapter 的 key 是 stream 时经 credentials 解析的。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>16 页 env 基线的 scrub 与 credentials 的分工</strong>：scrubbedParentEnv 剥离<strong>宿主环境</strong>里的凭证（不给子进程）；credentials 是<strong>显式引用</strong>的通道（只给申请的 consumer）。两者合起来才是完整的密钥卫生。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="30-storage.html"><span class="dir">← 30</span><span class="t">存储与会话查询</span></a>
+  <a class="next" href="32-sdk-api.html"><span class="dir">下一步 · 32</span><span class="t">SDK 与 API 服务 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('31')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

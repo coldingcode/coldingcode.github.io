@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>24 目标与计划 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 24</p>
+  <h1>目标与计划：跨轮次的持续任务与日志化的计划模式</h1>
+  <p class="lede">目标（goal）是「同会话的持续任务」：agent 一轮做不完，goal 驱动它继续。计划（plan）是把「计划模式」做成持久状态：计划文档、审批、切换回执行模式，全部是可回放的状态。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 05 页 turn 循环 + agent/* 事件续跑 · 06 页 SessionEventMap 扩展</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：goal / goal-round-driver / command-goal / tool-goal / plan-mode / plan</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) goal 续跑经 agent/* 事件回到 kick/turn</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：goal 轮驱动与 plan 状态</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>goal → @deepseek-ai/dsh-goal</code>（1291 行）——目标注册表</li>
+    <li><code>goal-round-driver → dsh-goal-round-driver</code>——把 goal 转成轮次</li>
+    <li><code>command-goal → dsh-command-goal</code>（226 行）——/goal 命令</li>
+    <li><code>tool-goal → dsh-tool-goal</code>——模型操作目标的工具</li>
+    <li><code>plan-mode → dsh-plan-mode</code>——计划模式（PlanModeController，202 行）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/goal/goal/</code></td><td>7 文件 / 1291 行</td><td>目标能力：<code>static inject = ['agents']</code>（src/index.ts:184）——目标生命周期与续跑</td></tr>
+    <tr><td><code class="path">packages/goal/goal-round-driver/</code></td><td>—</td><td><code>inject = ['agents', 'goals', 'sessions']</code>（src/index.ts:19）——把 goal 驱动的续跑接到 agent 事件上</td></tr>
+    <tr><td><code class="path">packages/plan/plan-mode/</code></td><td>—</td><td><code>PlanModeController extends Service</code>（src/index.ts:202），<code>static inject = ['tools', 'systemPrompt']</code>（203 行）——计划模式的工具与提示词切换</td></tr>
+    <tr><td><code class="path">packages/plan/plan/</code></td><td>—</td><td>plan 状态本身（logged state，见 §3）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：goal 轮驱动与 plan 状态</h2>
+  <ol>
+    <li><strong>goal 的续跑</strong>：goal-round-driver 监听 <code>agent/*</code> 事件——一个 turn 结束后若 goal 未完成，它通过 agent 事件发起下一个轮次（05 页 turn-stopping 的「数据决定」之外的另一条续跑通道）。goal 是「同会话目标」，与 subagent 的「另开会话」相对。</li>
+    <li><strong>plan 是日志化的状态</strong>：进入计划模式 = 一个可回放的持久状态切换。PlanModeController 通过 tools + systemPrompt 注入切换模型的行为面（计划工具集 + 计划提示词）。</li>
+    <li><strong>命令与工具双入口</strong>：用户 <code>/goal</code>（命令，23 页的旁路）与模型 tool-goal（工具）都能操作目标——同一能力、两个入口，这是 dsh 的常见形态。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/plan/plan-mode/src/index.ts</span><span>计划模式控制器</span><span class="ln-range">202-203</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">202</span><span class="tok-k">export class</span> <span class="tok-t">PlanModeController</span> <span class="tok-k">extends</span> Service {</span>
+<span class="code-line"><span class="ln">203</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'tools'</span>, <span class="tok-s">'systemPrompt'</span>]</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/goal/goal-round-driver/src/index.ts</span><span>goal 续跑的三依赖</span><span class="ln-range">19</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">19</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'agents'</span>, <span class="tok-s">'goals'</span>, <span class="tok-s">'sessions'</span>]</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">202-203</span><p>plan 模式 = 换工具面 + 换提示词面——它不碰 loop（05 页），只改「模型看到什么」（12 页的 systemPrompt 层与 14 页的 registry）。这是「插件不动循环」原则的标准示范。</p></div>
+    <div class="lr"><span class="ln-ref">19</span><p>goal-round-driver 的依赖面：agents（听事件/发起轮次）+ goals（状态）+ sessions（读日志判断完成度）。它站在心脏（05 页）的旁边驱动它。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>「模型可见 ⟺ 已记录」对 plan 同样适用</strong>：计划状态必须可回放——所以 plan 是 logged state（进 SessionEventMap），不是内存变量。切换模式但没落盘 = 重启后模型行为与日志不一致。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>goal 与 subagent 的分界</strong>：goal = 同会话的持续任务（22 页的对面）；subagent = 另开会话。选错机制是常见设计错误——判断标准是「结果是否要留在当前日志里」。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="23-skill.html"><span class="dir">← 23</span><span class="t">技能与命令</span></a>
+  <a class="next" href="25-workflow-jobs.html"><span class="dir">下一步 · 25</span><span class="t">工作流与任务 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('24')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

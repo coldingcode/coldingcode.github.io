@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>34 工程基础设施 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 34</p>
+  <h1>工程基础设施：让 1292 个包协同的机器</h1>
+  <p class="lede">全书最后一章讲「支撑这一切的机器」：类型图（typert）、运行时诊断（invariants）、守卫策略（guard）、预设与编排（preset / bundle / boot / typert）、以及质量门（scripts）。这些不是产品能力，但没有它们，前面 33 章的每一行都无法可信地存在。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(全书连接点) 03 页 typert 家族 · 各页 invariant.ts 伴生插件 · AGENTS.md 的质量门</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：typert / runtime-diagnostics / guard / preset / attachment / feedback / context</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) invariants 在 internal/dispatch 拦截验证各页的不变量</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">typert：类型图</a></li>
+    <li><a href="#s2">invariants：运行时断言</a></li>
+    <li><a href="#s3">guard：循环卫生</a></li>
+    <li><a href="#s4">其余支撑</a></li>
+    <li><a href="#s5">全书结语</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>typert：类型图</h2>
+  <p><code class="path">packages/typert/</code>（generator 9 文件 / 6251 行）生成 TypeScript 类型图——它是 API 契约（32 页 apiproxy）与 client（33 页）共享类型的机制：一端生成类型，另一端消费类型，两端永不漂移。cordis.patch.yml 里的 <code>typert-registry / typert-loader / typert-gateway</code> 三行就是它的挂载。</p>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>invariants：运行时断言</h2>
+  <p>全书各页反复出现的「invariant.ts 伴生插件」就在这里定义：<code class="path">packages/runtime-diagnostics/invariants/</code>（2 文件 / 230 行）。各包的 <code>dsh-xxx/invariant</code> 可选入口注册关系断言，经 <code>internal/dispatch</code> 在事件提交前验证：</p>
+  <ul>
+    <li>06 页：seq 单调、turn/step 闭合、工具调用/结果配对</li>
+    <li>11 页：loop-built 请求 frozen、messages 与 deriveMessages() 一致</li>
+    <li>14 页：工具流水线阶段顺序、结果冻结</li>
+    <li>05 页：agent/status 无重复迁移</li>
+  </ul>
+  <p>invariant 的意义：<strong>「模型可见 ⟺ 已记录」从一条纪律变成可执行的断言</strong>——开发期挂上 invariants，任何违反都当场炸。</p>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>guard：循环卫生</h2>
+  <ul>
+    <li><code>timeout-policy → dsh-tool-call-timeout-policy</code>（111 行）——工具调用超时</li>
+    <li><code>repeat-tool-reminder → dsh-repeat-tool-reminder</code>（263 行）——重复工具提醒</li>
+    <li>还有 21 页的 spill、compaction 的 token-meter——guard 域是「循环的卫生巾」：它不管做什么，只管「循环不会跑飞」。</li>
+  </ul>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>其余支撑</h2>
+  <ul>
+    <li><strong>preset / persona / bundle</strong>（04 页的组装层 + 预设）：<code>agent-presets</code>（9 文件 / 1684 行）是 per-session 组合的来源；persona（99 行）是提示词人格（12 页 PERSONA_SECTION）。</li>
+    <li><strong>attachment</strong>（385 + 1270 行）：附件 seam——图片等非文本数据（10 页图片投影的供给侧）。</li>
+    <li><strong>feedback</strong>：/feedback 命令与消息反馈。</li>
+    <li><strong>context 域</strong>：session-reference（807 行）、tmux-context（277 行）、agent-instructions（23 页）——「上下文注入」的各类来源。</li>
+    <li><strong>scripts/ 质量门</strong>（AGENTS.md 的 check:all 家族）：verify-* 门、coverage 门、snapshot 门、catalog 生成——「文档与代码同步」本身由脚本强制。</li>
+  </ul>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>全书结语</h2>
+  <p>全书到此结束。回望这条线：</p>
+  <blockquote>00-04 讲清了「一棵插件树如何从 YAML 活起来」；05-17 讲清了「一条消息如何走过心脏的每个器官」；20-34 讲清了「78 个挂载条目如何各自成为产品的一部分」。每一个能力域都是同一套 seam 语法的重演：Definition 声明、Provider 实现、Consumer 消费、invariant 断言。</blockquote>
+  <p>读完这本书，你拥有的不是「对某个函数的印象」，而是<strong>对整个项目的完整地图</strong>——从 argv 到进程树，从一条消息到十五个能力域。改任何一处代码，你都知道它站在哪、连着谁、由谁保证。</p>
+  <div class="callout verify">
+    <p>最后一条验证：<code>pnpm dsh --profile web --dump-config</code>——现在打印出的每一个条目，你都能说出它是哪一章的什么角色。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="33-client-python.html"><span class="dir">← 33</span><span class="t">客户端、Python 与 Native</span></a>
+  <a class="next" href="index.html"><span class="dir">回到</span><span class="t">全书目录 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('34')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

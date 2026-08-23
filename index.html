@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>树状总览 · DSH 源码精读</title>
+<title>全书目录 · DSH 源码精读</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -15,10 +15,10 @@
   </div>
   <div class="nav-group">总览</div>
   <ul class="nav-list">
-    <li><a href="index.html" class="active"><span class="idx">⌂</span>树状总览</a></li>
+    <li><a href="index.html" class="active"><span class="idx">⌂</span>全书目录</a></li>
     <li><a href="changelog.html"><span class="idx">★</span>版本更新</a></li>
   </ul>
-  <div class="nav-group">主链 · 进程启动</div>
+  <div class="nav-group">卷零 · 入口与组装</div>
   <ul class="nav-list">
     <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
     <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
@@ -26,7 +26,7 @@
     <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
     <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
   </ul>
-  <div class="nav-group">主链 · 一条消息的一生</div>
+  <div class="nav-group">卷一 · 核心循环深读</div>
   <ul class="nav-list">
     <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
     <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
@@ -38,12 +38,27 @@
     <li><a href="12-schema.html"><span class="idx">12</span>assemble：提示词组装</a></li>
     <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
     <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
-  </ul>
-  <div class="nav-group">旁支 · Shell 能力缝</div>
-  <ul class="nav-list">
     <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
     <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
     <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-group">卷二 · 能力全景</div>
+  <ul class="nav-list">
+    <li><a href="20-persist.html"><span class="idx">20</span>持久化与恢复</a></li>
+    <li><a href="21-compaction.html"><span class="idx">21</span>压缩与上下文</a></li>
+    <li><a href="22-subagent.html"><span class="idx">22</span>子代理</a></li>
+    <li><a href="23-skill.html"><span class="idx">23</span>技能与命令</a></li>
+    <li><a href="24-goal-plan.html"><span class="idx">24</span>目标与计划</a></li>
+    <li><a href="25-workflow-jobs.html"><span class="idx">25</span>工作流与任务</a></li>
+    <li><a href="26-fs.html"><span class="idx">26</span>文件系统</a></li>
+    <li><a href="27-terminal-lsp.html"><span class="idx">27</span>终端与 LSP</a></li>
+    <li><a href="28-web.html"><span class="idx">28</span>Web 能力</a></li>
+    <li><a href="29-approval.html"><span class="idx">29</span>审批、权限与沙箱</a></li>
+    <li><a href="30-storage.html"><span class="idx">30</span>存储与会话查询</a></li>
+    <li><a href="31-settings.html"><span class="idx">31</span>设置、凭据与身份</a></li>
+    <li><a href="32-sdk-api.html"><span class="idx">32</span>SDK 与 API 服务</a></li>
+    <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
+    <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
   <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
@@ -53,87 +68,68 @@
 
 <header class="page-head">
   <p class="kicker">DeepSeek Harness · Code-Level Reading</p>
-  <h1>树状总览：从入口到心脏，再到旁支</h1>
-  <p class="lede">这套页面按<strong>调用链顺序</strong>精读源码：从 <code class="path">apps/cli/src/bin.ts</code> 开始，沿启动链走到 agent loop 的心脏，再从心脏分出「工具执行」和「shell 能力」两个旁支。每一页都聚焦一个函数/一组紧邻的代码，标注<strong>文件路径与行号</strong>，逐行解释它在做什么、为什么这样写。</p>
+  <h1>全书目录：一条线性阅读路径</h1>
+  <p class="lede">这套页面按<strong>线性顺序</strong>讲完整个项目：从 <code class="path">apps/cli/src/bin.ts</code> 入口出发，沿启动链走到 agent loop 的心脏（卷零、卷一），再按 <code>cordis.patch.yml</code> 的挂载顺序遍历<strong>每一个能力域</strong>（卷二），最后落笔工程支撑（卷三）。每一页都标注<strong>文件路径与行号</strong>。</p>
 </header>
 
 <section id="tree">
-  <h2><span class="sec-num">图 0</span>阅读树</h2>
+  <h2><span class="sec-num">图 0</span>全书结构</h2>
 
 <figure class="fig">
-<svg class="dg" viewBox="0 0 1280 780" role="img" aria-label="阅读树">
+<svg class="dg" viewBox="0 0 1280 660" role="img" aria-label="全书结构">
   <defs>
     <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="hd" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <!-- 主干：启动 -->
-  <text class="note" x="20" y="30">主链 A：进程启动（apps/cli → app-boot → cordis）</text>
-  <rect class="acc" x="20" y="44" width="190" height="46" rx="9"/><text class="th" x="115" y="72" text-anchor="middle">00 bin.ts:53</text>
-  <line class="a" x1="210" y1="67" x2="240" y2="67" marker-end="url(#arw)"/>
-  <rect class="box" x="243" y="44" width="190" height="46" rx="9"/><text class="th" x="338" y="72" text-anchor="middle">01 args.ts:112</text>
-  <line class="a" x1="433" y1="67" x2="463" y2="67" marker-end="url(#arw)"/>
-  <rect class="box" x="466" y="44" width="210" height="46" rx="9"/><text class="th" x="571" y="72" text-anchor="middle">02 profile.ts:371</text>
-  <line class="a" x1="676" y1="67" x2="706" y2="67" marker-end="url(#arw)"/>
-  <rect class="box" x="709" y="44" width="220" height="46" rx="9"/><text class="th" x="819" y="72" text-anchor="middle">03 boot index.ts:757</text>
-  <line class="a" x1="929" y1="67" x2="959" y2="67" marker-end="url(#arw)"/>
-  <rect class="box" x="962" y="44" width="230" height="46" rx="9"/><text class="th" x="1077" y="72" text-anchor="middle">04 runProfile:207</text>
+  <!-- 卷零 -->
+  <text class="note" x="20" y="30">卷零 · 入口与组装（00-04）：从 argv 到活插件树</text>
+  <rect class="acc" x="20" y="44" width="240" height="44" rx="9"/><text class="th" x="140" y="71" text-anchor="middle">00 bin.ts → 01 args</text>
+  <line class="a" x1="260" y1="66" x2="290" y2="66" marker-end="url(#arw)"/>
+  <rect class="box" x="293" y="44" width="250" height="44" rx="9"/><text class="th" x="418" y="71" text-anchor="middle">02 loadProfile → 03 boot</text>
+  <line class="a" x1="543" y1="66" x2="573" y2="66" marker-end="url(#arw)"/>
+  <rect class="box" x="576" y="44" width="260" height="44" rx="9"/><text class="th" x="706" y="71" text-anchor="middle">04 runProfile：树热更新</text>
 
-  <!-- 主干：消息一生 -->
-  <text class="note" x="20" y="130">主链 B：一条消息的一生（agent-loop → session → llm → tools）</text>
-  <rect class="acc" x="20" y="144" width="190" height="46" rx="9"/><text class="th" x="115" y="172" text-anchor="middle">05 agent.ts kick:210</text>
-  <line class="a" x1="210" y1="167" x2="240" y2="167" marker-end="url(#arw)"/>
-  <rect class="box" x="243" y="144" width="190" height="46" rx="9"/><text class="th" x="338" y="172" text-anchor="middle">06 Session.append:604</text>
-  <line class="a" x1="433" y1="167" x2="463" y2="167" marker-end="url(#arw)"/>
-  <rect class="box" x="466" y="144" width="190" height="46" rx="9"/><text class="th" x="561" y="172" text-anchor="middle">07 Inbox.mutate:158</text>
-  <line class="a" x1="656" y1="167" x2="686" y2="167" marker-end="url(#arw)"/>
-  <rect class="box" x="689" y="144" width="200" height="46" rx="9"/><text class="th" x="789" y="172" text-anchor="middle">08 preStep:225</text>
-  <line class="a" x1="889" y1="167" x2="919" y2="167" marker-end="url(#arw)"/>
-  <rect class="box" x="922" y="144" width="220" height="46" rx="9"/><text class="th" x="1032" y="172" text-anchor="middle">09 buildRequest:426</text>
-  <line class="a" x1="1142" y1="167" x2="1172" y2="167" marker-end="url(#arw)"/>
-  <rect class="box" x="1175" y="144" width="90" height="46" rx="9"/><text class="th" x="1220" y="172" text-anchor="middle">10 llm/stream</text>
+  <!-- 卷一 -->
+  <text class="note" x="20" y="130">卷一 · 核心循环深读（05-17）：一条消息的一生 + shell 旁支</text>
+  <rect class="acc" x="20" y="144" width="200" height="44" rx="9"/><text class="th" x="120" y="171" text-anchor="middle">05 脊柱 kick/turn</text>
+  <line class="a" x1="220" y1="166" x2="250" y2="166" marker-end="url(#arw)"/>
+  <rect class="box" x="253" y="144" width="220" height="44" rx="9"/><text class="th" x="363" y="171" text-anchor="middle">06 Session.append</text>
+  <line class="a" x1="473" y1="166" x2="503" y2="166" marker-end="url(#arw)"/>
+  <rect class="box" x="506" y="144" width="220" height="44" rx="9"/><text class="th" x="616" y="171" text-anchor="middle">07 Inbox → 08 preStep</text>
+  <line class="a" x1="726" y1="166" x2="756" y2="166" marker-end="url(#arw)"/>
+  <rect class="box" x="759" y="144" width="250" height="44" rx="9"/><text class="th" x="884" y="171" text-anchor="middle">09 buildRequest → 10 stream</text>
+  <line class="a" x1="1009" y1="166" x2="1039" y2="166" marker-end="url(#arw)"/>
+  <rect class="box" x="1042" y="144" width="218" height="44" rx="9"/><text class="th" x="1151" y="171" text-anchor="middle">11 step → 12-14 tools</text>
+  <line class="a" x1="1151" y1="188" x2="1151" y2="218" marker-end="url(#arw)"/>
+  <rect class="acc" x="1030" y="222" width="240" height="44" rx="9"/><text class="th" x="1150" y="249" text-anchor="middle">15-17 旁支：shell 三件套</text>
 
-  <line class="a" x1="1220" y1="190" x2="1220" y2="228" marker-end="url(#arw)"/>
-  <rect class="box" x="1175" y="232" width="90" height="46" rx="9"/><text class="th" x="1220" y="260" text-anchor="middle">11 step:332</text>
+  <!-- 卷二：一列列能力域 -->
+  <text class="note" x="20" y="310">卷二 · 能力全景（20-34）：按 cordis.patch.yml 挂载顺序遍历每个能力域</text>
+  <rect class="box" x="20" y="324" width="150" height="40" rx="9"/><text class="th" x="95" y="349" text-anchor="middle">20 持久化</text>
+  <rect class="box" x="180" y="324" width="150" height="40" rx="9"/><text class="th" x="255" y="349" text-anchor="middle">21 压缩</text>
+  <rect class="box" x="340" y="324" width="150" height="40" rx="9"/><text class="th" x="415" y="349" text-anchor="middle">22 子代理</text>
+  <rect class="box" x="500" y="324" width="150" height="40" rx="9"/><text class="th" x="575" y="349" text-anchor="middle">23 技能</text>
+  <rect class="box" x="660" y="324" width="150" height="40" rx="9"/><text class="th" x="735" y="349" text-anchor="middle">24 目标</text>
+  <rect class="box" x="820" y="324" width="160" height="40" rx="9"/><text class="th" x="900" y="349" text-anchor="middle">25 工作流</text>
+  <rect class="box" x="990" y="324" width="130" height="40" rx="9"/><text class="th" x="1055" y="349" text-anchor="middle">26 文件</text>
+  <rect class="box" x="1130" y="324" width="130" height="40" rx="9"/><text class="th" x="1195" y="349" text-anchor="middle">27 终端</text>
+  <rect class="box" x="20" y="378" width="150" height="40" rx="9"/><text class="th" x="95" y="403" text-anchor="middle">28 Web</text>
+  <rect class="box" x="180" y="378" width="150" height="40" rx="9"/><text class="th" x="255" y="403" text-anchor="middle">29 审批</text>
+  <rect class="box" x="340" y="378" width="150" height="40" rx="9"/><text class="th" x="415" y="403" text-anchor="middle">30 存储</text>
+  <rect class="box" x="500" y="378" width="150" height="40" rx="9"/><text class="th" x="575" y="403" text-anchor="middle">31 设置</text>
+  <rect class="box" x="660" y="378" width="150" height="40" rx="9"/><text class="th" x="735" y="403" text-anchor="middle">32 SDK/API</text>
+  <rect class="box" x="820" y="378" width="190" height="40" rx="9"/><text class="th" x="915" y="403" text-anchor="middle">33 客户端/Python</text>
+  <rect class="box" x="1020" y="378" width="180" height="40" rx="9"/><text class="th" x="1110" y="403" text-anchor="middle">34 工程支撑</text>
 
-  <!-- 分支 1：工具 -->
-  <line class="a" x1="1220" y1="278" x2="1220" y2="360" marker-end="url(#arw)"/>
-  <text class="acc" x="1232" y="325">工具调用时</text>
-  <rect class="acc" x="1120" y="364" width="190" height="46" rx="9"/><text class="th" x="1215" y="392" text-anchor="middle">13 executeToolCalls:59</text>
-  <line class="a" x1="1120" y1="387" x2="1088" y2="387" marker-end="url(#arw)"/>
-  <rect class="box" x="898" y="364" width="186" height="46" rx="9"/><text class="th" x="991" y="392" text-anchor="middle">14 ToolRuntime:1342</text>
-  <line class="a" x1="898" y1="387" x2="866" y2="387" marker-end="url(#arw)"/>
-  <rect class="box" x="676" y="364" width="186" height="46" rx="9"/><text class="th" x="769" y="392" text-anchor="middle">15 分岔点 · seam</text>
-
-  <!-- 分支 2：提示词 -->
-  <line class="a" x1="1090" y1="167" x2="1090" y2="240" marker-end="url(#arw)"/>
-  <text class="acc" x="1100" y="210">每步组装</text>
-  <rect class="box" x="995" y="244" width="190" height="46" rx="9"/><text class="th" x="1090" y="272" text-anchor="middle">12 assemble:467</text>
-
-  <!-- shell 旁支的两个子页 -->
-  <line class="a" x1="676" y1="410" x2="676" y2="452" marker-end="url(#arw)"/>
-  <rect class="box" x="576" y="456" width="200" height="46" rx="9"/><text class="th" x="676" y="484" text-anchor="middle">16 bash-local</text>
-  <line class="a" x1="676" y1="410" x2="830" y2="452" marker-end="url(#arw)"/>
-  <rect class="box" x="730" y="456" width="200" height="46" rx="9"/><text class="th" x="830" y="484" text-anchor="middle">17 tool-bash</text>
-
-  <text class="note" x="20" y="530">阅读规则：主链 00→14 顺序读；15 是从 14 长出的旁支入口，16/17 是旁支的子页</text>
-  <text class="note" x="20" y="552">每个页面顶部有「调用链位置条」，标明本页在树上的位置与当前函数的完整路径</text>
-  <text class="note" x="20" y="574">每个代码段下方的「行级解读」块按行号逐行解释；分岔点页面（15）解释为什么这里长出旁支</text>
+  <text class="note" x="20" y="466">线性阅读：00 → 34 依次读。卷一（05-17）是「心脏深读」，卷二（20-34）是「全身扫描」——每个能力域都回到心脏的连接点上。</text>
+  <text class="note" x="20" y="488">卷二每页统一结构：cordis.patch.yml 挂载条目 → 包文件地图（真实行数）→ 与核心循环的连接点（inject/服务/事件）→ 关键代码行级解读 → 易错点。</text>
+  <text class="note" x="20" y="510">能力域覆盖：bundles 里 78 个 insert 条目全部有归属章节；未挂进 base bundle 的能力（mcp、e2b、subagent-codex 等）在对应章节标注「可选挂载」。</text>
 </svg>
-<figcaption>图 0-1 · 阅读树：主干 A（启动）+ 主干 B（消息一生）+ 两个旁支。</figcaption>
+<figcaption>图 0-1 · 全书结构：卷零启动链 + 卷一心脏深读 + 卷二能力全景（一域一章，线性覆盖）。</figcaption>
 </figure>
 </section>
 
-<section id="howto">
-  <h2><span class="sec-num">图 0</span>怎么读这套页面</h2>
-  <ol>
-    <li><strong>沿主干 A 读</strong>（00→04）：搞清「从敲下 <code>dsh web</code> 到一棵插件树活起来」的每一行代码。</li>
-    <li><strong>沿主干 B 读</strong>（05→14）：跟踪一条消息从进队列到工具结果落盘的完整调用链。这是全书重点，10/12/13 是从 09/11 自然长出的分支。</li>
-    <li><strong>旁支</strong>（15→17）：从工具流水线的通用机制出发，落到一个具体能力（shell）的三件套实现，学会「怎么读一个能力」的模板。</li>
-    <li>每页的代码引用都标<strong>真实文件路径 + 真实行号</strong>，建议把源码窗口放在旁边对照；行号锚定 master @ 0.1.1-rc.2。</li>
-  </ol>
-</section>
-
-<section id="reading-hints">
+<section id="principles">
   <h2><span class="sec-num">图 0</span>开读前需要知道的三件事</h2>
   <div class="callout key">
     <p><strong>① 一切皆插件。</strong>模型适配器、工具注册表、会话日志、agent loop 本身，全部是插件，全部能从配置替换。不存在特权内核。</p>
@@ -146,9 +142,20 @@
   </div>
 </section>
 
+<section id="map">
+  <h2><span class="sec-num">图 0</span>全书章节表</h2>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th style="width:180px">卷</th><th>章节</th><th>覆盖的代码</th></tr>
+    <tr><td><strong>卷零 · 入口与组装</strong></td><td>00-04</td><td>bin.ts / args.ts / profile.ts / boot() / runProfile——配置树如何变成活插件树</td></tr>
+    <tr><td><strong>卷一 · 核心循环</strong></td><td>05-17</td><td>agent.ts 心脏 / session 日志 / inbox / 请求折叠 / llm seam / tools 流水线 / shell 三件套</td></tr>
+    <tr><td><strong>卷二 · 能力全景</strong></td><td>20-34</td><td>持久化、压缩、子代理、技能、目标、工作流、文件、终端/LSP、Web、审批沙箱、存储查询、设置凭据、SDK/API、客户端/Python/Native、工程支撑——15 个能力域，覆盖 cordis.patch.yml 全部条目</td></tr>
+  </table></div>
+</section>
+
 <footer class="prevnext">
   <span></span>
-  <a class="next" href="00-root.html"><span class="dir">开始 · 主干 A</span><span class="t">00 根：bin.ts 入口 →</span></a>
+  <a class="next" href="00-root.html"><span class="dir">开始 · 卷零</span><span class="t">00 根：bin.ts 入口 →</span></a>
 </footer>
 
 </article>

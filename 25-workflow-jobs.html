@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>25 工作流与任务 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 25</p>
+  <h1>工作流与任务：多代理编排与后台作业</h1>
+  <p class="lede">工作流（workflow）是<strong>确定性编排多代理</strong>的引擎——fan-out、pipeline、循环由一段脚本控制，不是模型驱动。任务（jobs）是<strong>后台长作业</strong>：tool-bash 的后台命令（17 页）就落在这里。加上 todo 工具（模型的持久待办快照），构成本章的三个「时间维度」。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 22 页 subagent（workflow 的底层）· 17 页 tool-bash 后台路径（jobs）</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：workflow / workflow-worker-thread / tool-workflow / jobs-local / tool-jobs / tool-todo</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) workflow 的 agent 池与 jobs 的结果都回到会话日志</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：脚本编排 vs 后台作业</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>workflow-worker-thread → dsh-workflow-worker-thread</code>（1987 行）——worker 线程里的工作流引擎</li>
+    <li><code>tool-workflow → dsh-tool-workflow</code>——模型发起工作流的工具</li>
+    <li><code>jobs → dsh-jobs-local</code>（567 行）——本地后台作业注册表</li>
+    <li><code>tool-jobs → dsh-tool-jobs</code>（432 行）——模型查看/停止后台作业</li>
+    <li><code>tool-todo → dsh-tool-todo</code>（329 行）——todo/write 事件（06 页 SessionEventMap 的 log-only 事件）</li>
+    <li><code>schedule → dsh-schedule</code>（2003 行，可选挂载）——定时任务</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/workflow/workflow/</code></td><td>4 文件 / 519 行</td><td><strong>Service Definition</strong>：<code>WorkflowEngine extends Service</code>（src/index.ts:157）——脚本引擎契约</td></tr>
+    <tr><td><code class="path">packages/workflow/workflow-worker-thread/</code></td><td>10 文件 / 1987 行</td><td><strong>Provider</strong>：<code>static inject = ['subagents']</code>（src/index.ts:113）——在 worker 线程里跑脚本、经 subagent（22 页）派生代理</td></tr>
+    <tr><td><code class="path">packages/workflow/tool-workflow/</code></td><td>—</td><td><strong>Consumer</strong>：<code>inject = ['tools', 'workflowEngine', 'systemPrompt']</code>（src/index.ts:30）</td></tr>
+    <tr><td><code class="path">packages/jobs/jobs-local/</code></td><td>2 文件 / 567 行</td><td>后台作业的本地实现</td></tr>
+    <tr><td><code class="path">packages/todo/tool-todo/</code></td><td>4 文件 / 329 行</td><td>todo/write 的写入工具（全量快照、last-write-wins）</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：脚本编排 vs 后台作业</h2>
+  <ol>
+    <li><strong>workflow = 确定性编排</strong>：脚本（fan-out/pipeline/loop）决定哪些 agent 何时跑——这与主循环的「模型决策」正交。引擎在 worker 线程执行，底层代理来自 subagent seam（22 页的复用）。</li>
+    <li><strong>jobs = 后台作业</strong>：tool-bash 的 <code>start</code>（17 页 370 行）把 ShellProcess 适配成 jobs 任务（<code>processOutcome</code>）——模型随时用 tool-jobs 查看/停止。</li>
+    <li><strong>todo = 模型自己的待办</strong>：<code>todo/write</code> 是<strong>全量快照、最新写入胜出</strong>的 log-only 事件（06 页 types.ts 的 JSDoc 原话）——不进派生历史，仅 UI 使用。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/workflow/workflow/src/index.ts</span><span>工作流引擎契约</span><span class="ln-range">157</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">157</span><span class="tok-k">export abstract class</span> <span class="tok-t">WorkflowEngine</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/workflow/workflow-worker-thread/src/index.ts</span><span>worker 实现依赖 subagents</span><span class="ln-range">113</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">113</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'subagents'</span>]</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">157</span><p>workflow 的 Definition 与 compaction/subagent 同构——但它的「能力」是编排脚本，不是模型能力。</p></div>
+    <div class="lr"><span class="ln-ref">113</span><p><strong>依赖 subagents 是关键</strong>：工作流不自己造 agent，它编排 22 页 seam 提供的 agent——seam 复用链：workflow → subagents → agents（05 页）。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>todo/write 是 log-only</strong>（06 页 SurfaceEventType 只有三个类型，todo 不在其中）——它永不下发模型，只是 UI 状态。若误以为模型能看到 todo，会写出模型从不知情的工具。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>jobs 的存活边界在 17 页提过</strong>：后台进程的 teardown 归 subprocess disposal——jobs 只是「查看/停止」的窗口，不拥有进程。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="24-goal-plan.html"><span class="dir">← 24</span><span class="t">目标与计划</span></a>
+  <a class="next" href="26-fs.html"><span class="dir">下一步 · 26</span><span class="t">文件系统 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('25')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

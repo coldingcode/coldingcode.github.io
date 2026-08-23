@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>27 终端与 LSP · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 27</p>
+  <h1>终端与 LSP：subprocess 之上的持久交互</h1>
+  <p class="lede">终端（terminal）是「持久会话的交互式 shell」——16 页的 subprocess 有进程树管理，但没有「会话持续」的语义。终端 seam 在它之上加持久层。LSP 是语言服务器协议客户端——让模型读写代码符号而非文本。两者都是 16 页下层 seam 的消费者。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 16 页 subprocess（PTY/进程树）· 15 页 seam 模板</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：terminal / terminal-bash / tool-terminal* / lsp / lsp-stdio</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 终端的增量输出经 jobs（25 页）或直接进工具结果</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：持久会话与语言服务器</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>terminal-bash → dsh-terminal-bash</code>（1116 行，可选挂载）——<code>inject = ['terminals', 'sandboxPolicy', 'subprocess']</code>（src/index.ts:26）</li>
+    <li><code>lsp-stdio → dsh-lsp-stdio</code>（1664 行，可选挂载）——<code>inject = ['fs', 'lsp', 'subprocess']</code>（src/index.ts:47）</li>
+    <li>tool-terminal* / tool-lsp* 家族（模型可见工具，部分在 profile 层追加）</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/terminal/terminal/</code></td><td>—</td><td><strong>Service Definition</strong>：<code>TerminalSessionService extends Service</code>（src/index.ts:105）——持久终端会话契约</td></tr>
+    <tr><td><code class="path">packages/terminal/terminal-bash/</code></td><td>5 文件 / 1116 行</td><td><strong>Provider</strong>：bash 终端——依赖 terminals + sandboxPolicy + subprocess（16 页的下层）</td></tr>
+    <tr><td><code class="path">packages/lsp/lsp/</code></td><td>—</td><td><strong>Service Definition</strong>：<code>Lsp extends Service implements LspService</code>（src/index.ts:82）</td></tr>
+    <tr><td><code class="path">packages/lsp/lsp-stdio/</code></td><td>9 文件 / 1664 行</td><td><strong>Provider</strong>：stdio 传输的语言服务器——inject = ['fs','lsp','subprocess']</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：持久会话与语言服务器</h2>
+  <ol>
+    <li><strong>terminal = subprocess + 持久</strong>：普通 bash 命令每次 spawn 新进程；终端会话保持一个 PTY 进程跨多次工具调用存活（增量输出、前台进程组）。16 页的 spawnTerminal 与进程树清理就是它的底座。</li>
+    <li><strong>lsp = 结构化代码访问</strong>：LSP 协议让模型做符号级操作（定义跳转、引用、补全），而不是 grep 文本。stdio provider 通过 subprocess spawn 语言服务器进程，走 JSON-RPC。</li>
+    <li><strong>两者都站在 16 页的下层上</strong>：换 subprocess provider（如 e2b 远程）时，terminal 和 lsp 一起跟着搬——15 页「共享执行世界」结论的第二个例子。</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/terminal/terminal/src/index.ts</span><span>终端会话服务</span><span class="ln-range">105</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">105</span><span class="tok-k">export class</span> <span class="tok-t">TerminalSessionService</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/lsp/lsp-stdio/src/index.ts</span><span>stdio provider 的三依赖</span><span class="ln-range">47</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">47</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'fs'</span>, <span class="tok-s">'lsp'</span>, <span class="tok-s">'subprocess'</span>]</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">105</span><p>terminal 的 Definition。持久会话的语义都在这里（会话生命周期、增量读取、前台控制）。</p></div>
+    <div class="lr"><span class="ln-ref">47</span><p>lsp-stdio 的依赖面说明了它的位置：fs（读文件）、lsp（自己注册进 seam）、subprocess（spawn 语言服务器进程）。三个 seam 叠三层。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>终端会话的存活边界比命令长</strong>：17 页的「executor-only 重载后后台进程存活」在终端上更显著——终端会话绑定 subprocess provider，重载 terminal provider 不杀进程（与 16 页同一条边界）。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>PTY 的前台进程组检测</strong>：16 页提过的 process-inspector（Linux /proc、macOS ps）在 0.1.1-rc.2 新增了 windows-inspector（325 行）——三平台进程表探测齐全。这是 terminal 正确清理会话树的前提。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="26-fs.html"><span class="dir">← 26</span><span class="t">文件系统</span></a>
+  <a class="next" href="28-web.html"><span class="dir">下一步 · 28</span><span class="t">Web 能力 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('27')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

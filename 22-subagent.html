@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>22 子代理 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 2 · Chapter 22</p>
+  <h1>子代理：在同一个 harness 里嵌套 agent</h1>
+  <p class="lede">子代理是 harness 最大的能力域之一（<code class="path">packages/subagent/subagent</code> 18 文件 / 4684 行）。它把「一个 agent 把工作委派给另一个 agent」做成一个 seam：<strong>同进程 spawn、fork 同一会话、甚至把轮次委派给别的产品（Claude Code、Codex）</strong>——都在同一个 Service Definition 之后。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(卷一连接点) 05 页 ctx.agents 创建 · 07 页 inbox · 11 页 tool 结果</span>
+  <span class="arrow">→</span>
+  <span class="here">本域：subagent / spawn-in-process / fork-in-process / tool-subagent* / subagent-codex / subagent-claude-code</span>
+  <span class="arrow">→</span>
+  <span class="seg">(回心脏) 子代理同样跑 05-14 页的循环，只是会话 header 带 parentSession</span>
+</div>
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">挂载条目</a></li>
+    <li><a href="#s2">包文件地图</a></li>
+    <li><a href="#s3">机制：三种委派模式</a></li>
+    <li><a href="#s4">关键代码</a></li>
+    <li><a href="#s5">易错点</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>挂载条目</h2>
+  <ul>
+    <li><code>subagent → @deepseek-ai/dsh-subagent</code>——运行时核心（Definition + 注册）</li>
+    <li><code>subagent-spawn-in-process → dsh-subagent-spawn-in-process</code>（94 行）——同进程新会话 spawn</li>
+    <li><code>subagent-fork-in-process → dsh-subagent-fork-in-process</code>（124 行）——fork 当前会话</li>
+    <li><code>tool-subagent-control / tool-subagent / tool-subagent-fork / tool-subagent-report / tool-subagent-list-agents</code>——模型可见的委派工具家族</li>
+    <li><strong>可选挂载</strong>（不在 base bundle）：<code>subagent-codex</code>（1348 行）、<code>subagent-claude-code</code>（936 行）——把轮次委派给其他产品的 provider</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>包文件地图</h2>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>包</th><th>规模</th><th>角色</th></tr>
+    <tr><td><code class="path">packages/subagent/subagent/</code></td><td>18 文件 / 4684 行</td><td><strong>Service Definition + 编排</strong>：<code>SubagentRuntime extends Service</code>（src/index.ts:171）——委派生命周期、描述符、回收</td></tr>
+    <tr><td><code class="path">packages/subagent/subagent-spawn-in-process/</code></td><td>2 文件 / 94 行</td><td><strong>Provider 1</strong>：<code>inject = ['subagents']</code>（src/index.ts:22）——新开一个子会话 + 子 agent</td></tr>
+    <tr><td><code class="path">packages/subagent/subagent-fork-in-process/</code></td><td>2 文件 / 124 行</td><td><strong>Provider 2</strong>：<code>inject = ['subagents']</code>（src/index.ts:28）——fork 当前会话（06 页 fork 边界约束的消费者）</td></tr>
+    <tr><td><code class="path">packages/subagent/tool-subagent/</code></td><td>2 文件 / 506 行</td><td><strong>Consumer</strong>：模型发起委派的工具</td></tr>
+    <tr><td><code class="path">packages/subagent/tool-subagent-report/</code></td><td>2 文件 / 172 行</td><td>委派结果回写</td></tr>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>机制：三种委派模式</h2>
+  <ol>
+    <li><strong>spawn（新会话）</strong>：子 agent 有全新 session——header 带 <code>parentSession</code>（06 页 SessionHeader 的 lineage 字段）。子会话的日志独立，但血缘可追溯。</li>
+    <li><strong>fork（同会话）</strong>：fork 当前会话到一个边界——06 页的 fork 约束在此生效（边界必须是连续 seq、不得落在 open turn 内）。子 agent 从 fork 点继续，父历史是 seed。</li>
+    <li><strong>delegation（跨产品）</strong>：codex/claude-code provider 把轮次委派给<strong>另一个产品</strong>的进程——06 页提过的「subagent 提供方在同一个接口之后千差万别」的落点。结果作为消息回到父会话。</li>
+  </ol>
+  <p>无论哪种模式，<strong>子 agent 跑的是同一套 05-14 页的循环</strong>——subagent 不复制循环，只管理「谁创建谁、血缘如何、结果如何回收」。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>关键代码</h2>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/subagent/subagent/src/index.ts</span><span>运行时本体</span><span class="ln-range">171</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">171</span><span class="tok-k">export class</span> <span class="tok-t">SubagentRuntime</span> <span class="tok-k">extends</span> Service {</span></code></pre>
+</figure>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/subagent/subagent-spawn-in-process/src/index.ts</span><span>spawn 提供方的依赖面</span><span class="ln-range">22</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">22</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'subagents'</span>]</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">171</span><p>又是 seam 模板——但注意 subagent 的规模（4684 行）远超其他 seam：它不只是「委派」，还管描述符、回收、递归预算（delegationDepth，06 页 header 字段）等编排。</p></div>
+    <div class="lr"><span class="ln-ref">22</span><p>provider 只依赖 <code>subagents</code> 服务——一个 94 行的 provider 就能实现一种委派模式。这就是 seam 的收益：新增委派模式 = 94 行。</p></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>易错点</h2>
+  <div class="callout warn">
+    <p><strong>递归预算必须持久</strong>（06 页 delegationDepth 的 JSDoc）：只用运行期深度，一个 resume 的子代理会重置回顶层——递归预算必须进 header 才能在重启后存活。</p>
+  </div>
+  <div class="callout info">
+    <p><strong>跨产品委派的会话日志</strong>：被委派的产品有自己的会话语义，回收的是「结果消息」——父会话日志里只出现结果，不出现中间过程。这与 spawn/fork 的「子日志独立」形成对比。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="21-compaction.html"><span class="dir">← 21</span><span class="t">压缩与上下文</span></a>
+  <a class="next" href="23-skill.html"><span class="dir">下一步 · 23</span><span class="t">技能与命令 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('22')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>

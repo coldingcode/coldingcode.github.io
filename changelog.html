@@ -15,10 +15,10 @@
   </div>
   <div class="nav-group">总览</div>
   <ul class="nav-list">
-    <li><a href="index.html"><span class="idx">⌂</span>树状总览</a></li>
+    <li><a href="index.html"><span class="idx">⌂</span>全书目录</a></li>
     <li><a href="changelog.html" class="active"><span class="idx">★</span>版本更新</a></li>
   </ul>
-  <div class="nav-group">主链 · 进程启动</div>
+  <div class="nav-group">卷零 · 入口与组装</div>
   <ul class="nav-list">
     <li><a href="00-root.html"><span class="idx">00</span>根：bin.ts 入口</a></li>
     <li><a href="01-boot.html"><span class="idx">01</span>args 解析</a></li>
@@ -26,7 +26,7 @@
     <li><a href="03-cordis.html"><span class="idx">03</span>boot + Cordis 运行时</a></li>
     <li><a href="04-run-profile.html"><span class="idx">04</span>runProfile：树热更新</a></li>
   </ul>
-  <div class="nav-group">主链 · 一条消息的一生</div>
+  <div class="nav-group">卷一 · 核心循环深读</div>
   <ul class="nav-list">
     <li><a href="05-spine.html"><span class="idx">05</span>脊柱：从 kick 出发</a></li>
     <li><a href="06-session.html"><span class="idx">06</span>Session：日志与 append</a></li>
@@ -39,11 +39,29 @@
     <li><a href="13-tool-sched.html"><span class="idx">13</span>executeToolCalls：调度</a></li>
     <li><a href="14-pipeline.html"><span class="idx">14</span>ToolRuntime：三段流水线</a></li>
   </ul>
-  <div class="nav-group">旁支 · Shell 能力缝</div>
+  <div class="nav-group">卷一（旁支） · Shell 能力缝</div>
   <ul class="nav-list">
     <li><a href="15-seam.html"><span class="idx">15</span>分岔点：seam 与注入</a></li>
     <li class="branch"><a href="16-bash-provider.html"><span class="idx">16</span>↳ bash-local Provider</a></li>
     <li class="branch"><a href="17-shell-consumer.html"><span class="idx">17</span>↳ tool-bash Consumer</a></li>
+  </ul>
+  <div class="nav-group">卷二 · 能力全景</div>
+  <ul class="nav-list">
+    <li><a href="20-persist.html"><span class="idx">20</span>持久化与恢复</a></li>
+    <li><a href="21-compaction.html"><span class="idx">21</span>压缩与上下文</a></li>
+    <li><a href="22-subagent.html"><span class="idx">22</span>子代理</a></li>
+    <li><a href="23-skill.html"><span class="idx">23</span>技能与命令</a></li>
+    <li><a href="24-goal-plan.html"><span class="idx">24</span>目标与计划</a></li>
+    <li><a href="25-workflow-jobs.html"><span class="idx">25</span>工作流与任务</a></li>
+    <li><a href="26-fs.html"><span class="idx">26</span>文件系统</a></li>
+    <li><a href="27-terminal-lsp.html"><span class="idx">27</span>终端与 LSP</a></li>
+    <li><a href="28-web.html"><span class="idx">28</span>Web 能力</a></li>
+    <li><a href="29-approval.html"><span class="idx">29</span>审批、权限与沙箱</a></li>
+    <li><a href="30-storage.html"><span class="idx">30</span>存储与会话查询</a></li>
+    <li><a href="31-settings.html"><span class="idx">31</span>设置、凭据与身份</a></li>
+    <li><a href="32-sdk-api.html"><span class="idx">32</span>SDK 与 API 服务</a></li>
+    <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
+    <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
   <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
@@ -62,8 +80,8 @@
   <ol>
     <li><a href="#s1">站点当前状态</a></li>
     <li><a href="#s2">rc.7 → 0.1.1-rc.2：本轮同步</a></li>
-    <li><a href="#s3">rc.5 → rc.7：首轮同步</a></li>
-    <li><a href="#s4">同步方法（供后续复用）</a></li>
+    <li><a href="#s4">rc.5 → rc.7：首轮同步</a></li>
+    <li><a href="#s5">同步方法（供后续复用）</a></li>
   </ol>
 </nav>
 
@@ -73,14 +91,23 @@
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
     <tr><td>站点锚定版本</td><td><strong>0.1.1-rc.2</strong>（commit <code>b150a551b8</code> Merge PR #2908）</td></tr>
-    <tr><td>覆盖范围</td><td>19 页：主干 A（00-04）+ 主干 B（05-14）+ 旁支（15-17）+ 总览</td></tr>
+    <tr><td>覆盖范围</td><td>35 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>60+ 处文件:行号引用，均经上游源码逐行验证</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
 </section>
 
 <section id="s2">
-  <h2><span class="sec-num">§2</span>rc.7 → 0.1.1-rc.2：本轮同步（2026-08-21）</h2>
+  <h2><span class="sec-num">§2</span>结构性重构：从叙事到全书（2026-08-23）</h2>
+  <p>用户反馈：旧结构只讲了「叙事逻辑」（核心机制的故事），没有把<strong>整个项目线性地讲清</strong>。重构为三卷全书结构：</p>
+  <ul>
+    <li><strong>卷零 · 入口与组装（00-04）</strong>：从 bin.ts 到活插件树的完整启动链。</li>
+    <li><strong>卷一 · 核心循环深读（05-17）</strong>：一条消息的一生 + shell 旁支。</li>
+    <li><strong>卷二 · 能力全景（20-34，新增 15 章）</strong>：按 cordis.patch.yml 挂载顺序遍历每一个能力域——20 持久化、21 压缩、22 子代理、23 技能命令、24 目标计划、25 工作流任务、26 文件系统、27 终端 LSP、28 Web、29 审批沙箱、30 存储查询、31 设置凭据、32 SDK/API、33 客户端/Python/Native、34 工程基础设施。每章统一结构：挂载条目 → 包文件地图 → 机制 → 与卷一连接点 → 关键代码 → 易错点。</li>
+    <li>导航改为三卷分组；新增 <code>assets/nav.js</code> 共享导航。</li>
+  </ul>
+
+  <h2><span class="sec-num">§3</span>rc.7 → 0.1.1-rc.2：同步（2026-08-21）</h2>
   <p>本轮 pull 的变更量：<strong>3319 个文件、+83084/-21535</strong>（含两个 rc 版本的全部合入）。站点锚定的 18 个文件里有实质语义变更的集中在四处，均已更新：</p>
 
   <h3>① 取消时固化文本前缀（interrupted 锚点）—— 11 页更新</h3>
@@ -113,8 +140,8 @@
   </ul>
 </section>
 
-<section id="s3">
-  <h2><span class="sec-num">§3</span>rc.5 → rc.7：首轮同步（2026-08-19）</h2>
+<section id="s4">
+  <h2><span class="sec-num">§4</span>rc.5 → rc.7：首轮同步（2026-08-19）</h2>
   <p>首次同步时上游从 rc.5 升到 rc.7。当时站点精读的核心文件几乎没动，只有一处实质语义变更：</p>
   <ul>
     <li><strong>assembler.ts 的 max-tokens keep/drop 收敛</strong>（PR #2596 deepseek-maxToken-consistency）：新增 <code>assembled()</code> 统一决策——<code>blocks()</code> 与 <code>replayState</code> 同源派生，max-tokens 截断丢弃无法安全执行的 tool-call 块；replay envelope 块数不对齐时 replayState 归 undefined。已写入 11 页。</li>
@@ -123,8 +150,8 @@
   </ul>
 </section>
 
-<section id="s4">
-  <h2><span class="sec-num">§4</span>同步方法（供后续复用）</h2>
+<section id="s5">
+  <h2><span class="sec-num">§5</span>同步方法（供后续复用）</h2>
   <p>每轮 pull 后的标准流程：</p>
   <ol>
     <li><code>git pull --ff-only</code>，记录新 HEAD 与 release 版本。</li>
