@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,7 +72,7 @@
 <header class="page-head">
   <p class="kicker">Branch · Step 17</p>
   <h1>tool-bash：Consumer 的注入面与三条路径</h1>
-  <p class="lede"><code class="path">packages/shell/tool-bash/src/index.ts</code>（394 行）。这是旁支的最后一页，也是主链 14 页「工具从哪来」的最终答案：<strong>一个 394 行的插件，用 <code>defineTool('bash')</code> 把 shell 能力变成模型可见的工具</strong>。</p>
+  <p class="lede"><code class="path">packages/shell/tool-bash/src/index.ts</code>（393 行）。这是旁支的最后一页，也是主链 14 页「工具从哪来」的最终答案：<strong>一个 394 行的插件，用 <code>defineTool('bash')</code> 把 shell 能力变成模型可见的工具</strong>。</p>
 </header>
 
 <div class="chain">
@@ -88,8 +88,8 @@
   <div class="trace">
     <div class="trace-head">示例轨迹 17-1 · 前台路径（我们的 ls -la）</div>
     <pre># 模型调用 bash({ command:'ls -la' })
-# → execute（330 行）→ ctx.shellEnv.collect(exec)（341 行）
-# → ctx.shell.run(ctx.shell.resolve({...}))（380 行）
+# → execute（339 行）→ ctx.shellEnv.collect(exec)（340 行）
+# → ctx.shell.run(ctx.shell.resolve({...}))（379 行）
 # → ShellRunResult { exitCode:0, stdout:'total 8\ndrwxr-xr-x ...', timedOut:false }
 # → renderResult（render.ts）→ 模型看到的文本：
 #   "total 8

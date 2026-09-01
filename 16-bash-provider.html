@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,7 +72,7 @@
 <header class="page-head">
   <p class="kicker">Branch · Step 16</p>
   <h1>bash-local：Provider 的职责清单</h1>
-  <p class="lede"><code class="path">packages/shell/bash-local/src/index.ts</code>（333 行）。LocalBashExecutor 是 shell seam 的本地 Provider：<strong>默认值与上限、超时分类、环境合并、把 command 包成 argv 交给下层 subprocess</strong>。它是「resolve 拆分」的完整范本。</p>
+  <p class="lede"><code class="path">packages/shell/bash-local/src/index.ts</code>（335 行）。LocalBashExecutor 是 shell seam 的本地 Provider：<strong>默认值与上限、超时分类、环境合并、把 command 包成 argv 交给下层 subprocess</strong>。它是「resolve 拆分」的完整范本。</p>
 </header>
 
 <div class="chain">
@@ -128,17 +128,17 @@
   <p>15 页的接口里 resolve 是抽象的——bash-local 的实现把它变成「默认值 + 钳制」的确定性过程。它的产出物 <code>spawnSpec</code> 里最典型的一行是环境合并（194-198 行）：</p>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>spawnSpec 里的环境合并</span><span class="ln-range">190-198</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">190</span>    <span class="tok-c">// snapshot beats both the caller's env and the terminal overrides; the</span></span>
-<span class="code-line"><span class="ln">191</span>    <span class="tok-c">// subprocess service merges the whole map after its ambient scrub.</span></span>
-<span class="code-line"><span class="ln">196</span>      env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },</span>
-<span class="code-line"><span class="ln">197</span>    }</span>
-<span class="code-line"><span class="ln">198</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>spawnSpec 里的环境合并</span><span class="ln-range">192-200</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">192</span>    <span class="tok-c">// snapshot beats both the caller's env and the terminal overrides; the</span></span>
+<span class="code-line"><span class="ln">193</span>    <span class="tok-c">// subprocess service merges the whole map after its ambient scrub.</span></span>
+<span class="code-line"><span class="ln">198</span>      env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },</span>
+<span class="code-line"><span class="ln">199</span>    }</span>
+<span class="code-line"><span class="ln">200</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">196</span><p>四段合并的第三段（§3 有全表）。<code>spec.env</code>（调用方）覆盖 <code>ENV_OVERRIDES</code>，<code>spec.dshEnv</code>（DSH_* 快照）最后合并——<strong>普通 env 无法覆盖 harness 事实</strong>。</p></div>
-    <div class="lr"><span class="ln-ref">190-191</span><p>注释说明剩余一段在哪：subprocess 服务在它的 ambient scrub（去凭证）之后合并整张 map。Provider 只负责它自己这一层。</p></div>
+    <div class="lr"><span class="ln-ref">198</span><p>四段合并的第三段（§3 有全表）。<code>spec.env</code>（调用方）覆盖 <code>ENV_OVERRIDES</code>，<code>spec.dshEnv</code>（DSH_* 快照）最后合并——<strong>普通 env 无法覆盖 harness 事实</strong>。</p></div>
+    <div class="lr"><span class="ln-ref">192-193</span><p>注释说明剩余一段在哪：subprocess 服务在它的 ambient scrub（去凭证）之后合并整张 map。Provider 只负责它自己这一层。</p></div>
   </div>
 </section>
 
@@ -146,26 +146,26 @@
   <h2><span class="sec-num">§2</span>run：超时分类与 deadline</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>run → runArgv</span><span class="ln-range">211-240</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">211</span>  <span class="tok-k">async</span> <span class="tok-f">run</span>(spec: ShellExecSpec): Promise&lt;ShellRunResult&gt; {</span>
-<span class="code-line"><span class="ln">212</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">runArgv</span>(spec, [<span class="tok-s">'bash'</span>, <span class="tok-s">'-c'</span>, spec.command])</span>
-<span class="code-line"><span class="ln">213</span>  }</span>
-<span class="code-line"><span class="ln">223</span>  <span class="tok-k">protected async</span> <span class="tok-f">runArgv</span>(spec, argv) {</span>
-<span class="code-line"><span class="ln">225</span>    <span class="tok-k">using</span> d = <span class="tok-f">deadline</span>(spec.signal, spec.timeoutMs, <span class="tok-s">'BASH_TIMEOUT'</span>)</span>
-<span class="code-line"><span class="ln">226</span>    <span class="tok-k">const</span> handle = <span class="tok-k">this</span>.ctx.subprocess.<span class="tok-f">spawn</span>(<span class="tok-k">this</span>.<span class="tok-f">spawnSpec</span>(spec, argv, spec.stdoutMaxBytes, d.signal))</span>
-<span class="code-line"><span class="ln">227</span>    <span class="tok-k">const</span> outcome = <span class="tok-k">await</span> handle.done</span>
-<span class="code-line"><span class="ln">228</span>    <span class="tok-k">const</span> collected = LocalBashExecutor.<span class="tok-f">collected</span>(handle)</span>
-<span class="code-line"><span class="ln">230</span>    <span class="tok-k">const</span> timedOut = <span class="tok-f">timeoutOf</span>(d.signal, <span class="tok-s">'BASH_TIMEOUT'</span>) !== <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">231</span>    <span class="tok-k">const</span> aborted = d.signal.aborted &amp;&amp; !timedOut</span>
-<span class="code-line"><span class="ln">232</span>    <span class="tok-k">return</span> { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }</span>
-<span class="code-line"><span class="ln">240</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>run → runArgv</span><span class="ln-range">213-242</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">213</span>  <span class="tok-k">async</span> <span class="tok-f">run</span>(spec: ShellExecSpec): Promise&lt;ShellRunResult&gt; {</span>
+<span class="code-line"><span class="ln">214</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">runArgv</span>(spec, [<span class="tok-s">'bash'</span>, <span class="tok-s">'-c'</span>, spec.command])</span>
+<span class="code-line"><span class="ln">215</span>  }</span>
+<span class="code-line"><span class="ln">225</span>  <span class="tok-k">protected async</span> <span class="tok-f">runArgv</span>(spec, argv) {</span>
+<span class="code-line"><span class="ln">227</span>    <span class="tok-k">using</span> d = <span class="tok-f">deadline</span>(spec.signal, spec.timeoutMs, <span class="tok-s">'BASH_TIMEOUT'</span>)</span>
+<span class="code-line"><span class="ln">228</span>    <span class="tok-k">const</span> handle = <span class="tok-k">this</span>.ctx.subprocess.<span class="tok-f">spawn</span>(<span class="tok-k">this</span>.<span class="tok-f">spawnSpec</span>(spec, argv, spec.stdoutMaxBytes, d.signal))</span>
+<span class="code-line"><span class="ln">229</span>    <span class="tok-k">const</span> outcome = <span class="tok-k">await</span> handle.done</span>
+<span class="code-line"><span class="ln">230</span>    <span class="tok-k">const</span> collected = LocalBashExecutor.<span class="tok-f">collected</span>(handle)</span>
+<span class="code-line"><span class="ln">232</span>    <span class="tok-k">const</span> timedOut = <span class="tok-f">timeoutOf</span>(d.signal, <span class="tok-s">'BASH_TIMEOUT'</span>) !== <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">233</span>    <span class="tok-k">const</span> aborted = d.signal.aborted &amp;&amp; !timedOut</span>
+<span class="code-line"><span class="ln">234</span>    <span class="tok-k">return</span> { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs }</span>
+<span class="code-line"><span class="ln">242</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">211-213</span><p><strong>argv 从不由 subprocess 解释</strong>：bash-local 把 command 包成 <code>['bash','-c',command]</code>（pwsh-local 对应 <code>['pwsh','-NoProfile','-Command',...]</code>）；subprocess 只认 argv[0] 为程序。shell 语法归 provider，进程生成归 subprocess。</p></div>
-    <div class="lr"><span class="ln-ref">225</span><p><code>deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')</code>：一个 deadline 融合两个取消源（上游取消信号 + 自身超时）。<code>using</code> 保证 deadline 的定时器随函数结束释放。</p></div>
-    <div class="lr"><span class="ln-ref">226</span><p>spawn 下层进程。这里发生 seam 的分层：bash-local 只关心「bash 语义」，进程树管理全在下层。</p></div>
-    <div class="lr"><span class="ln-ref">230-232</span><p><strong>cause 分类归 bash-local</strong>：只有 executor 自己的 BASH_TIMEOUT 算 <code>timedOut</code>，外层 deadline（上游取消）算 <code>aborted</code>。subprocess seam 对取消原因无感——它只对 AbortSignal 反应。这就是 15 页说的「默认值与分类归实现方」。</p></div>
+    <div class="lr"><span class="ln-ref">213-215</span><p><strong>argv 从不由 subprocess 解释</strong>：bash-local 把 command 包成 <code>['bash','-c',command]</code>（pwsh-local 对应 <code>['pwsh','-NoProfile','-Command',...]</code>）；subprocess 只认 argv[0] 为程序。shell 语法归 provider，进程生成归 subprocess。</p></div>
+    <div class="lr"><span class="ln-ref">227</span><p><code>deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')</code>：一个 deadline 融合两个取消源（上游取消信号 + 自身超时）。<code>using</code> 保证 deadline 的定时器随函数结束释放。</p></div>
+    <div class="lr"><span class="ln-ref">228</span><p>spawn 下层进程。这里发生 seam 的分层：bash-local 只关心「bash 语义」，进程树管理全在下层。</p></div>
+    <div class="lr"><span class="ln-ref">232-234</span><p><strong>cause 分类归 bash-local</strong>：只有 executor 自己的 BASH_TIMEOUT 算 <code>timedOut</code>，外层 deadline（上游取消）算 <code>aborted</code>。subprocess seam 对取消原因无感——它只对 AbortSignal 反应。这就是 15 页说的「默认值与分类归实现方」。</p></div>
   </div>
 </section>
 

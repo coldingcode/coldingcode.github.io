@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -95,7 +95,7 @@
 node --import tsx/esm apps/cli/src/bin.ts web
 
 # bin.ts 里 argv = ['web']（slice(2) 去掉了 node 与脚本路径）
-# 本页 27 行：invocation = parseDshArgs(['web'], '0.1.1-rc.2')</pre>
+# 本页 27 行：invocation = parseDshArgs(['web'], '0.1.2-alpha.3')</pre>
     <div class="src">来源：package.json:136（真实 script 行）· apps/cli/src/bin.ts:26-27</div>
   </div>
   <div class="trace">
@@ -113,7 +113,7 @@ node --import tsx/esm apps/cli/src/bin.ts web
   <div class="toc-title">本页目录</div>
   <ol>
     <li><a href="#s1">这个文件在哪、怎么被调用</a></li>
-    <li><a href="#s2">完整代码（53 行）</a></li>
+    <li><a href="#s2">完整代码<span class="new">50 行</span></a></li>
     <li><a href="#s3">行级解读</a></li>
     <li><a href="#s4">一个设计问题：为什么动态 import</a></li>
   </ol>
@@ -127,10 +127,10 @@ node --import tsx/esm apps/cli/src/bin.ts web
 </section>
 
 <section id="s2">
-  <h2><span class="sec-num">§2</span>完整代码（53 行）</h2>
+  <h2><span class="sec-num">§2</span>完整代码<span class="new">50 行</span></h2>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/bin.ts</span><span>全文 53 行</span><span class="ln-range">1-53</span></figcaption>
+  <figcaption><span class="fname">apps/cli/src/bin.ts</span><span>全文 50 行</span><span class="ln-range">1-50</span></figcaption>
   <pre><code><span class="code-line"><span class="ln">1</span><span class="tok-c">#!/usr/bin/env node</span></span>
 <span class="code-line"><span class="ln">9</span><span class="tok-c">/* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */</span></span>
 <span class="code-line"><span class="ln">11</span><span class="tok-k">import</span> { readFileSync } <span class="tok-k">from</span> <span class="tok-s">'node:fs'</span></span>
@@ -143,32 +143,32 @@ node --import tsx/esm apps/cli/src/bin.ts web
 <span class="code-line"><span class="ln">22</span>  ) <span class="tok-k">as</span> { version?: unknown }</span>
 <span class="code-line"><span class="ln">23</span>  <span class="tok-k">return</span> <span class="tok-k">typeof</span> manifest.version === <span class="tok-s">'string'</span> ? manifest.version : <span class="tok-s">'0.0.0'</span></span>
 <span class="code-line"><span class="ln">24</span>}</span>
-<span class="code-line"><span class="ln">26</span><span class="tok-k">const</span> invocation = <span class="tok-f">parseDshArgs</span>(process.argv.<span class="tok-f">slice</span>(2), <span class="tok-f">readVersion</span>())</span>
-<span class="code-line"><span class="ln">28</span><span class="tok-k">switch</span> (invocation.mode) {</span>
-<span class="code-line"><span class="ln">29</span>  <span class="tok-k">case</span> <span class="tok-s">'profile'</span>: {</span>
+<span class="code-line"><span class="ln">24</span><span class="tok-k">const</span> invocation = <span class="tok-f">parseDshArgs</span>(process.argv.<span class="tok-f">slice</span>(2), <span class="tok-f">readVersion</span>())</span>
+<span class="code-line"><span class="ln">26</span><span class="tok-k">switch</span> (invocation.mode) {</span>
+<span class="code-line"><span class="ln">27</span>  <span class="tok-k">case</span> <span class="tok-s">'profile'</span>: {</span>
 <span class="code-line"><span class="ln">30</span>    <span class="tok-k">const</span> { runProfile } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./profile-boot.ts'</span>)</span>
-<span class="code-line"><span class="ln">31</span>    <span class="tok-k">await</span> <span class="tok-f">runProfile</span>({</span>
-<span class="code-line"><span class="ln">32</span>      environment: <span class="tok-f">loadLayeredEnv</span>(<span class="tok-s">'dsh'</span>),</span>
-<span class="code-line"><span class="ln">33</span>      profile: invocation.profile,</span>
-<span class="code-line"><span class="ln">34</span>      patchFiles: invocation.patches,</span>
-<span class="code-line"><span class="ln">35</span>      args: invocation.args,</span>
-<span class="code-line"><span class="ln">36</span>    })</span>
+<span class="code-line"><span class="ln">29</span>    <span class="tok-k">await</span> <span class="tok-f">runProfile</span>({</span>
+<span class="code-line"><span class="ln">30</span>      environment: <span class="tok-f">loadLayeredEnv</span>(<span class="tok-s">'dsh'</span>),</span>
+<span class="code-line"><span class="ln">31</span>      profile: invocation.profile,</span>
+<span class="code-line"><span class="ln">32</span>      patchFiles: invocation.patches,</span>
+<span class="code-line"><span class="ln">33</span>      args: invocation.args,</span>
+<span class="code-line"><span class="ln">34</span>    })</span>
 <span class="code-line"><span class="ln">37</span>    <span class="tok-k">break</span></span>
 <span class="code-line"><span class="ln">38</span>  }</span>
-<span class="code-line"><span class="ln">39</span>  <span class="tok-k">case</span> <span class="tok-s">'plugin'</span>: {</span>
-<span class="code-line"><span class="ln">40</span>    <span class="tok-k">const</span> { runPlugin } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./plugin.ts'</span>)</span>
-<span class="code-line"><span class="ln">41</span>    process.<span class="tok-f">exit</span>(<span class="tok-f">runPlugin</span>(invocation.profile, invocation.args))</span>
+<span class="code-line"><span class="ln">37</span>  <span class="tok-k">case</span> <span class="tok-s">'plugin'</span>: {</span>
+<span class="code-line"><span class="ln">38</span>    <span class="tok-k">const</span> { runPlugin } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./plugin.ts'</span>)</span>
+<span class="code-line"><span class="ln">39</span>    process.<span class="tok-f">exit</span>(<span class="tok-f">runPlugin</span>(invocation.profile, invocation.args))</span>
 <span class="code-line"><span class="ln">42</span>    <span class="tok-k">break</span></span>
 <span class="code-line"><span class="ln">43</span>  }</span>
-<span class="code-line"><span class="ln">44</span>  <span class="tok-k">case</span> <span class="tok-s">'dump-config'</span>: {</span>
-<span class="code-line"><span class="ln">45</span>    <span class="tok-k">const</span> { runDumpConfig } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./dump-config.ts'</span>)</span>
-<span class="code-line"><span class="ln">46</span>    <span class="tok-f">runDumpConfig</span>(invocation.profile, invocation.defaultOnly, invocation.patches)</span>
-<span class="code-line"><span class="ln">47</span>    <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">42</span>  <span class="tok-k">case</span> <span class="tok-s">'dump-config'</span>: {</span>
+<span class="code-line"><span class="ln">43</span>    <span class="tok-k">const</span> { runDumpConfig } = <span class="tok-k">await</span> <span class="tok-k">import</span>(<span class="tok-s">'./dump-config.ts'</span>)</span>
+<span class="code-line"><span class="ln">44</span>    <span class="tok-f">runDumpConfig</span>(invocation.profile, invocation.defaultOnly, invocation.patches)</span>
+<span class="code-line"><span class="ln">45</span>    <span class="tok-k">break</span></span>
 <span class="code-line"><span class="ln">48</span>  }</span>
-<span class="code-line"><span class="ln">49</span>  <span class="tok-k">default</span>:</span>
-<span class="code-line"><span class="ln">51</span>    invocation <span class="tok-k">satisfies</span> never</span>
-<span class="code-line"><span class="ln">52</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`dsh: unhandled invocation mode ${JSON.<span class="tok-f">stringify</span>(invocation)}`)</span>
-<span class="code-line"><span class="ln">53</span>}</span></code></pre>
+<span class="code-line"><span class="ln">47</span>  <span class="tok-k">default</span>:</span>
+<span class="code-line"><span class="ln">49</span>    invocation <span class="tok-k">satisfies</span> never</span>
+<span class="code-line"><span class="ln">50</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`dsh: unhandled invocation mode ${JSON.<span class="tok-f">stringify</span>(invocation)}`)</span>
+<span class="code-line"><span class="ln">50</span>}</span></code></pre>
 </figure>
 </section>
 
@@ -181,13 +181,13 @@ node --import tsx/esm apps/cli/src/bin.ts web
     <div class="lr"><span class="ln-ref">11-12</span><p>两个 node 内置 import：<code>readFileSync</code> 读版本号；<code>fileURLToPath</code> 把 ESM 的 <code>import.meta.url</code> 转成文件路径——ESM 里不能用 <code>__dirname</code>，这是替代手段。</p></div>
     <div class="lr"><span class="ln-ref">13</span><p><code>loadLayeredEnv('dsh')</code>：从 <code>@deepseek-ai/dsh-app-boot</code> 加载分层环境变量快照（后面在 runProfile 里被 provide 进插件树，见 04 页）。「layered」= 进程 env + 根 <code>.env</code> 文件按层合并。</p></div>
     <div class="lr"><span class="ln-ref">14</span><p><code>parseDshArgs</code> 来自 <code>./args.ts</code>——注意是 <strong>.ts 后缀</strong>的相对导入（仓库约定：跨包用包名，包内用 <code>.ts</code> 后缀）。下一站（01 页）讲它。</p></div>
-    <div class="lr"><span class="ln-ref">19-24</span><p><code>readVersion</code>：读自己包目录的 package.json 取 <code>version</code> 字段。<code>new URL('../package.json', import.meta.url)</code> 相对当前文件定位——注释解释为什么源码树（src/）和产物树（lib/）都坐在 apps/cli 下一层，所以这个相对跳转对两者都成立。</p></div>
-    <div class="lr"><span class="ln-ref">26</span><p><strong>整个进程的第一行真实逻辑</strong>：解析 argv（去掉前两个：node 路径和脚本路径），拿到 <code>invocation</code>。这个函数的返回类型是判别联合 <code>DshInvocation</code>（01 页详述）。</p></div>
-    <div class="lr"><span class="ln-ref">28</span><p>顶层 <code>await</code>：ESM 模块顶层允许 await。switch 按 mode 分发。注意三种 mode 都是<strong>动态 import</strong>——这是设计决策，见 §4。</p></div>
-    <div class="lr"><span class="ln-ref">29-38</span><p><strong>主路径 <code>profile</code></strong>（<code>dsh web</code> / <code>dsh --profile headless "task"</code> 都走这）：动态 import <code>profile-boot.ts</code>，调 <code>runProfile</code>。传四个参数：环境快照、profile 名、<code>--patch</code> overlay 路径、以及「内部参数」（profile 名之后的所有东西，原样交给插件树）。这一调用最终长出一整棵插件树（02→04 页）。</p></div>
-    <div class="lr"><span class="ln-ref">39-43</span><p><code>plugin</code> 模式：管理 profile 的插件依赖，转发给 pnpm。与主链无关，略过。</p></div>
-    <div class="lr"><span class="ln-ref">44-48</span><p><code>dump-config</code> 模式：打印组装好的配置树然后退出，不真正 boot。它和主链共用 02 页的组装函数，所以值得知道它的存在。</p></div>
-    <div class="lr"><span class="ln-ref">51-52</span><p><strong>穷尽性检查</strong>：<code>invocation satisfies never</code> 是 TypeScript 的编译期断言——如果将来 <code>DshInvocation</code> 加了新变体，这行会编译失败，逼你处理。AGENTS.md 里「switch 判别标签、closed union 以 assertNever 兜底」约定的第一种形态（这里是 satisfies 版本，效果相同）。</p></div>
+    <div class="lr"><span class="ln-ref">17-22</span><p><code>readVersion</code>：读自己包目录的 package.json 取 <code>version</code> 字段。<code>new URL('../package.json', import.meta.url)</code> 相对当前文件定位——注释解释为什么源码树（src/）和产物树（lib/）都坐在 apps/cli 下一层，所以这个相对跳转对两者都成立。</p></div>
+    <div class="lr"><span class="ln-ref">24</span><p><strong>整个进程的第一行真实逻辑</strong>：解析 argv（去掉前两个：node 路径和脚本路径），拿到 <code>invocation</code>。这个函数的返回类型是判别联合 <code>DshInvocation</code>（01 页详述）。</p></div>
+    <div class="lr"><span class="ln-ref">26</span><p>顶层 <code>await</code>：ESM 模块顶层允许 await。switch 按 mode 分发。注意三种 mode 都是<strong>动态 import</strong>——这是设计决策，见 §4。</p></div>
+    <div class="lr"><span class="ln-ref">27-36</span><p><strong>主路径 <code>profile</code></strong>（<code>dsh web</code> / <code>dsh --profile headless "task"</code> 都走这）：动态 import <code>profile-boot.ts</code>，调 <code>runProfile</code>。传四个参数：环境快照、profile 名、<code>--patch</code> overlay 路径、以及「内部参数」（profile 名之后的所有东西，原样交给插件树）。这一调用最终长出一整棵插件树（02→04 页）。</p></div>
+    <div class="lr"><span class="ln-ref">37-41</span><p><code>plugin</code> 模式：管理 profile 的插件依赖，转发给 pnpm。与主链无关，略过。</p></div>
+    <div class="lr"><span class="ln-ref">42-46</span><p><code>dump-config</code> 模式：打印组装好的配置树然后退出，不真正 boot。它和主链共用 02 页的组装函数，所以值得知道它的存在。</p></div>
+    <div class="lr"><span class="ln-ref">48-49</span><p><strong>穷尽性检查</strong>：<code>invocation satisfies never</code> 是 TypeScript 的编译期断言——如果将来 <code>DshInvocation</code> 加了新变体，这行会编译失败，逼你处理。AGENTS.md 里「switch 判别标签、closed union 以 assertNever 兜底」约定的第一种形态（这里是 satisfies 版本，效果相同）。</p></div>
   </div>
 </section>
 

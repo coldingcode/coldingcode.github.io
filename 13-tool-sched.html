@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,7 +72,7 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 13</p>
   <h1>executeToolCalls：barrier 与滚动池</h1>
-  <p class="lede"><code class="path">packages/core/agent-loop/src/tool-calls.ts</code>（289 行）调度一个 step 里的全部工具调用：<strong>exclusive 调用形成 barrier，parallel-safe 调用走受界滚动池；只有 dispatch/body 并发，策略、结果、结果上下文都按模型顺序提交</strong>。</p>
+  <p class="lede"><code class="path">packages/core/agent-loop/src/tool-calls.ts</code>（290 行）调度一个 step 里的全部工具调用：<strong>exclusive 调用形成 barrier，parallel-safe 调用走受界滚动池；只有 dispatch/body 并发，策略、结果、结果上下文都按模型顺序提交</strong>。</p>
 </header>
 
 <div class="chain">
@@ -221,7 +221,7 @@
   <div class="le">
     <div class="lr"><span class="ln-ref">145-160</span><p><strong>顺序提交游标</strong>：committed 只跨<strong>连续</strong> model 序 slot 前进——slot[committed] 没就绪就 break。慢的第 0 号调用未完成时，第 1 号即使完成也不提交结果。保证「结果的落盘顺序 = 模型的调用顺序」。</p></div>
     <div class="lr"><span class="ln-ref">151-153</span><p>提交时区分 <code>finalize</code>（还要过 post-execute）与 <code>finish</code>（直接终局）——这两个就是 14 页分段接口暴露给调度器的钩子。</p></div>
-    <div class="lr"><span class="ln-ref">155-157</span><p>appendToolResult（268-289 行）：tool/result 带 <code>sourceEventSeqs: [callSeq]</code> 引用它的 tool/call。additionalContexts 喂给 acceptContext（11 页 397 行 → next-step inbox）。concludesTurn 置位。</p></div>
+    <div class="lr"><span class="ln-ref">155-157</span><p>appendToolResult（269-290 行）：tool/result 带 <code>sourceEventSeqs: [callSeq]</code> 引用它的 tool/call。additionalContexts 喂给 acceptContext（11 页 415 行 → next-step inbox）。concludesTurn 置位。</p></div>
     <div class="lr"><span class="ln-ref">167</span><p>startCall 第一件事是 <strong>先落盘 tool/call</strong>（263 行：append 并返回 seq）——已启动的调用在日志里有 call 记录，结果引用它。</p></div>
     <div class="lr"><span class="ln-ref">169-190</span><p>prepare 三态（14 页的分段接口）：dispatch（pre 通过，等 body）、post-result（pre 直接给了结果，还要 post）、final-result（终局，连 post 都不走——如 UNKNOWN_TOOL）。</p></div>
     <div class="lr"><span class="ln-ref">198-213</span><p><strong>滚动池</strong>：池容量 = <code>maxParallelToolCalls</code>。两个停止条件：aborted、或<strong>重新分类</strong>——203-204 行对下一个未启动的调用重查 executionMode，若从 parallel 变成 exclusive 就 break，让它成为下一组的 barrier 起点。每次 startCall 后 commitReady——策略与结果在启动间隙就按序提交。</p></div>

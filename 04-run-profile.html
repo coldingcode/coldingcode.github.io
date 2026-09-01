@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,15 +72,15 @@
 <header class="page-head">
   <p class="kicker">Main Chain A · Step 04</p>
   <h1>runProfile：五层拼齐 + 热更新 + 信号</h1>
-  <p class="lede"><code class="path">apps/cli/src/profile-boot.ts</code>（300 行）是启动链的最后一站，也是 00 页 <code>bin.ts</code> 直接调用的那个函数。它把五层补丁拼齐、调 <code>boot()</code>、再给树挂上「改配置即热重组」的 watch。</p>
+  <p class="lede"><code class="path">apps/cli/src/profile-boot.ts</code>（307 行）是启动链的最后一站，也是 00 页 <code>bin.ts</code> 直接调用的那个函数。它把五层补丁拼齐、调 <code>boot()</code>、再给树挂上「改配置即热重组」的 watch。</p>
 </header>
 
 <div class="chain">
   <span class="seg">bin.ts:31 runProfile({...})</span>
   <span class="arrow">→</span>
-  <span class="here">profile-boot.ts:207 runProfile</span>
+  <span class="here">profile-boot.ts:209 runProfile</span>
   <span class="arrow">→</span>
-  <span class="seg">(内部) composeProfile:142 · composeLive:240 · boot:248</span>
+  <span class="seg">(内部) composeProfile:156 · composeLive:243 · boot:251</span>
   <span class="arrow">→</span>
   <span class="seg">(终点) 活插件树 → 05 脊柱</span>
 </div>
@@ -129,37 +129,37 @@
   <h2><span class="sec-num">§1</span>composeProfile：五层拼齐</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>五层的组合（节选）</span><span class="ln-range">142-171</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">142</span><span class="tok-k">function</span> <span class="tok-f">composeProfile</span>(name, patchFiles): ComposedProfile {</span>
-<span class="code-line"><span class="ln">146</span>  <span class="tok-k">const</span> profile = <span class="tok-f">prepareProfile</span>(name)          <span class="tok-c">// 02 页的 loadProfile + 重写空根配置</span></span>
-<span class="code-line"><span class="ln">147</span>  <span class="tok-k">const</span> homePatches = <span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? []</span>
-<span class="code-line"><span class="ln">148</span>  <span class="tok-k">const</span> overlays = patchFiles.<span class="tok-f">flatMap</span>(file =&gt; <span class="tok-f">loadOverlayPatches</span>(NAME, <span class="tok-f">resolve</span>(file)))</span>
-<span class="code-line"><span class="ln">149</span>  <span class="tok-k">const</span> bundlePatches = profile.layers.<span class="tok-f">flatMap</span>(layer =&gt; layer.patches)</span>
-<span class="code-line"><span class="ln">150</span>  <span class="tok-k">const</span> rows = <span class="tok-k">new</span> Map&lt;string, EntryOptions&gt;()</span>
-<span class="code-line"><span class="ln">151</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> row <span class="tok-k">of</span> <span class="tok-f">composeEntries</span>([bundlePatches, profile.patches, homePatches, overlays])) {</span>
-<span class="code-line"><span class="ln">152</span>    <span class="tok-k">if</span> (<span class="tok-k">typeof</span> row.id === <span class="tok-s">'string'</span>) rows.<span class="tok-f">set</span>(row.id, row)</span>
-<span class="code-line"><span class="ln">153</span>  }</span>
-<span class="code-line"><span class="ln">154</span>  <span class="tok-k">const</span> composedOverlays = [...overlays]</span>
-<span class="code-line"><span class="ln">159</span>  <span class="tok-k">if</span> (rows.<span class="tok-f">has</span>(<span class="tok-s">'agent-presets'</span>)) {</span>
-<span class="code-line"><span class="ln">160</span>    composedOverlays.<span class="tok-f">push</span>({</span>
-<span class="code-line"><span class="ln">161</span>      id: <span class="tok-s">'agent-presets'</span>,</span>
-<span class="code-line"><span class="ln">162</span>      config: { ...rows.<span class="tok-f">get</span>(<span class="tok-s">'agent-presets'</span>)?.config, roots: [{ path: SHIPPED_PRESET_ROOT, trust: <span class="tok-s">'system'</span> }] },</span>
-<span class="code-line"><span class="ln">163</span>    })</span>
-<span class="code-line"><span class="ln">164</span>  }</span>
-<span class="code-line"><span class="ln">168</span>  <span class="tok-k">const</span> telemetryPatch = <span class="tok-f">resolveTelemetryPatch</span>(process.env.DSH_TELEMETRY_DISABLED, rows.<span class="tok-f">has</span>(TELEMETRY_ROW_ID))</span>
-<span class="code-line"><span class="ln">169</span>  <span class="tok-k">if</span> (telemetryPatch !== <span class="tok-k">undefined</span>) composedOverlays.<span class="tok-f">push</span>(telemetryPatch)</span>
-<span class="code-line"><span class="ln">170</span>  <span class="tok-k">return</span> { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }</span>
-<span class="code-line"><span class="ln">171</span>}</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>五层的组合（节选）</span><span class="ln-range">156-185</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">156</span><span class="tok-k">async function</span> <span class="tok-f">composeProfile</span>(name, patchFiles): Promise&lt;ComposedProfile&gt; {</span>
+<span class="code-line"><span class="ln">160</span>  <span class="tok-k">const</span> profile = <span class="tok-f">prepareProfile</span>(name)          <span class="tok-c">// 02 页的 loadProfile + 重写空根配置</span></span>
+<span class="code-line"><span class="ln">161</span>  <span class="tok-k">const</span> homePatches = <span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? []</span>
+<span class="code-line"><span class="ln">162</span>  <span class="tok-k">const</span> overlays = patchFiles.<span class="tok-f">flatMap</span>(file =&gt; <span class="tok-f">loadOverlayPatches</span>(NAME, <span class="tok-f">resolve</span>(file)))</span>
+<span class="code-line"><span class="ln">163</span>  <span class="tok-k">const</span> bundlePatches = profile.layers.<span class="tok-f">flatMap</span>(layer =&gt; layer.patches)</span>
+<span class="code-line"><span class="ln">164</span>  <span class="tok-k">const</span> rows = <span class="tok-k">new</span> Map&lt;string, EntryOptions&gt;()</span>
+<span class="code-line"><span class="ln">165</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> row <span class="tok-k">of</span> <span class="tok-f">composeEntries</span>([bundlePatches, profile.patches, homePatches, overlays])) {</span>
+<span class="code-line"><span class="ln">166</span>    <span class="tok-k">if</span> (<span class="tok-k">typeof</span> row.id === <span class="tok-s">'string'</span>) rows.<span class="tok-f">set</span>(row.id, row)</span>
+<span class="code-line"><span class="ln">167</span>  }</span>
+<span class="code-line"><span class="ln">168</span>  <span class="tok-k">const</span> composedOverlays = [...overlays]</span>
+<span class="code-line"><span class="ln">173</span>  <span class="tok-k">if</span> (rows.<span class="tok-f">has</span>(<span class="tok-s">'agent-presets'</span>)) {</span>
+<span class="code-line"><span class="ln">174</span>    composedOverlays.<span class="tok-f">push</span>({</span>
+<span class="code-line"><span class="ln">175</span>      id: <span class="tok-s">'agent-presets'</span>,</span>
+<span class="code-line"><span class="ln">176</span>      config: { ...rows.<span class="tok-f">get</span>(<span class="tok-s">'agent-presets'</span>)?.config, roots: [{ path: SHIPPED_PRESET_ROOT, trust: <span class="tok-s">'system'</span> }] },</span>
+<span class="code-line"><span class="ln">177</span>    })</span>
+<span class="code-line"><span class="ln">178</span>  }</span>
+<span class="code-line"><span class="ln">182</span>  <span class="tok-k">const</span> telemetryPatch = <span class="tok-f">resolveTelemetryPatch</span>(process.env.DSH_TELEMETRY_DISABLED, rows.<span class="tok-f">has</span>(TELEMETRY_ROW_ID))</span>
+<span class="code-line"><span class="ln">183</span>  <span class="tok-k">if</span> (telemetryPatch !== <span class="tok-k">undefined</span>) composedOverlays.<span class="tok-f">push</span>(telemetryPatch)</span>
+<span class="code-line"><span class="ln">184</span>  <span class="tok-k">return</span> { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }</span>
+<span class="code-line"><span class="ln">185</span>}</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">146</span><p><code>prepareProfile</code>（98-103 行）：调 02 页的 loadProfile，然后<strong>重写空根配置</strong>。注释解释为什么每次都要重写：Loader 的树写回（插件自卸载会持久化当前树）可能把组合好的行烤进 cordis.yml——下次 boot 就会重复每个 bundle 的 insert。所以根永远是空的。</p></div>
-    <div class="lr"><span class="ln-ref">147</span><p>第③层：home 级 <code>$DSH_HOME/cordis.patch.yml</code>——机器级偏好，<strong>在 profile 层之后应用</strong>（高于它）。<code>loadOptionalPatches</code>：文件不存在就返回空（可选层）。</p></div>
-    <div class="lr"><span class="ln-ref">148</span><p>第④层：<code>--patch</code> overlay，按 argv 顺序。注意这里 overlay 只是被 load；真正 push 进 composedOverlays 是在 154 行复制之后——因为第⑤层遥测开关也要进 overlay，而用户 overlay 不能被污染。</p></div>
-    <div class="lr"><span class="ln-ref">151</span><p><strong>五层压成一张表</strong>（只列前四层；第五层在 169 行并入）：同一个 <code>composeEntries</code>——与 boot 里的挂载用同一个算法，保证「flag 推导和配置 dump 看到的，就是实际挂载的」。</p></div>
-    <div class="lr"><span class="ln-ref">152</span><p>rows 是 id → Entry 索引，供 launcher 自己的行级检查（如 159 行查 agent-presets 是否存在）。</p></div>
-    <div class="lr"><span class="ln-ref">159-163</span><p>agent-presets 特例：SHIPPED_PRESET_ROOT（app 自带的预设目录，源码/产物两种布局下都在 app 旁边）只有这个 launcher 能解析，所以作为 overlay 推入。注释：「writable root 由 dsh-agent-presets 自己追加」，launcher 永不覆盖用户目录，只补系统目录。</p></div>
-    <div class="lr"><span class="ln-ref">168-169</span><p>第⑤层：遥测开关。<code>resolveTelemetryPatch</code>（80-83 行）——<strong>任何非空值（包括 '0'/'false'）都禁用</strong>：隐私开关宁可误关不可误开。组合里没有遥测行时开关自然满足，不产生补丁。</p></div>
+    <div class="lr"><span class="ln-ref">160</span><p><code>prepareProfile</code>（98-103 行）：调 02 页的 loadProfile，然后<strong>重写空根配置</strong>。注释解释为什么每次都要重写：Loader 的树写回（插件自卸载会持久化当前树）可能把组合好的行烤进 cordis.yml——下次 boot 就会重复每个 bundle 的 insert。所以根永远是空的。</p></div>
+    <div class="lr"><span class="ln-ref">161</span><p>第③层：home 级 <code>$DSH_HOME/cordis.patch.yml</code>——机器级偏好，<strong>在 profile 层之后应用</strong>（高于它）。<code>loadOptionalPatches</code>：文件不存在就返回空（可选层）。</p></div>
+    <div class="lr"><span class="ln-ref">162</span><p>第④层：<code>--patch</code> overlay，按 argv 顺序。注意这里 overlay 只是被 load；真正 push 进 composedOverlays 是在 154 行复制之后——因为第⑤层遥测开关也要进 overlay，而用户 overlay 不能被污染。</p></div>
+    <div class="lr"><span class="ln-ref">165</span><p><strong>五层压成一张表</strong>（只列前四层；第五层在 169 行并入）：同一个 <code>composeEntries</code>——与 boot 里的挂载用同一个算法，保证「flag 推导和配置 dump 看到的，就是实际挂载的」。</p></div>
+    <div class="lr"><span class="ln-ref">166</span><p>rows 是 id → Entry 索引，供 launcher 自己的行级检查（如 159 行查 agent-presets 是否存在）。</p></div>
+    <div class="lr"><span class="ln-ref">173-177</span><p>agent-presets 特例：SHIPPED_PRESET_ROOT（app 自带的预设目录，源码/产物两种布局下都在 app 旁边）只有这个 launcher 能解析，所以作为 overlay 推入。注释：「writable root 由 dsh-agent-presets 自己追加」，launcher 永不覆盖用户目录，只补系统目录。</p></div>
+    <div class="lr"><span class="ln-ref">182-183</span><p>第⑤层：遥测开关。<code>resolveTelemetryPatch</code>（80-83 行）——<strong>任何非空值（包括 '0'/'false'）都禁用</strong>：隐私开关宁可误关不可误开。组合里没有遥测行时开关自然满足，不产生补丁。</p></div>
   </div>
 
   <div class="callout key">
@@ -171,49 +171,49 @@
   <h2><span class="sec-num">§2</span>runProfile：boot + 信号</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>runProfile 主体（节选）</span><span class="ln-range">207-259</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">207</span><span class="tok-k">export async function</span> <span class="tok-f">runProfile</span>(options): Promise&lt;{ ctx; shutdown }&gt; {</span>
-<span class="code-line"><span class="ln">208</span>  <span class="tok-k">const</span> composed = <span class="tok-f">composeProfile</span>(options.profile, options.patchFiles)</span>
-<span class="code-line"><span class="ln">209</span>  <span class="tok-k">const</span> app: { current?: Context } = {}</span>
-<span class="code-line"><span class="ln">210</span>  <span class="tok-k">const</span> shutdown = <span class="tok-f">createProcessShutdown</span>(<span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
-<span class="code-line"><span class="ln">211</span>  <span class="tok-k">const</span> signalShutdown = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
-<span class="code-line"><span class="ln">221</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGTERM'</span>, () =&gt; { <span class="tok-f">interrupt</span>(0) })</span>
-<span class="code-line"><span class="ln">222</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGINT'</span>, () =&gt; { <span class="tok-f">interrupt</span>(130) })</span>
-<span class="code-line"><span class="ln">223</span>  <span class="tok-f">installFailLoud</span>(NAME, process, <span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
-<span class="code-line"><span class="ln">240</span>  <span class="tok-k">const</span> composeLive = (): PatchOptions[] =&gt; <span class="tok-f">structuredClone</span>([</span>
-<span class="code-line"><span class="ln">241</span>    ...composed.bundlePatches,</span>
-<span class="code-line"><span class="ln">242</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, composed.profile.patchPath) ?? [],</span>
-<span class="code-line"><span class="ln">243</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? [],</span>
-<span class="code-line"><span class="ln">244</span>    ...composed.overlays,</span>
-<span class="code-line"><span class="ln">245</span>  ])</span>
-<span class="code-line"><span class="ln">248</span>  <span class="tok-k">const</span> ctx = <span class="tok-k">await</span> <span class="tok-f">boot</span>(NAME, rootConfig, <span class="tok-f">structuredClone</span>(<span class="tok-f">allPatches</span>(composed)), (hostCtx) =&gt; {</span>
-<span class="code-line"><span class="ln">249</span>    app.current = hostCtx</span>
-<span class="code-line"><span class="ln">252</span>    hostCtx.<span class="tok-f">provide</span>(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)</span>
-<span class="code-line"><span class="ln">255</span>    <span class="tok-f">provideCmdline</span>(hostCtx, { args: options.args, exit: code =&gt; <span class="tok-k">void</span> shutdown.<span class="tok-f">shutdown</span>(code) })</span>
-<span class="code-line"><span class="ln">256</span>  })</span>
-<span class="code-line"><span class="ln">257</span>  app.current = ctx</span>
-<span class="code-line"><span class="ln">279</span>  <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'hmr'</span>) === <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">280</span>    <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'timer'</span>) === <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">281</span>      <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-timer'</span> })</span>
-<span class="code-line"><span class="ln">282</span>    }</span>
-<span class="code-line"><span class="ln">283</span>    <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-hmr'</span>, config: { root: [] } })</span>
-<span class="code-line"><span class="ln">284</span>  }</span>
-<span class="code-line"><span class="ln">285</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: composed.profile.patchPath, compose: composeLive })</span>
-<span class="code-line"><span class="ln">290</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: <span class="tok-f">homePatchPath</span>(), compose: composeLive })</span>
-<span class="code-line"><span class="ln">299</span>  <span class="tok-k">return</span> { ctx, shutdown }</span>
-<span class="code-line"><span class="ln">300</span>}</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>runProfile 主体（节选）</span><span class="ln-range">209-261</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">209</span><span class="tok-k">export async function</span> <span class="tok-f">runProfile</span>(options): Promise&lt;{ ctx; shutdown }&gt; {</span>
+<span class="code-line"><span class="ln">210</span>  <span class="tok-k">const</span> composed = <span class="tok-k">await</span> <span class="tok-f">composeProfile</span>(options.profile, options.patchFiles)</span>
+<span class="code-line"><span class="ln">211</span>  <span class="tok-k">const</span> app: { current?: Context } = {}</span>
+<span class="code-line"><span class="ln">212</span>  <span class="tok-k">const</span> shutdown = <span class="tok-f">createProcessShutdown</span>(<span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
+<span class="code-line"><span class="ln">213</span>  <span class="tok-k">const</span> signalShutdown = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
+<span class="code-line"><span class="ln">223</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGTERM'</span>, () =&gt; { <span class="tok-f">interrupt</span>(0) })</span>
+<span class="code-line"><span class="ln">224</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGINT'</span>, () =&gt; { <span class="tok-f">interrupt</span>(130) })</span>
+<span class="code-line"><span class="ln">225</span>  <span class="tok-f">installFailLoud</span>(NAME, process, <span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
+<span class="code-line"><span class="ln">243</span>  <span class="tok-k">const</span> composeLive = (): PatchOptions[] =&gt; <span class="tok-f">structuredClone</span>([</span>
+<span class="code-line"><span class="ln">244</span>    ...composed.bundlePatches,</span>
+<span class="code-line"><span class="ln">245</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, composed.profile.patchPath) ?? [],</span>
+<span class="code-line"><span class="ln">246</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? [],</span>
+<span class="code-line"><span class="ln">247</span>    ...composed.overlays,</span>
+<span class="code-line"><span class="ln">248</span>  ])</span>
+<span class="code-line"><span class="ln">251</span>  <span class="tok-k">const</span> ctx = <span class="tok-k">await</span> <span class="tok-f">boot</span>(NAME, rootConfig, <span class="tok-f">structuredClone</span>(<span class="tok-f">allPatches</span>(composed)), (hostCtx) =&gt; {</span>
+<span class="code-line"><span class="ln">252</span>    app.current = hostCtx</span>
+<span class="code-line"><span class="ln">255</span>    hostCtx.<span class="tok-f">provide</span>(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)</span>
+<span class="code-line"><span class="ln">258</span>    <span class="tok-f">provideCmdline</span>(hostCtx, { args: options.args, exit: code =&gt; <span class="tok-k">void</span> shutdown.<span class="tok-f">shutdown</span>(code) })</span>
+<span class="code-line"><span class="ln">259</span>  })</span>
+<span class="code-line"><span class="ln">260</span>  app.current = ctx</span>
+<span class="code-line"><span class="ln">282</span>  <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'hmr'</span>) === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">283</span>    <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'timer'</span>) === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">284</span>      <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-timer'</span> })</span>
+<span class="code-line"><span class="ln">285</span>    }</span>
+<span class="code-line"><span class="ln">286</span>    <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-hmr'</span>, config: { root: [] } })</span>
+<span class="code-line"><span class="ln">287</span>  }</span>
+<span class="code-line"><span class="ln">288</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: composed.profile.patchPath, compose: composeLive })</span>
+<span class="code-line"><span class="ln">293</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: <span class="tok-f">homePatchPath</span>(), compose: composeLive })</span>
+<span class="code-line"><span class="ln">302</span>  <span class="tok-k">return</span> { ctx, shutdown }</span>
+<span class="code-line"><span class="ln">303</span>}</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">210</span><p><code>createProcessShutdown</code>（<code class="path">process-shutdown.ts</code>）：有界关机的控制器——dispose 整棵树是它 shutdown 时执行的第一个动作。之后所有退出路径（信号、app 请求退出、one-shot 完成）都走它。</p></div>
-    <div class="lr"><span class="ln-ref">221-222</span><p>信号语义：<strong>SIGTERM 退出码 0</strong>（supervisor 的普通停止请求，launcher 不知道应用是否算完成）；<strong>SIGINT 退出码 130</strong>（用户中断）。信号在 boot() settle 之前就接管 teardown——注释解释：insert 的 provider 可能在兄弟行还没挂完时就 publish。</p></div>
-    <div class="lr"><span class="ln-ref">223</span><p><code>installFailLoud</code>：boot 完成后的未处理 rejection 也不再静默——每个未处理错误都 dispose 树并报告。这是「错了就大声崩」原则的进程级实现。</p></div>
-    <div class="lr"><span class="ln-ref">240-245</span><p><strong>composeLive 是热重组的补丁快照</strong>：bundle 层在底、overlay 在顶，用户的两个文件（profile 的 + home 的）<strong>每次重组都重新读盘</strong>。注意整体 <code>structuredClone</code>——见 §3。</p></div>
-    <div class="lr"><span class="ln-ref">248</span><p>调 03 页的 <code>boot()</code>。传的 patches 也是 <code>structuredClone(allPatches(composed))</code>——boot 应用补丁时不能 mutate 后续热重组要用的原对象。</p></div>
-    <div class="lr"><span class="ln-ref">252</span><p>prepare 回调（03 页的 prepare 参数）：provide <strong>启动环境快照</strong>——在任何配置树条目挂载前，插件解析启动期环境值（DSH_* env 等）都从这同一个不可变来源读。</p></div>
-    <div class="lr"><span class="ln-ref">255</span><p>provide 命令行：内部参数（01 页的 args）+ <code>exit</code> 请求函数。任何注入的 app 插件都能读同一份不可变参数快照；one-shot 完成时通过 exit 请求关机。</p></div>
-    <div class="lr"><span class="ln-ref">279-284</span><p>HMR 补挂：web bundle 禁用了共享的模块重载 hmr 行（其 reload 生命周期未测试），所以这里补一个 <code>root: []</code> 的 watch-only HMR 实例——只做「cordis.patch.yml 编辑即时生效」的配置热重载，不做模块重载。缺 timer 服务就先挂 timer（HMR 依赖它）。<strong>静默跳过会破坏文档承诺的热重载契约</strong>，所以宁可显式补挂。</p></div>
-    <div class="lr"><span class="ln-ref">285-290</span><p>两个 watch：profile 的 patch 文件和 home 的 patch 文件。文件一改，watchUserPatches 就用 <code>composeLive</code> 重算补丁、重组插件树。</p></div>
+    <div class="lr"><span class="ln-ref">212</span><p><code>createProcessShutdown</code>（<code class="path">process-shutdown.ts</code>）：有界关机的控制器——dispose 整棵树是它 shutdown 时执行的第一个动作。之后所有退出路径（信号、app 请求退出、one-shot 完成）都走它。</p></div>
+    <div class="lr"><span class="ln-ref">223-224</span><p>信号语义：<strong>SIGTERM 退出码 0</strong>（supervisor 的普通停止请求，launcher 不知道应用是否算完成）；<strong>SIGINT 退出码 130</strong>（用户中断）。信号在 boot() settle 之前就接管 teardown——注释解释：insert 的 provider 可能在兄弟行还没挂完时就 publish。</p></div>
+    <div class="lr"><span class="ln-ref">225</span><p><code>installFailLoud</code>：boot 完成后的未处理 rejection 也不再静默——每个未处理错误都 dispose 树并报告。这是「错了就大声崩」原则的进程级实现。</p></div>
+    <div class="lr"><span class="ln-ref">243-248</span><p><strong>composeLive 是热重组的补丁快照</strong>：bundle 层在底、overlay 在顶，用户的两个文件（profile 的 + home 的）<strong>每次重组都重新读盘</strong>。注意整体 <code>structuredClone</code>——见 §3。</p></div>
+    <div class="lr"><span class="ln-ref">251</span><p>调 03 页的 <code>boot()</code>。传的 patches 也是 <code>structuredClone(allPatches(composed))</code>——boot 应用补丁时不能 mutate 后续热重组要用的原对象。</p></div>
+    <div class="lr"><span class="ln-ref">258</span><p>prepare 回调（03 页的 prepare 参数）：provide <strong>启动环境快照</strong>——在任何配置树条目挂载前，插件解析启动期环境值（DSH_* env 等）都从这同一个不可变来源读。</p></div>
+    <div class="lr"><span class="ln-ref">258</span><p>provide 命令行：内部参数（01 页的 args）+ <code>exit</code> 请求函数。任何注入的 app 插件都能读同一份不可变参数快照；one-shot 完成时通过 exit 请求关机。</p></div>
+    <div class="lr"><span class="ln-ref">282-287</span><p>HMR 补挂：web bundle 禁用了共享的模块重载 hmr 行（其 reload 生命周期未测试），所以这里补一个 <code>root: []</code> 的 watch-only HMR 实例——只做「cordis.patch.yml 编辑即时生效」的配置热重载，不做模块重载。缺 timer 服务就先挂 timer（HMR 依赖它）。<strong>静默跳过会破坏文档承诺的热重载契约</strong>，所以宁可显式补挂。</p></div>
+    <div class="lr"><span class="ln-ref">288-293</span><p>两个 watch：profile 的 patch 文件和 home 的 patch 文件。文件一改，watchUserPatches 就用 <code>composeLive</code> 重算补丁、重组插件树。</p></div>
   </div>
 </section>
 

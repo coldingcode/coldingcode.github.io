@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -79,9 +79,12 @@
   <div class="toc-title">本页目录</div>
   <ol>
     <li><a href="#s1">站点当前状态</a></li>
-    <li><a href="#s2">rc.7 → 0.1.1-rc.2：本轮同步</a></li>
-    <li><a href="#s4">rc.5 → rc.7：首轮同步</a></li>
-    <li><a href="#s5">同步方法（供后续复用）</a></li>
+    <li><a href="#s0">最新：0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</a></li>
+    <li><a href="#s2">示例贯穿：全书配套真实轨迹（2026-08-23）</a></li>
+    <li><a href="#s3">结构性重构：从叙事到全书（2026-08-23）</a></li>
+    <li><a href="#s4">rc.7 → 0.1.1-rc.2：同步（2026-08-21）</a></li>
+    <li><a href="#s5">rc.5 → rc.7：首轮同步（2026-08-19）</a></li>
+    <li><a href="#s6">同步方法（供后续复用）</a></li>
   </ol>
 </nav>
 
@@ -90,11 +93,53 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
-    <tr><td>站点锚定版本</td><td><strong>0.1.1-rc.2</strong>（commit <code>b150a551b8</code> Merge PR #2908）</td></tr>
+    <tr><td>站点锚定版本</td><td><strong>0.1.2-alpha.3</strong>（commit <code>dd6322d604</code> Merge PR #3387）</td></tr>
     <tr><td>覆盖范围</td><td>35 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>60+ 处文件:行号引用，均经上游源码逐行验证</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
+</section>
+
+<section id="s0">
+  <h2><span class="sec-num">§0</span>最新：0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</h2>
+  <p>本轮 pull 的变更量：<strong>7036 个文件、+355256/-144539</strong>（rc.2 之后两个 alpha 版本的全部合入）。站点锚定的核心文件有大批语义变更，逐页处理如下：</p>
+
+  <h3>① request/header 的 series 维度—— 05/08/09/11 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/core/agent-loop/src/agent.ts</code>（515→545 行）</td><td>step/buildRequest 新增 <code>startsRequestSeries</code> 与 <code>surfaceGeneration</code> 参数；header 落盘三条路（initial/resume · change 附 startsSeries · 新增 reason:'series'）；构造器改从 <code>sessionProjections.stateOf(session, 'turnBoundary')</code> 恢复 lastTurn（不再 findLast 扫日志）；AgentOptions 新增 <code>reasoningEffort</code></td></tr>
+    <tr><td><code class="path">packages/core/session/src/types.ts</code>（430 行）</td><td><code>RequestHeaderReason</code> 扩为四值（+'series'）；request/header 数据新增 <code>startsSeries?: true</code>；CallId→ToolCallId；TodoItem 移入 dsh-todo；SessionId 改用 brandString</td></tr>
+    <tr><td><code class="path">packages/core/agent/src/runtime-types.ts</code>（292→299 行）</td><td>Agent 接口迁至 types.ts（declaration merging）；PreStepDecision 的 enter 新增 <code>startsRequestSeries?: true</code></td></tr>
+  </table></div>
+
+  <h3>② LLM：TypertRemoteService 与 @Remote—— 09/10 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/llm/llm/src/index.ts</code>（1026→1092 行）</td><td><code>LlmRuntime extends TypertRemoteService</code>（可被远程载波）；<code>discoverModels</code>/<code>remoteDiscoverModels</code> 支持 signal；LlmAdapter 新增 <code>imageRequestPricing</code>（route 拥有的图片定价）；deepFreeze 移入 dsh-util-values</td></tr>
+    <tr><td><code class="path">packages/llm/llm/src/content.ts</code>（202 行，+179）</td><td>图片投影逻辑扩展；contentHasImage 递归检测保持唯一</td></tr>
+  </table></div>
+
+  <h3>③ 提示词 SECTION_ORDERS 中央分配表—— 12 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/core/system-prompt/src/index.ts</code>（545→614 行）</td><td>order 区间约定（-100 identity / 0 persona / 100-199 tools）替换为中央具名表 <code>SECTION_ORDERS</code>（121-155 行，HARNESS_IDENTITY:-1000 … STRUCTURED_OUTPUT:9900）；排序比较器 comparePromptSections，平局按 code-unit 名字序</td></tr>
+  </table></div>
+
+  <h3>④ profile 层重构—— 02/03/04 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/boot/app-boot/src/profile.ts</code>（420→861 行）</td><td>PROFILE_TEMPLATES 变 ProfileTemplate 对象（可带 patchReload 等元数据）；<code>ProfilePatchReload = 'live' | 'startup'</code> 控制用户层补丁的加载生命周期；healProfilesModuleFallback 重构为 async + 锁内更新（并发启动安全）</td></tr>
+    <tr><td><code class="path">apps/cli/src/profile-boot.ts</code>（300→307 行）</td><td>composeProfile 变 async；新增 <code>AppReady</code> 就绪信号（boot + host setup 成功后才 commit）；应用所选的 patch-reload 生命周期</td></tr>
+  </table></div>
+
+  <h3>⑤ 其余（站点未覆盖或无需改动）</h3>
+  <ul>
+    <li><code class="path">apps/cli/src/bin.ts</code>（53→50 行）：头部 JSDoc 精简，代码未变——00 页行号重映射。</li>
+    <li><code class="path">packages/core/tools/src/</code>：<code>code-mode.ts</code> 改名 <code>ptc.ts</code>（PTC 传输）；ts-types/py-types 同步调整——14 页提到 code-mode 的句子已随主链行号更新，未深挖改名细节。</li>
+    <li><code class="path">packages/core/session/src/</code>：<code>json.ts</code> 移除（无损 JSON 工具迁入 <code>@deepseek-ai/dsh-util-values</code>）；新增 <code>seq-ranges.ts</code>（seq 区间编解码）；chunk-rows.ts +56 行。</li>
+    <li><code class="path">packages/subprocess/subprocess-local/</code>：process-inspector.ts +275（重写）、windows-inspector.ts ±29、terminal.ts ±36——16 页「下层职责」描述仍成立。</li>
+    <li><code class="path">packages/llm/llm/</code>：never.ts / call-config.ts 部分删除（assertNever 等迁入工具包），brand.ts +28（ToolCallId 等新品牌类型）。</li>
+  </ul>
 </section>
 
 <section id="s2">
@@ -108,7 +153,6 @@
   </ul>
 
   <h2><span class="sec-num">§3</span>结构性重构：从叙事到全书（2026-08-23）</h2>
-  <h2><span class="sec-num">§2</span>结构性重构：从叙事到全书（2026-08-23）</h2>
   <p>用户反馈：旧结构只讲了「叙事逻辑」（核心机制的故事），没有把<strong>整个项目线性地讲清</strong>。重构为三卷全书结构：</p>
   <ul>
     <li><strong>卷零 · 入口与组装（00-04）</strong>：从 bin.ts 到活插件树的完整启动链。</li>

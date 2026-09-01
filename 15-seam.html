@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.1-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -88,12 +88,12 @@
   <div class="trace">
     <div class="trace-head">示例轨迹 15-1 · 从模型工具到进程的调用链</div>
     <pre>模型调用 bash("ls -la")
-  → 14 页流水线 → tool-bash 的 execute（17 页 330 行）
+  → 14 页流水线 → tool-bash 的 execute（17 页 339 行）
   → ctx.shellEnv.collect(exec)                    ← DSH_* 快照
-  → ctx.shell.resolve(request)                    ← ShellExecutor 抽象（15 页 85 行）
+  → ctx.shell.resolve(request)                    ← ShellExecutor 抽象（15 页 84 行）
   → LocalBashExecutor（16 页）：默认值/上限/env 合并 → ShellExecSpec
-  → ctx.shell.run(spec)（17 页 380 行）
-  → LocalBashExecutor.runArgv（16 页 223 行）：
+  → ctx.shell.run(spec)（17 页 379 行）
+  → LocalBashExecutor.runArgv（16 页 225 行）：
       deadline(signal, timeoutMs, 'BASH_TIMEOUT')
       ctx.subprocess.spawn(spawnSpec(spec, ['bash','-c','ls -la'], ...))
   → LocalSubprocessRuntime（16 页 §4）：detached 进程树 + 输出采集
@@ -127,21 +127,21 @@
   <p>一个 capability seam 是「Service Definition（接口）/ Service Provider（实现）/ Consumer（工具）」三件套。在 dsh 代码里它们长这样（以 shell 为例，与 10 页的 LlmRuntime 同构）：</p>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/shell/shell/src/index.ts</span><span>Service Definition：抽象类 + super 注册</span><span class="ln-range">65-93</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">65</span><span class="tok-k">export abstract class</span> <span class="tok-t">ShellExecutor</span> <span class="tok-k">extends</span> Service {</span>
-<span class="code-line"><span class="ln">66</span>  <span class="tok-f">constructor</span>(ctx: Context) {</span>
-<span class="code-line"><span class="ln">67</span>    <span class="tok-k">super</span>(ctx, <span class="tok-s">'shell'</span>)      <span class="tok-c">// ← ctx.shell 由此而来</span></span>
-<span class="code-line"><span class="ln">68</span>  }</span>
-<span class="code-line"><span class="ln">75</span>  <span class="tok-k">get</span> <span class="tok-f">sandboxMode</span>(): SandboxMode | <span class="tok-k">undefined</span> { <span class="tok-k">return</span> <span class="tok-k">undefined</span> }</span>
-<span class="code-line"><span class="ln">85</span>  <span class="tok-k">abstract</span> <span class="tok-f">resolve</span>(request: ShellExecRequest): ShellExecSpec</span>
-<span class="code-line"><span class="ln">93</span>  <span class="tok-k">abstract</span> <span class="tok-f">run</span>(spec: ShellExecSpec): Promise&lt;ShellRunResult&gt;</span>
-<span class="code-line"><span class="ln">94</span>  <span class="tok-k">abstract</span> <span class="tok-f">start</span>(spec: ShellExecSpec): ShellProcess</span></code></pre>
+  <figcaption><span class="fname">packages/shell/shell/src/index.ts</span><span>Service Definition：抽象类 + super 注册</span><span class="ln-range">64-92</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">64</span><span class="tok-k">export abstract class</span> <span class="tok-t">ShellExecutor</span> <span class="tok-k">extends</span> Service {</span>
+<span class="code-line"><span class="ln">65</span>  <span class="tok-f">constructor</span>(ctx: Context) {</span>
+<span class="code-line"><span class="ln">66</span>    <span class="tok-k">super</span>(ctx, <span class="tok-s">'shell'</span>)      <span class="tok-c">// ← ctx.shell 由此而来</span></span>
+<span class="code-line"><span class="ln">67</span>  }</span>
+<span class="code-line"><span class="ln">74</span>  <span class="tok-k">get</span> <span class="tok-f">sandboxMode</span>(): SandboxMode | <span class="tok-k">undefined</span> { <span class="tok-k">return</span> <span class="tok-k">undefined</span> }</span>
+<span class="code-line"><span class="ln">84</span>  <span class="tok-k">abstract</span> <span class="tok-f">resolve</span>(request: ShellExecRequest): ShellExecSpec</span>
+<span class="code-line"><span class="ln">92</span>  <span class="tok-k">abstract</span> <span class="tok-f">run</span>(spec: ShellExecSpec): Promise&lt;ShellRunResult&gt;</span>
+<span class="code-line"><span class="ln">93</span>  <span class="tok-k">abstract</span> <span class="tok-f">start</span>(spec: ShellExecSpec): ShellProcess</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">65-68</span><p>Service Definition 的注册形态：<code>extends Service</code> + <code>super(ctx, 'shell')</code>。<code>declare module</code> 里的 <code>Context.shell</code> 是类型层，这里才是运行时注册点。</p></div>
-    <div class="lr"><span class="ln-ref">75</span><p><code>sandboxMode</code> 是可选能力声明：默认实现返回 undefined（不沙箱）。沙箱化 provider（bash-sandbox）override 它——tool-bash 靠它判断是否需要升级审批。</p></div>
-    <div class="lr"><span class="ln-ref">85, 93-94</span><p><strong>resolve 拆分</strong>是 seam 的核心心智模型：Request（可选字段）→ resolve → Spec（全字段）。Consumer 永远先 resolve 再 run/start，绝不直接传 request——默认值归属实现方（16 页看具体落点）。</p></div>
+    <div class="lr"><span class="ln-ref">64-67</span><p>Service Definition 的注册形态：<code>extends Service</code> + <code>super(ctx, 'shell')</code>。<code>declare module</code> 里的 <code>Context.shell</code> 是类型层，这里才是运行时注册点。</p></div>
+    <div class="lr"><span class="ln-ref">74</span><p><code>sandboxMode</code> 是可选能力声明：默认实现返回 undefined（不沙箱）。沙箱化 provider（bash-sandbox）override 它——tool-bash 靠它判断是否需要升级审批。</p></div>
+    <div class="lr"><span class="ln-ref">84, 92-93</span><p><strong>resolve 拆分</strong>是 seam 的核心心智模型：Request（可选字段）→ resolve → Spec（全字段）。Consumer 永远先 resolve 再 run/start，绝不直接传 request——默认值归属实现方（16 页看具体落点）。</p></div>
   </div>
 </section>
 
