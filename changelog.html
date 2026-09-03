@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -79,7 +79,8 @@
   <div class="toc-title">本页目录</div>
   <ol>
     <li><a href="#s1">站点当前状态</a></li>
-    <li><a href="#s0">最新：0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</a></li>
+    <li><a href="#s00">最新：0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</a></li>
+    <li><a href="#s0">0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</a></li>
     <li><a href="#s2">示例贯穿：全书配套真实轨迹（2026-08-23）</a></li>
     <li><a href="#s3">结构性重构：从叙事到全书（2026-08-23）</a></li>
     <li><a href="#s4">rc.7 → 0.1.1-rc.2：同步（2026-08-21）</a></li>
@@ -93,15 +94,44 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
-    <tr><td>站点锚定版本</td><td><strong>0.1.2-alpha.3</strong>（commit <code>dd6322d604</code> Merge PR #3387）</td></tr>
+    <tr><td>站点锚定版本</td><td><strong>0.1.2-rc.1</strong>（commit <code>76fda72979</code> Merge PR #3481）</td></tr>
     <tr><td>覆盖范围</td><td>35 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>60+ 处文件:行号引用，均经上游源码逐行验证</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
 </section>
 
+<section id="s00">
+  <h2><span class="sec-num">§00</span>最新：0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</h2>
+  <p>本轮 pull 的变更量：<strong>2682 个文件、+46669/-33253</strong>。站点锚定文件里的实质语义变更集中在一处大主题（session 序列品牌化）与两处引导层变化：</p>
+
+  <h3>① Session 序列品牌化（SessionSeq / SessionLogOffset）—— 06/07/13 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/core/session/src/types.ts</code>（430→475 行）</td><td>新增 <code>SessionSeq = BrandedNumber&lt;'SessionSeq'&gt;</code>（29 行，工厂拒绝 -0/负数/非整数）与 <code>SessionLogOffset</code>（44 行）；<code>header.seedLength</code> 移除，换成 <code>isSeeded: boolean</code>（111 行）</td></tr>
+    <tr><td><code class="path">packages/core/session/src/index.ts</code>（1156→1224 行）</td><td>append 的 <code>seq: SessionSeq(this.log.length)</code>（693 行）；新增 <code>eventAt(seq)</code>（588）/ <code>ownEvents()</code>（615，由 <code>inheritedEventCount</code> 切出的自事件视图）；firstLiveSeq 品牌化（555 行）；create/fromRestore 增 <code>inheritedEventCount</code> 参数</td></tr>
+    <tr><td><code class="path">packages/core/agent/src/inbox.ts</code></td><td>构造器回放改 <code>session.ownEvents()</code>（32 行）——07 页已更新</td></tr>
+    <tr><td><code class="path">packages/core/session/src/surface.ts</code>（460→476 行）</td><td>全部 seq 类型改为 SessionSeq（数值语义不变，类型层防错）</td></tr>
+  </table></div>
+
+  <h3>② HTTP 代理引导—— 03/04 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">apps/cli/src/profile-boot.ts</code>（307→320 行）</td><td>runProfile 开头新增 <code>installProxyFromEnvironment</code>（215-218 行，@deepseek-ai/dsh-http-proxy，PR #3198）——Node fetch 不读代理环境变量，需从 launcher 快照手动装代理；shutdown 时 <code>disposeProxy()</code>（225 行）</td></tr>
+    <tr><td><code class="path">packages/boot/app-boot/src/index.ts</code>（846→864 行）</td><td>boot 772→790、assertEntriesActivated 692→725（03 页行号位移）；<code>HOME_LAYER_PROXY_NAMES</code>：Harness-home .env 允许设 HTTP(S)_PROXY/ALL_PROXY/NO_PROXY（其余 .env 层拒绝）</td></tr>
+  </table></div>
+
+  <h3>③ 其余影响面（站点未覆盖或行号位移）</h3>
+  <ul>
+    <li><code class="path">packages/core/agent-loop/src/index.ts</code>（713→915 行）：AgentLoop 生命周期重构——StoredSession 写句柄与 storedCount、SessionPersistenceNotFoundError 判断「真缺失」、配置启动失败 trackStartup 追踪。</li>
+    <li><code class="path">packages/core/agent-loop/src/{agent,tool-calls,runtime-context}.ts</code>：仅 SessionSeq 类型化（chunkSeqs/callSeqs 等），行号未变；13 页 trace 里 167→168 已修。</li>
+    <li><code class="path">packages/core/agent/src/index.ts</code>（±21）：AgentRegistry 细节调整。</li>
+    <li>各包 <code>invariant.ts</code> 有删减（bash-local/shell/tool-bash/subprocess-local 的 invariant 移除）——站点未深入。</li>
+  </ul>
+</section>
+
 <section id="s0">
-  <h2><span class="sec-num">§0</span>最新：0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</h2>
+  <h2><span class="sec-num">§0</span>0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</h2>
   <p>本轮 pull 的变更量：<strong>7036 个文件、+355256/-144539</strong>（rc.2 之后两个 alpha 版本的全部合入）。站点锚定的核心文件有大批语义变更，逐页处理如下：</p>
 
   <h3>① request/header 的 series 维度—— 05/08/09/11 页更新</h3>

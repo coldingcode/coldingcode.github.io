@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -109,7 +109,7 @@
   <div class="trace">
     <div class="trace-head">示例轨迹 07-2 · resume 时这页如何重放</div>
     <pre># 进程重启 → 新 Inbox 构造（本页 32 行）
-# 从 header.seedLength 起扫日志里的 agent/inbox/spliced
+# 用 session.ownEvents()（自事件视图）扫日志里的 agent/inbox/spliced
 # 命中上面 ② 的认领记录 → apply() 重放 → next-turn 队列空
 # 命中一个进程崩溃前没重放的插入 → 消息回到队列
 # 这就是「待办不丢」：真相在日志，内存只是投影。</pre>
@@ -136,7 +136,7 @@
   <pre><code><span class="code-line"><span class="ln">25</span><span class="tok-k">export class</span> <span class="tok-t">Inbox</span> {</span>
 <span class="code-line"><span class="ln">26</span>  <span class="tok-k">private readonly</span> state: InboxState = { <span class="tok-s">'next-turn'</span>: [], <span class="tok-s">'next-step'</span>: [] }</span>
 <span class="code-line"><span class="ln">28</span>  <span class="tok-f">constructor</span>(<span class="tok-k">private readonly</span> session, <span class="tok-k">private readonly</span> notifications) {</span>
-<span class="code-line"><span class="ln">32</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> event <span class="tok-k">of</span> session.events.<span class="tok-f">slice</span>(session.header.seedLength ?? 0)) {</span>
+<span class="code-line"><span class="ln">32</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> event <span class="tok-k">of</span> session.<span class="tok-f">ownEvents</span>()) {</span>
 <span class="code-line"><span class="ln">33</span>      <span class="tok-k">if</span> (event.type !== <span class="tok-s">'agent/inbox/spliced'</span>) <span class="tok-k">continue</span></span>
 <span class="code-line"><span class="ln">34</span>      <span class="tok-k">try</span> { <span class="tok-k">this</span>.<span class="tok-f">apply</span>(event.data) }</span>
 <span class="code-line"><span class="ln">35</span>      <span class="tok-k">catch</span> (error) {</span>
@@ -155,7 +155,7 @@
 
   <div class="le">
     <div class="lr"><span class="ln-ref">26</span><p>两个队列就是全部状态：<code>next-turn</code>（等待各自轮次的消息）与 <code>next-step</code>（等待下一步边界的输入）。</p></div>
-    <div class="lr"><span class="ln-ref">32</span><p><strong>replay-once 投影</strong>：构造时从 <code>header.seedLength</code> 起回放日志里的 <code>agent/inbox/spliced</code> 事件重建内存状态。为什么从 seedLength 开始？seed 前缀（父历史）已经含在投影里，不需要重放。这就是「resume 后 inbox 恢复」的机制。</p></div>
+    <div class="lr"><span class="ln-ref">32</span><p><strong>replay-once 投影</strong>：构造时用 <code>session.ownEvents()</code>（0.1.2-rc.1 新增的自事件视图——由 <code>inheritedEventCount</code> 切出的本会话前缀）回放日志里的 <code>agent/inbox/spliced</code> 事件重建内存状态。为什么只看自事件？父历史（fork 继承的前缀）已经含在投影里，不需要重放。这就是「resume 后 inbox 恢复」的机制。</p></div>
     <div class="lr"><span class="ln-ref">34-38</span><p>回放校验失败 → 报错并带 cause（哪条 seq 坏了）。持久化的 splice 不可信，回放必须验证。</p></div>
     <div class="lr"><span class="ln-ref">53</span><p>hasPending 是 turn() 324 行与 kick 220 行判断「还有没有活」的依据。</p></div>
     <div class="lr"><span class="ln-ref">58-61</span><p>clear（cancel 时用）：<strong>先清 next-step 再清 next-turn</strong>——顺序有意为之，保证任何时刻 next-turn 里的消息不被转向半途截胡。两个 splice 各自落盘（durable 的取消）。</p></div>

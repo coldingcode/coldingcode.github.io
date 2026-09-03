@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -158,7 +158,7 @@
     <div class="lr"><span class="ln-ref">242-243</span><p><strong>③ project（§3）</strong>：把动态运行时上下文（如工作目录、平台信息）快照成候选 user/message。注意 <code>sections</code> 既被 join 成完整文本（作为候选消息的 content），也原样传入（作为结构化元数据）。</p></div>
     <div class="lr"><span class="ln-ref">244-250</span><p><strong>④ waterfall 扩展点</strong>：payload 是 { messages: claimed, turn, step, signal }。默认值（fallback 回调）是 enter + claimed + 投影出的 context。任何插件可以改写 messages 或直接 reject。返回值的语义见 §2。</p></div>
     <div class="lr"><span class="ln-ref">251</span><p>waterfall 之后再查一次 abort——监听器里可能发生取消。</p></div>
-    <div class="lr"><span class="ln-ref">252</span><p><strong>assembly 只随 enter 返回</strong>：reject 的 decision 不携带 assembly（反正不进 step）。return 类型 <code>PreparedStep</code>（51-58 行）的形态：<code>{kind:'reject'}</code> 或 <code>{kind:'enter', messages, assembly}</code>；0.1.2-alpha.3 起 enter 还可带 <code>startsRequestSeries?: true</code>（宣告一个显式区分的新消息系列，见 09 页 §4 的 request/header series 机制）。</p></div>
+    <div class="lr"><span class="ln-ref">252</span><p><strong>assembly 只随 enter 返回</strong>：reject 的 decision 不携带 assembly（反正不进 step）。return 类型 <code>PreparedStep</code>（51-58 行）的形态：<code>{kind:'reject'}</code> 或 <code>{kind:'enter', messages, assembly}</code>；0.1.2-rc.1 起 enter 还可带 <code>startsRequestSeries?: true</code>（宣告一个显式区分的新消息系列，见 09 页 §4 的 request/header series 机制）。</p></div>
   </div>
 </section>
 

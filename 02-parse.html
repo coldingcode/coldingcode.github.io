@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -245,7 +245,7 @@ $ cat ~/.dsh/profiles/web/package.json
     <div class="lr"><span class="ln-ref">785-788</span><p>两个锚点都找不到 → 报错并给修复指引（用 <code>dsh plugin</code> 装）。fail-loud，不静默跳过。</p></div>
   </div>
 
-  <p>配套的还有 <code>healProfilesModuleFallback</code>（557-640 行，0.1.2-alpha.3 起重构为 async + 锁内更新）：在 <code>$DSH_HOME/profiles/node_modules</code> 里为 dsh 依赖闭包的<strong>每个包</strong>建一个 symlink（BFS 遍历 dependencies + peerDependencies）。这样 out-of-tree 插件（装在 profile 自己 node_modules 里的）通过 Node 的父目录向上查找，能找到安装方的 cordis 等 peer——<strong>所有插件共享安装里的同一个 cordis 实例</strong>，不会出现两个 cordis。</p>
+  <p>配套的还有 <code>healProfilesModuleFallback</code>（557-640 行，0.1.2-rc.1 起重构为 async + 锁内更新）：在 <code>$DSH_HOME/profiles/node_modules</code> 里为 dsh 依赖闭包的<strong>每个包</strong>建一个 symlink（BFS 遍历 dependencies + peerDependencies）。这样 out-of-tree 插件（装在 profile 自己 node_modules 里的）通过 Node 的父目录向上查找，能找到安装方的 cordis 等 peer——<strong>所有插件共享安装里的同一个 cordis 实例</strong>，不会出现两个 cordis。</p>
 </section>
 
 <section id="s4">

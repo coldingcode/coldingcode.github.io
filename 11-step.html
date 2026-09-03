@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,7 +72,7 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 11</p>
   <h1>step：调用、落盘与三条分支</h1>
-  <p class="lede"><code>agent.ts:341-441</code>。一个 step = 一次模型调用 + 它请求的工具执行。这里把 09/10 页的请求与流串起来：<strong>逐 chunk 落盘 → 组装完成锚点 → 三条分支（max-tokens / 完成 / 有工具调用）</strong>。0.1.2-alpha.3 起新增了「取消时把已流出的文本前缀固化为 interrupted 锚点」。</p>
+  <p class="lede"><code>agent.ts:341-441</code>。一个 step = 一次模型调用 + 它请求的工具执行。这里把 09/10 页的请求与流串起来：<strong>逐 chunk 落盘 → 组装完成锚点 → 三条分支（max-tokens / 完成 / 有工具调用）</strong>。0.1.2-rc.1 起新增了「取消时把已流出的文本前缀固化为 interrupted 锚点」。</p>
 </header>
 
 <div class="chain">
@@ -117,7 +117,7 @@ seq 16 turn/end           {turn:1,reason:'completed'}       ← 05 页 319 行</
 # → 落一条 assistant/message {interrupted:true}（358-367 行）
 # → rethrow（388 行）→ turn 以 aborted 关闭
 # 结果：seq 6 的位置是一条 interrupted 锚点——用户看到的前半句进了模型历史</pre>
-    <div class="src">来源：11 页 §4 + 0.1.2-alpha.3 的 interrupted 机制</div>
+    <div class="src">来源：11 页 §4 + 0.1.2-rc.1 的 interrupted 机制</div>
   </div>
 </section>
 
@@ -128,7 +128,7 @@ seq 16 turn/end           {turn:1,reason:'completed'}       ← 05 页 319 行</
     <li><a href="#s1">完整代码与行级解读</a></li>
     <li><a href="#s2">重试循环的边界</a></li>
     <li><a href="#s3">返回值的三态语义</a></li>
-    <li><a href="#s4">0.1.2-alpha.3 新增：interrupted 锚点</a></li>
+    <li><a href="#s4">0.1.2-rc.1 新增：interrupted 锚点</a></li>
   </ol>
 </nav>
 
@@ -136,7 +136,7 @@ seq 16 turn/end           {turn:1,reason:'completed'}       ← 05 页 319 行</
   <h2><span class="sec-num">§1</span>完整代码与行级解读</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>step 全文（0.1.2-alpha.3）</span><span class="ln-range">341-441</span></figcaption>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>step 全文（0.1.2-rc.1）</span><span class="ln-range">341-441</span></figcaption>
   <pre><code><span class="code-line"><span class="ln">341</span>  <span class="tok-k">private async</span> <span class="tok-f">step</span>(assembly: PromptAssembly, startsRequestSeries: boolean): Promise&lt;StepEndReason | <span class="tok-k">null</span>&gt; {</span>
 <span class="code-line"><span class="ln">346</span>    <span class="tok-k">const</span> system = <span class="tok-f">renderPrompt</span>(assembly)</span>
 <span class="code-line"><span class="ln">348</span>    <span class="tok-k">while</span> (<span class="tok-n">true</span>) {</span>
@@ -252,8 +252,8 @@ seq 16 turn/end           {turn:1,reason:'completed'}       ← 05 页 319 行</
 </section>
 
 <section id="s4">
-  <h2><span class="sec-num">§4</span>0.1.2-alpha.3 新增：interrupted 锚点</h2>
-  <p>升级前，用户在模型输出到一半时取消，已流出的文本只存在于 <code>assistant/chunk</code> 事件里——chunk 不进派生历史（06 页），所以那段文本「消失」了。0.1.2-alpha.3 的修复：</p>
+  <h2><span class="sec-num">§4</span>0.1.2-rc.1 新增：interrupted 锚点</h2>
+  <p>升级前，用户在模型输出到一半时取消，已流出的文本只存在于 <code>assistant/chunk</code> 事件里——chunk 不进派生历史（06 页），所以那段文本「消失」了。0.1.2-rc.1 的修复：</p>
   <ol>
     <li><strong><code>assembler.interruptedBlocks()</code></strong>（<code class="path">llm/src/assembler.ts:158</code>）：组装「中断流可以安全固化的前缀」——已闭合和未闭合的 text/reasoning 块，<strong>非空白内容才保留</strong>。tool-call 被省略（中断先于派发，保留它就得伪造结果）；打开的未知块也省略。</li>
     <li><strong>落一条 <code>interrupted: true</code> 的 assistant/message</strong>（373-386 行）：前缀成为模型可见历史的一部分。类型层：<code>SessionEventMap</code> 的 <code>'assistant/message'</code> 新增 <code>interrupted?: true</code>（<code class="path">session/src/types.ts:277</code>）——JSDoc 明说：标记的意义是<strong>无需从 turn 边界反推</strong>即可区分该前缀；一个 aborted 的 turn 没有此事件 = 取消前没有流出可见内容。</li>

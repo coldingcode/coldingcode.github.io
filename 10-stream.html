@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,7 +72,7 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 10</p>
   <h1>llm/stream：请求 → 适配器 → 块流</h1>
-  <p class="lede">09 页造出的冻结请求在这里离开 harness，进入 LLM 适配器。这一页看 <code class="path">packages/llm/llm/src/index.ts</code>（1092 行）里的 <code>LlmRuntime</code>——seam 的核心：<code>llm/stream</code> waterfall 如何找到 adapter、<code>adapterStream</code> 如何做代际绑定与失败归一化。0.1.2-alpha.3 起它还负责「图片 → 纯文本模型」的输入投影，且 LlmRuntime 变为 TypertRemoteService（支持 @Remote 远程方法）。</p>
+  <p class="lede">09 页造出的冻结请求在这里离开 harness，进入 LLM 适配器。这一页看 <code class="path">packages/llm/llm/src/index.ts</code>（1092 行）里的 <code>LlmRuntime</code>——seam 的核心：<code>llm/stream</code> waterfall 如何找到 adapter、<code>adapterStream</code> 如何做代际绑定与失败归一化。0.1.2-rc.1 起它还负责「图片 → 纯文本模型」的输入投影，且 LlmRuntime 变为 TypertRemoteService（支持 @Remote 远程方法）。</p>
 </header>
 
 <div class="chain">
@@ -146,7 +146,7 @@
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">326-328</span><p><code>LlmRuntime extends TypertRemoteService</code>（0.1.2-alpha.3 起；仍是 Service 族）且 <code>super(ctx, 'llm')</code>——<code>ctx.llm</code> 由此而来（不是 ctx.provide）。TypertRemoteService 支持 <code>@Remote</code> 标注的方法（如 <code>remoteDiscoverModels</code>）跨进程调用——LLM 服务可被远程载波。两张表：<code>adapters</code>（provider route → 注册的适配器）与 <code>directory</code>（可配置 provider 目录，供模型发现）。</p></div>
+    <div class="lr"><span class="ln-ref">326-328</span><p><code>LlmRuntime extends TypertRemoteService</code>（0.1.2-rc.1 起；仍是 Service 族）且 <code>super(ctx, 'llm')</code>——<code>ctx.llm</code> 由此而来（不是 ctx.provide）。TypertRemoteService 支持 <code>@Remote</code> 标注的方法（如 <code>remoteDiscoverModels</code>）跨进程调用——LLM 服务可被远程载波。两张表：<code>adapters</code>（provider route → 注册的适配器）与 <code>directory</code>（可配置 provider 目录，供模型发现）。</p></div>
     <div class="lr"><span class="ln-ref">335</span><p>Service 注册点。全库的 seam 都长这样：<code>class X extends Service { super(ctx, 'name') }</code>。</p></div>
     <div class="lr"><span class="ln-ref">937-941</span><p>provider 解析的唯一路径：找不到就是 <code>NO_ADAPTER</code>（LlmError）——09 页 472 行特别宽容的就是这个错误码。</p></div>
   </div>
@@ -179,7 +179,7 @@
   <h2><span class="sec-num">§3</span>adapterStream：代际绑定 + 失败归一化边界</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>终局适配器边界（0.1.2-alpha.3 结构）</span><span class="ln-range">964-1031</span></figcaption>
+  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>终局适配器边界（0.1.2-rc.1 结构）</span><span class="ln-range">964-1031</span></figcaption>
   <pre><code><span class="code-line"><span class="ln">964</span>  <span class="tok-k">private async</span> * <span class="tok-f">adapterStream</span>(options, prepared?: PreparedDispatch): AsyncGenerator&lt;StreamChunk&gt; {</span>
 <span class="code-line"><span class="ln">968</span>    <span class="tok-k">let</span> iterator: AsyncIterator&lt;StreamChunk&gt;</span>
 <span class="code-line"><span class="ln">969</span>    <span class="tok-k">try</span> {</span>
@@ -236,10 +236,10 @@
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">970-983</span><p><strong>0.1.2-alpha.3 的代际绑定结构</strong>：两条路径都收敛到同一组三元（modelInfo / resolvedConfig / dispatch）。普通路径也先 <code>adapter.prepareCall(...)</code>（LlmAdapter.prepareCall，247 行）——模型解析与最终 stream 调用绑定到<strong>同一个 adapter 代际</strong>，设置变更发生在两者之间时不可能拼错。prepared 路径直接复用 09 页冻结的三元。</p></div>
+    <div class="lr"><span class="ln-ref">970-983</span><p><strong>0.1.2-rc.1 的代际绑定结构</strong>：两条路径都收敛到同一组三元（modelInfo / resolvedConfig / dispatch）。普通路径也先 <code>adapter.prepareCall(...)</code>（LlmAdapter.prepareCall，247 行）——模型解析与最终 stream 调用绑定到<strong>同一个 adapter 代际</strong>，设置变更发生在两者之间时不可能拼错。prepared 路径直接复用 09 页冻结的三元。</p></div>
     <div class="lr"><span class="ln-ref">985-990</span><p>prepared 路径的第二个守卫（第一个在 09 页的 stream 闭包里）：到 adapter 边界前<strong>再验一次</strong> config 没漂移——中间件可能已经改写过 options。</p></div>
     <div class="lr"><span class="ln-ref">991-995</span><p>如果 adapter 物化的 config 与 options 不同（普通路径），合并出一个 resolvedOptions；如果 options 已冻结（loop 请求都是 frozen）则 deepFreeze 新对象——冻结性传播。</p></div>
-    <div class="lr"><span class="ln-ref">996-1002</span><p><strong>图片投影（0.1.2-alpha.3 新增）</strong>：模型模态声明不含 image、而消息里有图片时，用 <code>projectImagesForTextModel</code>（<code class="path">llm/src/content.ts</code>，202 行）把图片块投影成文本模型可接受的形态。模态信息来自代际捕获的 <code>modelInfo.inputModalities</code>——不是靠猜。</p></div>
+    <div class="lr"><span class="ln-ref">996-1002</span><p><strong>图片投影（0.1.2-rc.1 新增）</strong>：模型模态声明不含 image、而消息里有图片时，用 <code>projectImagesForTextModel</code>（<code class="path">llm/src/content.ts</code>，202 行）把图片块投影成文本模型可接受的形态。模态信息来自代际捕获的 <code>modelInfo.inputModalities</code>——不是靠猜。</p></div>
     <div class="lr"><span class="ln-ref">1003-1004</span><p><strong>真的调用模型</strong>：<code>dispatch(...)</code>——prepared 路径是 prepareCall 时捕获的同一代际 stream 入口；普通路径是 adapterCall.stream。传入前先过 <code>forAdapter</code>（§4）。</p></div>
     <div class="lr"><span class="ln-ref">1005-1008</span><p><strong>选择/派发阶段的失败归一化</strong>：任何错误（NO_ADAPTER、resolve 失败、dispatch 同步抛）都变成<strong>一个</strong>终态 finish chunk 后正常结束——生成器不 throw，消费者看到的是流协议内的错误。</p></div>
     <div class="lr"><span class="ln-ref">1012-1030</span><p>迭代循环：每次 <code>iterator.next()</code> 的 reject 同样归一化为终态 chunk。注意 962-963 的注释——「在 yield 之前结束 adapter 所有的 try」：消费者/中间件的失败被 resume 进生成器时必须保持原样 throw，不能被这里的 try 吃掉。这是失败边界的另一半。</p></div>

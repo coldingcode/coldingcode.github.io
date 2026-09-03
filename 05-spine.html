@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-alpha.3<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -164,7 +164,7 @@
     <div class="lr"><span class="ln-ref">70-72</span><p>ReactLoopAgent <strong>实现 Agent 接口</strong>（03 页的老页面讲过接口，本页的 07 页会讲 Inbox）。它持有三个关键对象：inbox（输入队列投影）、phase（状态机真相）、session（持久日志）。</p></div>
     <div class="lr"><span class="ln-ref">92</span><p><code>agentEvents(loopCtx, this)</code>：把「这个 agent」融合成事件派发器——此后所有 <code>agent/*</code> 事件的 scope 过滤都以它为 subject。构造一次，热路径不再分配。</p></div>
     <div class="lr"><span class="ln-ref">93-97</span><p>Inbox 的三个通知回调，每个只做一件事：<strong>把 inbox 的实时变化转成 live 事件</strong>。注意这是「live 通知」，与 inbox 内部的 durable 事件（<code>agent/inbox/spliced</code>，07 页）是两个域——后者进日志，前者不进。</p></div>
-    <div class="lr"><span class="ln-ref">100-101</span><p><strong>从投影恢复位置</strong>：<code>sessionProjections.stateOf(session, 'turnBoundary')</code> 拿 lastTurn——0.1.2-alpha.3 起不再用 <code>findLast</code> 扫日志，改从「会话投影」注册的 turnBoundary 单元取（loop 自己注册该单元，所以键恒在）。resume 的 agent 仍从持久状态续上编号——投影是日志的索引，真相还在日志。</p></div>
+    <div class="lr"><span class="ln-ref">100-101</span><p><strong>从投影恢复位置</strong>：<code>sessionProjections.stateOf(session, 'turnBoundary')</code> 拿 lastTurn——0.1.2-rc.1 起不再用 <code>findLast</code> 扫日志，改从「会话投影」注册的 turnBoundary 单元取（loop 自己注册该单元，所以键恒在）。resume 的 agent 仍从持久状态续上编号——投影是日志的索引，真相还在日志。</p></div>
     <div class="lr"><span class="ln-ref">102</span><p>初始 phase：idle，lastTurn 是日志里最后那个 turn。</p></div>
     <div class="lr"><span class="ln-ref">103-104</span><p>两个作用域概念（07 页还会遇到）：<code>scope</code> 是注册边界 + carrier；<code>ctx</code> 是 <code>extend({agent: this})</code> 后的 agent 作用域上下文——在这个 ctx 上注册的东西随 agent 销毁而撤销，<code>ctx.agent</code> 能拿到自己。</p></div>
     <div class="lr"><span class="ln-ref">105</span><p><code>RuntimeContextProjection</code>（<code class="path">runtime-context.ts</code>，76 行）：把动态运行时上下文投影成候选 user/message 的持久化快照（08 页 preStep 的第三步用到）。</p></div>
