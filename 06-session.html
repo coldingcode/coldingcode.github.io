@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,13 +72,13 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 06</p>
   <h1>Session：日志与 append</h1>
-  <p class="lede">05 页的 turn/step 循环里到处是 <code>this.session.append(...)</code>。这一页钻进 <code class="path">packages/core/session/src/index.ts</code>（1224 行）看 append 的每一行——<strong>它是「模型可见 ⟺ 已记录」这条不变量的物理实现</strong>。</p>
+  <p class="lede">05 页的 turn/step 循环里到处是 <code>this.session.append(...)</code>。这一页钻进 <code class="path">packages/core/session/src/index.ts</code>（1254 行）看 append 的每一行——<strong>它是「模型可见 ⟺ 已记录」这条不变量的物理实现</strong>。</p>
 </header>
 
 <div class="chain">
   <span class="seg">05 agent.ts:255 turn() 里 append('turn/start')</span>
   <span class="arrow">→</span>
-  <span class="here">session/src/index.ts:668 Session.append</span>
+  <span class="here">session/src/index.ts:699 Session.append</span>
   <span class="arrow">→</span>
   <span class="seg">(下一步) 07 Inbox.mutate 也调 append</span>
 </div>
@@ -93,15 +93,15 @@
     "config": { "model": "fake" }, "system": "SYS PROMPT",
     "tools": [{ "name": "t1", "description": "D1", "parameters": { "type": "object" } }] },
   "reason": "initial" } }
-{ "type": "assistant/chunk", "seq": 1, "time": 5, "data": {
-    "turn": 1, "step": 1, "chunk": { "type": "text-delta", "index": 0, "text": "hi" } } }</pre>
-    <div class="src">来源：仓库真实 fixture（plain-turn/behavior.json）。第一行是 session 头（不在事件日志里，对应本页 header 概念）；后两行是事件——注意 seq 从 0 连续、信封是 {type, seq, time, data}</div>
+{ "type": "assistant/attempt", "seq": 1, "time": 5, "data": {
+    "turn": 1, "step": 1, "stream": [ { "type": "text-delta", "index": 0, "text": "hi" } ] } }</pre>
+    <div class="src">来源：仓库真实 fixture（plain-turn/behavior.json）。第一行是 session 头（不在事件日志里，对应本页 header 概念）；后两行是事件——注意 seq 从 0 连续、信封是 {type, seq, time, data}。0.1.3-alpha.1 起（SESSION_FORMAT_VERSION 0→2）assistant/chunk 事件被 assistant/attempt 取代：原始流压缩内嵌在一条事件里，持久化每个尝试只存一次（详见 11 页 §5）</div>
   </div>
   <div class="trace">
     <div class="trace-head">示例轨迹 06-2 · 我们的消息经过 append 变成什么</div>
     <pre># turn() 291 行调用：session.append('user/message', message, {surfaceOp:'append'})
 # 输入：{ role:'user', content:[{type:'text',text:'帮我列一下当前目录'}], source:{kind:'user'} }
-# append 的变换（本页 668-719 行）：
+# append 的变换（本页 699-750 行）：
 # ① snapshotJsonValue 无损 JSON 校验 → 通过（纯文本）
 # ② deepFreeze 冻结 → 事件对象不可变
 # ③ seq = log.length（此时假设 log 已有 2 条：turn/start=0、step/start=1）→ seq=2
@@ -112,7 +112,7 @@
   </div>
   <div class="trace">
     <div class="trace-head">示例轨迹 06-3 · 为什么这个事件「模型可见」</div>
-    <pre># surface 校验（698 行 validateNext）：user/message 是三个消息生产类型之一，
+    <pre># surface 校验（729 行 validateNext）：user/message 是三个消息生产类型之一，
 # surfaceOp:'append' 合法 → 追加到 surface 尾部
 # → 之后 09 页 buildRequest 的 deriveMessages() 会把它投影进模型请求
 # 若换成 surfaceOp:{op:'replace',start:0,end:0}（compaction 摘要），
@@ -137,26 +137,26 @@
   <h2><span class="sec-num">§1</span>SessionEvent：信封</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/session/src/types.ts</span><span>事件信封（判别联合）</span><span class="ln-range">436-469</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">436</span><span class="tok-k">export type</span> SessionEvent&lt;T <span class="tok-k">extends</span> SessionEventType = SessionEventType&gt; = {</span>
-<span class="code-line"><span class="ln">437</span>  [K <span class="tok-k">in</span> SessionEventType]: {</span>
-<span class="code-line"><span class="ln">438</span>    type: K</span>
-<span class="code-line"><span class="ln">440</span>    seq: number       <span class="tok-c">// 单调序号：seq = log.length</span></span>
-<span class="code-line"><span class="ln">442</span>    time: number      <span class="tok-c">// Unix epoch ms</span></span>
-<span class="code-line"><span class="ln">443</span>    data: SessionEventMap[K]</span>
-<span class="code-line"><span class="ln">454</span>    ignorable?: <span class="tok-k">true</span>  <span class="tok-c">// 读者不认识此 type 时可安全跳过</span></span>
-<span class="code-line"><span class="ln">455</span>  } &amp; (K <span class="tok-k">extends</span> SurfaceEventType ? {</span>
-<span class="code-line"><span class="ln">465</span>    sourceEventSeqs?: number[]  <span class="tok-c">// 引用哪些早先事件产出了它</span></span>
-<span class="code-line"><span class="ln">467</span>    surfaceOp?: SurfaceOp       <span class="tok-c">// 如何进入 surface：append | replace</span></span>
-<span class="code-line"><span class="ln">468</span>  } : object)</span>
-<span class="code-line"><span class="ln">469</span>}[T]</span></code></pre>
+  <figcaption><span class="fname">packages/core/session/src/types.ts</span><span>事件信封（判别联合）</span><span class="ln-range">447-479</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">447</span><span class="tok-k">export type</span> SessionEvent&lt;T <span class="tok-k">extends</span> SessionEventType = SessionEventType&gt; = {</span>
+<span class="code-line"><span class="ln">448</span>  [K <span class="tok-k">in</span> SessionEventType]: {</span>
+<span class="code-line"><span class="ln">449</span>    type: K</span>
+<span class="code-line"><span class="ln">451</span>    seq: number       <span class="tok-c">// 单调序号：seq = log.length</span></span>
+<span class="code-line"><span class="ln">453</span>    time: number      <span class="tok-c">// Unix epoch ms</span></span>
+<span class="code-line"><span class="ln">454</span>    data: SessionEventMap[K]</span>
+<span class="code-line"><span class="ln">465</span>    ignorable?: <span class="tok-k">true</span>  <span class="tok-c">// 读者不认识此 type 时可安全跳过</span></span>
+<span class="code-line"><span class="ln">466</span>  } &amp; (K <span class="tok-k">extends</span> SurfaceEventType ? {</span>
+<span class="code-line"><span class="ln">476</span>    surfaceOp?: SurfaceOp  <span class="tok-c">// 引用哪些早先事件产出了它</span></span>
+<span class="code-line"><span class="ln">477</span>  } : object)</span>       <span class="tok-c">// 如何进入 surface：append | replace</span></span>
+<span class="code-line"><span class="ln">478</span>}[T]</span>
+<span class="code-line"><span class="ln">479</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">436-469</span><p>判别联合（不是独立 type/data 联合）：<code>switch (event.type)</code> 直接收窄 <code>event.data</code>。整个仓库的日志处理都靠这一点。</p></div>
-    <div class="lr"><span class="ln-ref">440</span><p><strong>seq 契约</strong>：seq = 它进日志时的 log.length。这是全系统契约（§2 会看到落点）。</p></div>
-    <div class="lr"><span class="ln-ref">454</span><p><code>ignorable: true</code> = 纯信息事件，不认识的读者可跳过。<strong>缺席 = 必需</strong>：遇到未识别且无标记的事件必须拒绝重建。设计取向：忘记打标记导致过度拒绝（不便），好过默默恢复一个被掏空的会话（灾难）。</p></div>
-    <div class="lr"><span class="ln-ref">455-467</span><p><code>surfaceOp</code>/<code>sourceEventSeqs</code> <strong>只存在于三个消息生产类型</strong>：user/message、assistant/message、tool/result。其他类型带这些字段会编译失败——append 签名里 <code>T extends SurfaceEventType ? [opts: SurfaceIntent] : []</code> 强制。</p></div>
+    <div class="lr"><span class="ln-ref">447-479</span><p>判别联合（不是独立 type/data 联合）：<code>switch (event.type)</code> 直接收窄 <code>event.data</code>。整个仓库的日志处理都靠这一点。</p></div>
+    <div class="lr"><span class="ln-ref">451</span><p><strong>seq 契约</strong>：seq = 它进日志时的 log.length。这是全系统契约（§2 会看到落点）。</p></div>
+    <div class="lr"><span class="ln-ref">465</span><p><code>ignorable: true</code> = 纯信息事件，不认识的读者可跳过。<strong>缺席 = 必需</strong>：遇到未识别且无标记的事件必须拒绝重建。设计取向：忘记打标记导致过度拒绝（不便），好过默默恢复一个被掏空的会话（灾难）。</p></div>
+    <div class="lr"><span class="ln-ref">466-476</span><p><code>surfaceOp</code>/<code>sourceEventSeqs</code> <strong>只存在于三个消息生产类型</strong>：user/message、assistant/message、tool/result。其他类型带这些字段会编译失败——append 签名里 <code>T extends SurfaceEventType ? [opts: SurfaceIntent] : []</code> 强制。</p></div>
   </div>
 </section>
 
@@ -164,59 +164,59 @@
   <h2><span class="sec-num">§2</span>append：唯一写入路径</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/session/src/index.ts</span><span>append 主体</span><span class="ln-range">668-719</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">668</span>  <span class="tok-f">append</span>&lt;T <span class="tok-k">extends</span> SessionEventType&gt;(type, data, ...opts): SessionEvent&lt;T&gt; {</span>
-<span class="code-line"><span class="ln">673</span>    <span class="tok-k">const</span> surfaceOpts: SurfaceIntent | <span class="tok-k">undefined</span> = opts[0]</span>
-<span class="code-line"><span class="ln">674</span>    <span class="tok-k">const</span> surfaceMetadata = {</span>
-<span class="code-line"><span class="ln">675</span>      ...surfaceOpts?.sourceEventSeqs === <span class="tok-k">undefined</span> ? {} : { sourceEventSeqs: ... },</span>
-<span class="code-line"><span class="ln">676</span>      ...surfaceOpts?.surfaceOp === <span class="tok-k">undefined</span> ? {} : { surfaceOp: ... },</span>
-<span class="code-line"><span class="ln">677</span>    }</span>
-<span class="code-line"><span class="ln">678</span>    <span class="tok-k">const</span> dataSnapshot = <span class="tok-f">snapshotJsonValue</span>(data)</span>
-<span class="code-line"><span class="ln">679</span>    <span class="tok-k">if</span> (dataSnapshot === <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">680</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`session event <span class="tok-s">"${type}"</span> carries non-JSON-serializable data`)</span>
-<span class="code-line"><span class="ln">681</span>    }</span>
-<span class="code-line"><span class="ln">682</span>    <span class="tok-f">assertSupportedRequestHeader</span>(type, dataSnapshot, ...)</span>
-<span class="code-line"><span class="ln">683</span>    <span class="tok-k">const</span> surfaceMetadataSnapshot = <span class="tok-f">snapshotJsonValue</span>(surfaceMetadata)</span>
-<span class="code-line"><span class="ln">687</span>    <span class="tok-k">if</span> (entry?.appending) {</span>
-<span class="code-line"><span class="ln">689</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'session append cannot reenter while another append is being published'</span>)</span>
+  <figcaption><span class="fname">packages/core/session/src/index.ts</span><span>append 主体</span><span class="ln-range">699-750</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">699</span>  <span class="tok-f">append</span>&lt;T <span class="tok-k">extends</span> SessionEventType&gt;(type, data, ...opts): SessionEvent&lt;T&gt; {</span>
+<span class="code-line"><span class="ln">704</span>    <span class="tok-k">const</span> surfaceOpts: SurfaceIntent | <span class="tok-k">undefined</span> = opts[0]</span>
+<span class="code-line"><span class="ln">705</span>    <span class="tok-k">const</span> surfaceMetadata = {</span>
+<span class="code-line"><span class="ln">706</span>      ...surfaceOpts?.sourceEventSeqs === <span class="tok-k">undefined</span> ? {} : { sourceEventSeqs: ... },</span>
+<span class="code-line"><span class="ln">707</span>      ...surfaceOpts?.surfaceOp === <span class="tok-k">undefined</span> ? {} : { surfaceOp: ... },</span>
+<span class="code-line"><span class="ln">708</span>    }</span>
+<span class="code-line"><span class="ln">709</span>    <span class="tok-k">const</span> dataSnapshot = <span class="tok-f">snapshotJsonValue</span>(data)</span>
+<span class="code-line"><span class="ln">710</span>    <span class="tok-k">if</span> (dataSnapshot === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">711</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`session event <span class="tok-s">"${type}"</span> carries non-JSON-serializable data`)</span>
+<span class="code-line"><span class="ln">712</span>    }</span>
+<span class="code-line"><span class="ln">713</span>    <span class="tok-f">assertSupportedRequestHeader</span>(type, dataSnapshot, ...)</span>
+<span class="code-line"><span class="ln">714</span>    <span class="tok-k">const</span> surfaceMetadataSnapshot = <span class="tok-f">snapshotJsonValue</span>(surfaceMetadata)</span>
+<span class="code-line"><span class="ln">718</span>    <span class="tok-k">if</span> (entry?.appending) {</span>
+<span class="code-line"><span class="ln">720</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'session append cannot reenter while another append is being published'</span>)</span>
 <span class="code-line"><span class="ln">626</span>    }</span>
-<span class="code-line"><span class="ln">691</span>    <span class="tok-k">const</span> event = <span class="tok-f">deepFreeze</span>({</span>
+<span class="code-line"><span class="ln">722</span>    <span class="tok-k">const</span> event = <span class="tok-f">deepFreeze</span>({</span>
 <span class="code-line"><span class="ln">628</span>      type,</span>
-<span class="code-line"><span class="ln">693</span>      seq: <span class="tok-f">SessionSeq</span>(<span class="tok-k">this</span>.log.length),     <span class="tok-c">// ← seq 契约的落点（0.1.2-rc.1 起品牌化）</span></span>
-<span class="code-line"><span class="ln">694</span>      time: <span class="tok-t">Date</span>.<span class="tok-f">now</span>(),</span>
-<span class="code-line"><span class="ln">695</span>      data: dataSnapshot,</span>
-<span class="code-line"><span class="ln">696</span>      ...(surfaceMetadataSnapshot <span class="tok-k">as</span> ...),</span>
-<span class="code-line"><span class="ln">697</span>    } <span class="tok-k">as unknown as</span> SessionEvent&lt;T&gt;)</span>
-<span class="code-line"><span class="ln">698</span>    <span class="tok-k">this</span>.surfaceManager.<span class="tok-f">validateNext</span>(event)</span>
-<span class="code-line"><span class="ln">700</span>    <span class="tok-k">if</span> (entry !== <span class="tok-k">undefined</span>) entry.appending = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">724</span>      seq: <span class="tok-f">SessionSeq</span>(<span class="tok-k">this</span>.log.length),     <span class="tok-c">// ← seq 契约的落点（品牌化）</span></span>
+<span class="code-line"><span class="ln">725</span>      time: <span class="tok-t">Date</span>.<span class="tok-f">now</span>(),</span>
+<span class="code-line"><span class="ln">726</span>      data: dataSnapshot,</span>
+<span class="code-line"><span class="ln">727</span>      ...(surfaceMetadataSnapshot <span class="tok-k">as</span> ...),</span>
+<span class="code-line"><span class="ln">728</span>    } <span class="tok-k">as unknown as</span> SessionEvent&lt;T&gt;)</span>
+<span class="code-line"><span class="ln">729</span>    <span class="tok-k">this</span>.surfaceManager.<span class="tok-f">validateNext</span>(event)</span>
+<span class="code-line"><span class="ln">731</span>    <span class="tok-k">if</span> (entry !== <span class="tok-k">undefined</span>) entry.appending = <span class="tok-n">true</span></span>
 <span class="code-line"><span class="ln">637</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">704</span>      <span class="tok-k">if</span> (entry !== <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">705</span>        callbacks = <span class="tok-f">collectSessionCallbacks</span>(entry.emitCtx, [entry.carrier, <span class="tok-s">'session/event'</span>, ...])</span>
-<span class="code-line"><span class="ln">706</span>      }</span>
-<span class="code-line"><span class="ln">707</span>      <span class="tok-k">this</span>.log.<span class="tok-f">push</span>(event)          <span class="tok-c">// ① 进日志 = 已提交</span></span>
-<span class="code-line"><span class="ln">708</span>      <span class="tok-k">this</span>.eventsSnapshot = <span class="tok-k">undefined</span>   <span class="tok-c">// ② 快照失效</span></span>
-<span class="code-line"><span class="ln">709</span>      <span class="tok-k">if</span> (callbacks !== <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">710</span>        <span class="tok-f">invokeContainedSessionObservers</span>(entry.emitCtx, <span class="tok-s">'session/event'</span>, entry.id, callbackArgs, callbacks)  <span class="tok-c">// ③ 通知</span></span>
-<span class="code-line"><span class="ln">711</span>      }</span>
-<span class="code-line"><span class="ln">712</span>      <span class="tok-k">return</span> event</span>
-<span class="code-line"><span class="ln">713</span>    } <span class="tok-k">finally</span> {</span>
-<span class="code-line"><span class="ln">714</span>      <span class="tok-k">if</span> (entry !== <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">715</span>        entry.appending = <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">716</span>        <span class="tok-k">if</span> (entry.detachRequested &amp;&amp; !entry.announcing) entry.<span class="tok-f">detach</span>()</span>
-<span class="code-line"><span class="ln">717</span>      }</span>
-<span class="code-line"><span class="ln">718</span>    }</span></code></pre>
+<span class="code-line"><span class="ln">735</span>      <span class="tok-k">if</span> (entry !== <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">736</span>        callbacks = <span class="tok-f">collectSessionCallbacks</span>(entry.emitCtx, [entry.carrier, <span class="tok-s">'session/event'</span>, ...])</span>
+<span class="code-line"><span class="ln">737</span>      }</span>
+<span class="code-line"><span class="ln">738</span>      <span class="tok-k">this</span>.log.<span class="tok-f">push</span>(event)          <span class="tok-c">// ① 进日志 = 已提交</span></span>
+<span class="code-line"><span class="ln">739</span>      <span class="tok-k">this</span>.eventsSnapshot = <span class="tok-k">undefined</span>   <span class="tok-c">// ② 快照失效</span></span>
+<span class="code-line"><span class="ln">740</span>      <span class="tok-k">if</span> (callbacks !== <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">741</span>        <span class="tok-f">invokeContainedSessionObservers</span>(entry.emitCtx, <span class="tok-s">'session/event'</span>, entry.id, callbackArgs, callbacks)  <span class="tok-c">// ③ 通知</span></span>
+<span class="code-line"><span class="ln">742</span>      }</span>
+<span class="code-line"><span class="ln">743</span>      <span class="tok-k">return</span> event</span>
+<span class="code-line"><span class="ln">744</span>    } <span class="tok-k">finally</span> {</span>
+<span class="code-line"><span class="ln">745</span>      <span class="tok-k">if</span> (entry !== <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">746</span>        entry.appending = <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">747</span>        <span class="tok-k">if</span> (entry.detachRequested &amp;&amp; !entry.announcing) entry.<span class="tok-f">detach</span>()</span>
+<span class="code-line"><span class="ln">748</span>      }</span>
+<span class="code-line"><span class="ln">749</span>    }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">678-681</span><p><strong>无损 JSON 是第一道校验</strong>：<code>snapshotJsonValue</code> 一次递归读、校验、拷贝每个嵌套值——BigInt/函数/symbol/undefined/负零/非有限数/循环引用/稀疏数组/Map/Set/Date/类实例全部拒绝。一次遍历完成，带状态 getter 无法给校验和存储供不同值。</p></div>
-    <div class="lr"><span class="ln-ref">682</span><p><code>assertSupportedRequestHeader</code>：request/header 的结构校验（header 的 config/system/tools 字段合法性）。</p></div>
-    <div class="lr"><span class="ln-ref">687-690</span><p><strong>防重入</strong>：appending 标志——append 的发布边界打开时不允许再 append。谁可能重入？同步的 session/event 观察者里再调 append。</p></div>
-    <div class="lr"><span class="ln-ref">691-697</span><p>构造事件：seq = log.length（契约落点），data 用快照（不是调用者的原对象），然后 <strong>deepFreeze</strong>——进日志的值永远不可变，调用者改原对象不影响日志。</p></div>
-    <div class="lr"><span class="ln-ref">698</span><p><code>surfaceManager.validateNext</code>：surface 一致性校验（§3）——<strong>在任何 mutation 之前</strong>，失败不留下半成品。</p></div>
-    <div class="lr"><span class="ln-ref">704-705</span><p>通知收集在 push <strong>之前</strong>——同步观察者读到的是「日志尚未包含此事件」的状态。这就是 inbox 里「同步观察者看到 splice 前列表」的机制基础。</p></div>
-    <div class="lr"><span class="ln-ref">707-708</span><p><strong>进内存日志 = 已提交</strong>。热路径不阻塞 I/O——持久化插件走 session/event + session/flush 异步缓冲。eventsSnapshot 失效，下次 getter 重建。</p></div>
-    <div class="lr"><span class="ln-ref">710</span><p><code>invokeContainedSessionObservers</code>：观察者失败被<strong>逐 listener 隔离</strong>——一个坏的观察者不影响其他观察者看到同一事件，也不改变返回值。</p></div>
-    <div class="lr"><span class="ln-ref">713-717</span><p>finally 清理 appending 标志；若发布期间有人请求 detach，等 unwind 后执行——保证创建/销毁边界有序。</p></div>
+    <div class="lr"><span class="ln-ref">709-712</span><p><strong>无损 JSON 是第一道校验</strong>：<code>snapshotJsonValue</code> 一次递归读、校验、拷贝每个嵌套值——BigInt/函数/symbol/undefined/负零/非有限数/循环引用/稀疏数组/Map/Set/Date/类实例全部拒绝。一次遍历完成，带状态 getter 无法给校验和存储供不同值。</p></div>
+    <div class="lr"><span class="ln-ref">713</span><p><code>assertSupportedRequestHeader</code>：request/header 的结构校验（header 的 config/system/tools 字段合法性）。</p></div>
+    <div class="lr"><span class="ln-ref">718-721</span><p><strong>防重入</strong>：appending 标志——append 的发布边界打开时不允许再 append。谁可能重入？同步的 session/event 观察者里再调 append。</p></div>
+    <div class="lr"><span class="ln-ref">722-728</span><p>构造事件：seq = log.length（契约落点），data 用快照（不是调用者的原对象），然后 <strong>deepFreeze</strong>——进日志的值永远不可变，调用者改原对象不影响日志。</p></div>
+    <div class="lr"><span class="ln-ref">729</span><p><code>surfaceManager.validateNext</code>：surface 一致性校验（§3）——<strong>在任何 mutation 之前</strong>，失败不留下半成品。</p></div>
+    <div class="lr"><span class="ln-ref">735-736</span><p>通知收集在 push <strong>之前</strong>——同步观察者读到的是「日志尚未包含此事件」的状态。这就是 inbox 里「同步观察者看到 splice 前列表」的机制基础。</p></div>
+    <div class="lr"><span class="ln-ref">738-739</span><p><strong>进内存日志 = 已提交</strong>。热路径不阻塞 I/O——持久化插件走 session/event + session/flush 异步缓冲。eventsSnapshot 失效，下次 getter 重建。</p></div>
+    <div class="lr"><span class="ln-ref">741</span><p><code>invokeContainedSessionObservers</code>：观察者失败被<strong>逐 listener 隔离</strong>——一个坏的观察者不影响其他观察者看到同一事件，也不改变返回值。</p></div>
+    <div class="lr"><span class="ln-ref">744-748</span><p>finally 清理 appending 标志；若发布期间有人请求 detach，等 unwind 后执行——保证创建/销毁边界有序。</p></div>
   </div>
 
   <div class="callout key">
@@ -226,39 +226,39 @@
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>surface 校验：planSurfaceEvent</h2>
-  <p>append 第 698 行的 <code>validateNext</code> 走 <code class="path">surface.ts</code>（460 行）。核心是 <code>planSurfaceEvent</code>——<strong>先计划、再应用</strong>，计划失败不留下半成品：</p>
+  <p>append 第 729 行的 <code>validateNext</code> 走 <code class="path">surface.ts</code>（479 行）。核心是 <code>planSurfaceEvent</code>——<strong>先计划、再应用</strong>，计划失败不留下半成品：</p>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/session/src/surface.ts</span><span>planSurfaceEvent + assertToolResultRewrite</span><span class="ln-range">331-357, 297-328</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">331</span><span class="tok-k">function</span> <span class="tok-f">planSurfaceEvent</span>(state, event, expectedSeq, events, baseSeq): SurfacePlan | <span class="tok-k">undefined</span> {</span>
-<span class="code-line"><span class="ln">338</span>  <span class="tok-k">if</span> (event.seq !== expectedSeq) {</span>
-<span class="code-line"><span class="ln">339</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)</span>
-<span class="code-line"><span class="ln">340</span>  }</span>
-<span class="code-line"><span class="ln">341</span>  <span class="tok-k">const</span> surfaceOp = <span class="tok-f">surfaceOpOf</span>(event)</span>
-<span class="code-line"><span class="ln">342</span>  <span class="tok-k">if</span> (surfaceOp === <span class="tok-k">undefined</span>) <span class="tok-k">return</span></span>
-<span class="code-line"><span class="ln">343</span>  <span class="tok-k">if</span> (surfaceOp === <span class="tok-s">'append'</span>) {</span>
-<span class="code-line"><span class="ln">344</span>    <span class="tok-f">assertProvenance</span>(event, [])</span>
-<span class="code-line"><span class="ln">345</span>    <span class="tok-k">return</span> { kind: <span class="tok-s">'append'</span>, seq: event.seq }</span>
-<span class="code-line"><span class="ln">346</span>  }</span>
-<span class="code-line"><span class="ln">347</span>  <span class="tok-k">const</span> range = <span class="tok-f">replacementRange</span>(state, surfaceOp)</span>
-<span class="code-line"><span class="ln">348</span>  <span class="tok-f">assertProvenance</span>(event, range.shadowedSeqs)</span>
-<span class="code-line"><span class="ln">349</span>  <span class="tok-f">assertToolResultRewrite</span>(event, range.shadowedSeqs, events, baseSeq)</span>
-<span class="code-line"><span class="ln">350</span>  <span class="tok-k">return</span> { kind: <span class="tok-s">'replace'</span>, seq: event.seq, start: surfaceOp.start, end: surfaceOp.end, ...range }</span>
-<span class="code-line"><span class="ln">357</span>}</span>
-<span class="code-line"><span class="ln">303</span>  <span class="tok-k">if</span> (event.type !== <span class="tok-s">'tool/result'</span>) <span class="tok-k">return</span></span>
-<span class="code-line"><span class="ln">305</span>  <span class="tok-k">if</span> (shadowedSeqs.length !== 1) {</span>
-<span class="code-line"><span class="ln">306</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'tool/result surface replacement must rewrite exactly one current node'</span>)</span>
-<span class="code-line"><span class="ln">307</span>  }</span>
-<span class="code-line"><span class="ln">324</span>    <span class="tok-k">if</span> (!<span class="tok-f">isDeepEqualJson</span>(originalRest, replacementRest)) {</span>
-<span class="code-line"><span class="ln">325</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'tool/result surface replacement may change only content'</span>)</span>
-<span class="code-line"><span class="ln">326</span>    }</span></code></pre>
+  <figcaption><span class="fname">packages/core/session/src/surface.ts</span><span>planSurfaceEvent + assertToolResultRewrite</span><span class="ln-range">334-360, 300-331</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">334</span><span class="tok-k">function</span> <span class="tok-f">planSurfaceEvent</span>(state, event, expectedSeq, events, baseSeq): SurfacePlan | <span class="tok-k">undefined</span> {</span>
+<span class="code-line"><span class="ln">341</span>  <span class="tok-k">if</span> (event.seq !== expectedSeq) {</span>
+<span class="code-line"><span class="ln">342</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)</span>
+<span class="code-line"><span class="ln">343</span>  }</span>
+<span class="code-line"><span class="ln">344</span>  <span class="tok-k">const</span> surfaceOp = <span class="tok-f">surfaceOpOf</span>(event)</span>
+<span class="code-line"><span class="ln">345</span>  <span class="tok-k">if</span> (surfaceOp === <span class="tok-k">undefined</span>) <span class="tok-k">return</span></span>
+<span class="code-line"><span class="ln">346</span>  <span class="tok-k">if</span> (surfaceOp === <span class="tok-s">'append'</span>) {</span>
+<span class="code-line"><span class="ln">347</span>    <span class="tok-f">assertProvenance</span>(event, [])</span>
+<span class="code-line"><span class="ln">348</span>    <span class="tok-k">return</span> { kind: <span class="tok-s">'append'</span>, seq: event.seq }</span>
+<span class="code-line"><span class="ln">349</span>  }</span>
+<span class="code-line"><span class="ln">350</span>  <span class="tok-k">const</span> range = <span class="tok-f">replacementRange</span>(state, surfaceOp)</span>
+<span class="code-line"><span class="ln">351</span>  <span class="tok-f">assertProvenance</span>(event, range.shadowedSeqs)</span>
+<span class="code-line"><span class="ln">352</span>  <span class="tok-f">assertToolResultRewrite</span>(event, range.shadowedSeqs, events, baseSeq)</span>
+<span class="code-line"><span class="ln">353</span>  <span class="tok-k">return</span> { kind: <span class="tok-s">'replace'</span>, seq: event.seq, start: surfaceOp.start, end: surfaceOp.end, ...range }</span>
+<span class="code-line"><span class="ln">360</span>}</span>
+<span class="code-line"><span class="ln">306</span>  <span class="tok-k">if</span> (event.type !== <span class="tok-s">'tool/result'</span>) <span class="tok-k">return</span></span>
+<span class="code-line"><span class="ln">308</span>  <span class="tok-k">if</span> (shadowedSeqs.length !== 1) {</span>
+<span class="code-line"><span class="ln">309</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'tool/result surface replacement must rewrite exactly one current node'</span>)</span>
+<span class="code-line"><span class="ln">310</span>  }</span>
+<span class="code-line"><span class="ln">327</span>    <span class="tok-k">if</span> (!<span class="tok-f">isDeepEqualJson</span>(originalRest, replacementRest)) {</span>
+<span class="code-line"><span class="ln">328</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'tool/result surface replacement may change only content'</span>)</span>
+<span class="code-line"><span class="ln">329</span>    }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">338-340</span><p><strong>seq 连续性在 surface 层强制</strong>：每个事件进 surface 前必须严格等于期望序号。这就是「seq 断裂整个系统会错」的第一道防线。</p></div>
-    <div class="lr"><span class="ln-ref">341-346</span><p>surfaceOp 校验（195-219 行的 surfaceOpOf）：非 surface 类型带 surfaceOp → 报错；surface 类型缺 surfaceOp → 报错（消息生产事件必须声明它如何进入 surface）。append 是普通路径。</p></div>
-    <div class="lr"><span class="ln-ref">347-349</span><p>replace 路径（compaction 用）：三个校验叠加——范围两端必须在当前 surface 里（replacementRange，246-266 行，含 start≤end）、<code>sourceEventSeqs</code> 必须包含<strong>每一个</strong>被遮蔽的节点（assertProvenance，211-243 行）、tool/result 的替换只能改 content（见下）。</p></div>
-    <div class="lr"><span class="ln-ref">303-326</span><p><strong>assertToolResultRewrite 的精妙</strong>：把原始和替换的 tool/result 各复制一份、把 content 置 null 后深比较——相等才放行。即「除 content 外一切字段必须逐字节相同」。为什么这么严？surface 替换直接改变模型看到的历史，任何越界改写都可能让模型上下文失真。</p></div>
+    <div class="lr"><span class="ln-ref">341-343</span><p><strong>seq 连续性在 surface 层强制</strong>：每个事件进 surface 前必须严格等于期望序号。这就是「seq 断裂整个系统会错」的第一道防线。</p></div>
+    <div class="lr"><span class="ln-ref">344-349</span><p>surfaceOp 校验（195-219 行的 surfaceOpOf）：非 surface 类型带 surfaceOp → 报错；surface 类型缺 surfaceOp → 报错（消息生产事件必须声明它如何进入 surface）。append 是普通路径。</p></div>
+    <div class="lr"><span class="ln-ref">350-352</span><p>replace 路径（compaction 用）：三个校验叠加——范围两端必须在当前 surface 里（replacementRange，246-266 行，含 start≤end）、<code>sourceEventSeqs</code> 必须包含<strong>每一个</strong>被遮蔽的节点（assertProvenance，211-243 行）、tool/result 的替换只能改 content（见下）。</p></div>
+    <div class="lr"><span class="ln-ref">306-329</span><p><strong>assertToolResultRewrite 的精妙</strong>：把原始和替换的 tool/result 各复制一份、把 content 置 null 后深比较——相等才放行。即「除 content 外一切字段必须逐字节相同」。为什么这么严？surface 替换直接改变模型看到的历史，任何越界改写都可能让模型上下文失真。</p></div>
   </div>
 </section>
 
@@ -266,35 +266,35 @@
   <h2><span class="sec-num">§4</span>构造器：seed 的校验</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/session/src/index.ts</span><span>私有构造器（seed 路径）</span><span class="ln-range">514-577</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">514</span>  <span class="tok-k">private constructor</span>(id, seed?, header?, mode = <span class="tok-s">'snapshot'</span>, suppliedInheritedEventCount?) {</span>
-<span class="code-line"><span class="ln">524</span>    <span class="tok-k">if</span> (seed !== <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">532</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> [index, source] <span class="tok-k">of</span> seed.<span class="tok-f">entries</span>()) {</span>
-<span class="code-line"><span class="ln">535</span>        <span class="tok-k">const</span> snapshot = mode === <span class="tok-s">'restore'</span> ? source : <span class="tok-f">snapshotJsonValue</span>(source)</span>
-<span class="code-line"><span class="ln">536</span>        <span class="tok-k">if</span> (snapshot === <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">537</span>          <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`seed event at index ${index} is not losslessly JSON-serializable`)</span>
-<span class="code-line"><span class="ln">538</span>        }</span>
-<span class="code-line"><span class="ln">539</span>        <span class="tok-f">assertSessionEventEnvelope</span>(snapshot, index)</span>
-<span class="code-line"><span class="ln">541</span>        <span class="tok-k">if</span> (snapshot.seq !== index) {</span>
-<span class="code-line"><span class="ln">542</span>          <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)</span>
-<span class="code-line"><span class="ln">543</span>        }</span>
-<span class="code-line"><span class="ln">548</span>        <span class="tok-k">try</span> { <span class="tok-k">this</span>.surfaceManager.<span class="tok-f">validateNext</span>(snapshot) } <span class="tok-k">catch</span> (error) { <span class="tok-k">throw new</span> ... }</span>
-<span class="code-line"><span class="ln">552</span>        <span class="tok-k">this</span>.log.<span class="tok-f">push</span>(mode === <span class="tok-s">'restore'</span> ? <span class="tok-f">freezeRestoredObject</span>(snapshot) : <span class="tok-f">deepFreeze</span>(snapshot))</span>
-<span class="code-line"><span class="ln">553</span>      }</span>
-<span class="code-line"><span class="ln">554</span>    }</span>
-<span class="code-line"><span class="ln">555</span>    <span class="tok-k">this</span>.firstLiveSeq = <span class="tok-f">SessionLogOffset</span>(<span class="tok-k">this</span>.log.length)</span>
-<span class="code-line"><span class="ln">556</span>    <span class="tok-k">this</span>.header = restoredHeader ?? <span class="tok-f">snapshotSessionHeader</span>(id, header)</span>
-<span class="code-line"><span class="ln">575</span>    <span class="tok-k">if</span> (seed !== <span class="tok-k">undefined</span> &amp;&amp; <span class="tok-k">this</span>.log.<span class="tok-f">at</span>(-1)?.type !== <span class="tok-s">'session/end-seed'</span>) {</span>
-<span class="code-line"><span class="ln">576</span>      <span class="tok-k">this</span>.<span class="tok-f">append</span>(<span class="tok-s">'session/end-seed'</span>, {})</span>
-<span class="code-line"><span class="ln">577</span>    }</span>
-<span class="code-line"><span class="ln">578</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/core/session/src/index.ts</span><span>私有构造器（seed 路径）</span><span class="ln-range">541-604</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">541</span>  <span class="tok-k">private constructor</span>(id, seed?, header?, mode = <span class="tok-s">'snapshot'</span>, suppliedInheritedEventCount?) {</span>
+<span class="code-line"><span class="ln">551</span>    <span class="tok-k">if</span> (seed !== <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">559</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> [index, source] <span class="tok-k">of</span> seed.<span class="tok-f">entries</span>()) {</span>
+<span class="code-line"><span class="ln">562</span>        <span class="tok-k">const</span> snapshot = mode === <span class="tok-s">'restore'</span> ? source : <span class="tok-f">snapshotJsonValue</span>(source)</span>
+<span class="code-line"><span class="ln">563</span>        <span class="tok-k">if</span> (snapshot === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">564</span>          <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`seed event at index ${index} is not losslessly JSON-serializable`)</span>
+<span class="code-line"><span class="ln">565</span>        }</span>
+<span class="code-line"><span class="ln">566</span>        <span class="tok-f">assertSessionEventEnvelope</span>(snapshot, index)</span>
+<span class="code-line"><span class="ln">568</span>        <span class="tok-k">if</span> (snapshot.seq !== index) {</span>
+<span class="code-line"><span class="ln">569</span>          <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)</span>
+<span class="code-line"><span class="ln">570</span>        }</span>
+<span class="code-line"><span class="ln">575</span>        <span class="tok-k">try</span> { <span class="tok-k">this</span>.surfaceManager.<span class="tok-f">validateNext</span>(snapshot) } <span class="tok-k">catch</span> (error) { <span class="tok-k">throw new</span> ... }</span>
+<span class="code-line"><span class="ln">579</span>        <span class="tok-k">this</span>.log.<span class="tok-f">push</span>(mode === <span class="tok-s">'restore'</span> ? <span class="tok-f">freezeRestoredObject</span>(snapshot) : <span class="tok-f">deepFreeze</span>(snapshot))</span>
+<span class="code-line"><span class="ln">580</span>      }</span>
+<span class="code-line"><span class="ln">581</span>    }</span>
+<span class="code-line"><span class="ln">582</span>    <span class="tok-k">this</span>.firstLiveSeq = <span class="tok-f">SessionLogOffset</span>(<span class="tok-k">this</span>.log.length)</span>
+<span class="code-line"><span class="ln">583</span>    <span class="tok-k">this</span>.header = restoredHeader ?? <span class="tok-f">snapshotSessionHeader</span>(id, header)</span>
+<span class="code-line"><span class="ln">602</span>    <span class="tok-k">if</span> (seed !== <span class="tok-k">undefined</span> &amp;&amp; <span class="tok-k">this</span>.log.<span class="tok-f">at</span>(-1)?.type !== <span class="tok-s">'session/end-seed'</span>) {</span>
+<span class="code-line"><span class="ln">603</span>      <span class="tok-k">this</span>.<span class="tok-f">append</span>(<span class="tok-s">'session/end-seed'</span>, {})</span>
+<span class="code-line"><span class="ln">604</span>    }</span>
+<span class="code-line"><span class="ln">605</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">524-543</span><p><strong>seed 走与 append 完全相同的校验</strong>：无损 JSON、信封、<strong>seq 必须从 0 连续</strong>。注释点明动机：replay/fork 不能构造出「任何持久化后端都存不了」的活日志——坏 seed 若不在入口拦截，会延迟成后端拒绝或内存/磁盘的静默分叉。</p></div>
-    <div class="lr"><span class="ln-ref">548</span><p>seed 也过 surface 校验（与 append 同一 validateNext）——候选在进 log 前计划，失败不部分 mutate surface。</p></div>
-    <div class="lr"><span class="ln-ref">555</span><p><strong>firstLiveSeq = seed 长度</strong>：本次进程构造时点。它之前的 seq 来自构造（replay/fork/resume），从不经过 session/event 火线——所以 telemetry 这类「以重放代替订阅」的消费者从这里开始。</p></div>
-    <div class="lr"><span class="ln-ref">575-577</span><p><strong>session/end-seed 标记</strong>：firstLiveSeq 的持久投影（空 payload 的 log-only 事件）。只写一次——seed 已以它结尾就不再标记，重复打开会话不会让日志每次 +1。读存储历史时取<strong>最后一个</strong>该事件（不一定等于当前 firstLiveSeq）。</p></div>
+    <div class="lr"><span class="ln-ref">551-570</span><p><strong>seed 走与 append 完全相同的校验</strong>：无损 JSON、信封、<strong>seq 必须从 0 连续</strong>。注释点明动机：replay/fork 不能构造出「任何持久化后端都存不了」的活日志——坏 seed 若不在入口拦截，会延迟成后端拒绝或内存/磁盘的静默分叉。</p></div>
+    <div class="lr"><span class="ln-ref">575</span><p>seed 也过 surface 校验（与 append 同一 validateNext）——候选在进 log 前计划，失败不部分 mutate surface。</p></div>
+    <div class="lr"><span class="ln-ref">582</span><p><strong>firstLiveSeq = seed 长度</strong>：本次进程构造时点。它之前的 seq 来自构造（replay/fork/resume），从不经过 session/event 火线——所以 telemetry 这类「以重放代替订阅」的消费者从这里开始。</p></div>
+    <div class="lr"><span class="ln-ref">602-604</span><p><strong>session/end-seed 标记</strong>：firstLiveSeq 的持久投影（空 payload 的 log-only 事件）。只写一次——seed 已以它结尾就不再标记，重复打开会话不会让日志每次 +1。读存储历史时取<strong>最后一个</strong>该事件（不一定等于当前 firstLiveSeq）。</p></div>
   </div>
 </section>
 

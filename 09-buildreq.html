@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,13 +72,13 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 09</p>
   <h1>buildRequest：从日志折叠请求</h1>
-  <p class="lede"><code>agent.ts:444-543</code>。<strong>这是「模型可见 ⟺ 已记录」最集中的实现</strong>：请求的每个部分——config、system、tools、messages——全部从日志折叠而来，然后冻结成一个不可变对象。你还将看到 <code>prepareCall</code> 的一次性派发守卫。</p>
+  <p class="lede"><code>agent.ts:488-588</code>。<strong>这是「模型可见 ⟺ 已记录」最集中的实现</strong>：请求的每个部分——config、system、tools、messages——全部从日志折叠而来，然后冻结成一个不可变对象。你还将看到 <code>prepareCall</code> 的一次性派发守卫。</p>
 </header>
 
 <div class="chain">
   <span class="seg">11 step:340 buildRequest(turn, step, tools, system, deriveMessages(), signal)</span>
   <span class="arrow">→</span>
-  <span class="here">agent.ts:444 buildRequest</span>
+  <span class="here">agent.ts:488 buildRequest</span>
   <span class="arrow">→</span>
   <span class="seg">(分叉) llm.prepareCall → 10 页 · session.requestHeader → 06 页</span>
   <span class="arrow">→</span>
@@ -94,14 +94,14 @@
 # 其中 boundaryMessages = deriveMessages() 的当前投影：
 #   [ user/message「帮我列一下当前目录」(seq=2) ]     ← 从日志投影，不是内存对象
 
-# ① 折叠上次配置（457 行）：日志里还没有 request/header → persistedHeader=undefined
+# ① 折叠上次配置（476 行）：日志里还没有 request/header → persistedHeader=undefined
 #    → seedConfig = { provider:'deepseek-official', model:'deepseek-v4-pro',
 #                     reasoningEffort:'max' }        ← 来自 AgentOptions
 # ② agent/request waterfall（457 行）：无监听器改写 → proposedConfig = seedConfig
 # ③ prepareCall（468 行）：绑定 adapter 注册 + 物化模型默认值
 #    → config = { ...proposedConfig, maxTokens: 模型目录的默认 32768 }
 #      （真实默认：llm-deepseek 的 DEFAULT_MAX_TOKENS）
-# ④ header 落盘（505-507 行）：reason:'initial'
+# ④ header 落盘（524-526 行）：reason:'initial'
 #    { "type":"request/header", "data":{ "header":{
 #        "config":{...}, "adapterDefaults":{maxTokens:true}, "system":"...", "tools":[...] },
 #      "reason":"initial" } }
@@ -112,7 +112,7 @@
     <div class="trace-head">示例轨迹 09-2 · 第二个请求为什么不再记 header</div>
     <pre># step 2 的 buildRequest：baseline = 上次的 header（484 行 requestHeader()）
 # config/system/tools 都没变 → headerEquals(baseline, header) === true
-# → 不落新 request/header 事件（508 行的 else-if 不命中）
+# → 不落新 request/header 事件（527 行的 else-if 不命中）
 # → 日志里 header 历史只有一条 initial——「配置如何演变」的记录是稀疏的</pre>
     <div class="src">来源：09 页 483-489 行 + 06 页 requestHeader 的增量缓存</div>
   </div>
@@ -125,7 +125,7 @@
     <li><a href="#s1">完整代码与行级解读</a></li>
     <li><a href="#s2">requestProposal：adapter 默认值的剥离</a></li>
     <li><a href="#s3">prepareCall：一次性派发</a></li>
-    <li><a href="#s4">0.1.2-rc.1：request series 维度</a></li>
+    <li><a href="#s4">0.1.3-alpha.1：request series 维度</a></li>
   </ol>
 </nav>
 
@@ -133,113 +133,113 @@
   <h2><span class="sec-num">§1</span>完整代码与行级解读</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>buildRequest 全文</span><span class="ln-range">444-543</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">444</span>  <span class="tok-k">private async</span> <span class="tok-f">buildRequest</span>(turn, step, tools, system, boundaryMessages, startsRequestSeries, surfaceGeneration, signal) {</span>
-<span class="code-line"><span class="ln">457</span>    <span class="tok-k">const</span> persistedHeader = session.<span class="tok-f">requestHeader</span>()</span>
-<span class="code-line"><span class="ln">458</span>    <span class="tok-k">const</span> persistedConfig = persistedHeader?.config</span>
-<span class="code-line"><span class="ln">459</span>    <span class="tok-k">const</span> route = { provider: <span class="tok-k">this</span>.options.provider ?? <span class="tok-s">''</span>, model: <span class="tok-k">this</span>.options.model ?? <span class="tok-s">''</span> }</span>
-<span class="code-line"><span class="ln">460</span>    <span class="tok-k">const</span> persistedReasoningEffort = persistedConfig?.provider === route.provider</span>
-<span class="code-line"><span class="ln">461</span>      &amp;&amp; persistedConfig.model === route.model</span>
-<span class="code-line"><span class="ln">462</span>      &amp;&amp; persistedHeader?.adapterDefaults?.reasoningEffort !== <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">463</span>      ? persistedConfig.reasoningEffort : <span class="tok-k">undefined</span>
-<span class="code-line"><span class="ln">464</span>    <span class="tok-k">const</span> reasoningEffort = <span class="tok-k">this</span>.options.reasoningEffort ?? persistedReasoningEffort</span>
-<span class="code-line"><span class="ln">465</span>    <span class="tok-k">const</span> maxTokens = <span class="tok-k">this</span>.options.maxTokens</span>
-<span class="code-line"><span class="ln">466</span>    <span class="tok-k">const</span> seedConfig = <span class="tok-f">deepFreeze</span>(<span class="tok-f">structuredClone</span>(</span>
-<span class="code-line"><span class="ln">467</span>      <span class="tok-k">this</span>.requestHeaderLogged</span>
-<span class="code-line"><span class="ln">469</span>        ? <span class="tok-f">requestProposal</span>(persistedHeader!)</span>
-<span class="code-line"><span class="ln">470</span>        : {</span>
-<span class="code-line"><span class="ln">471</span>          ...route,</span>
-<span class="code-line"><span class="ln">472</span>          ...reasoningEffort === <span class="tok-k">undefined</span> ? {} : { reasoningEffort },</span>
-<span class="code-line"><span class="ln">473</span>          ...maxTokens === <span class="tok-k">undefined</span> ? {} : { maxTokens },</span>
-<span class="code-line"><span class="ln">474</span>        },</span>
-<span class="code-line"><span class="ln">475</span>    ))</span>
-<span class="code-line"><span class="ln">476</span>    <span class="tok-k">const</span> proposedConfig = <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">waterfall</span>(</span>
-<span class="code-line"><span class="ln">477</span>      <span class="tok-s">'agent/request'</span>, { turn, step, signal },</span>
-<span class="code-line"><span class="ln">478</span>      () =&gt; Promise.<span class="tok-f">resolve</span>(seedConfig),</span>
-<span class="code-line"><span class="ln">479</span>    )</span>
-<span class="code-line"><span class="ln">480</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">481</span>    <span class="tok-k">if</span> (!proposedConfig.provider || !proposedConfig.model) {</span>
-<span class="code-line"><span class="ln">482</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`agent <span class="tok-s">"${this.id}"</span> has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)</span>
-<span class="code-line"><span class="ln">483</span>    }</span>
-<span class="code-line"><span class="ln">484</span>    <span class="tok-k">let</span> config: LlmCallConfig</span>
-<span class="code-line"><span class="ln">485</span>    <span class="tok-k">let</span> preparedCall: PreparedLlmCall | <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">486</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">487</span>      preparedCall = <span class="tok-k">await</span> <span class="tok-k">this</span>.loopCtx.llm.<span class="tok-f">prepareCall</span>(proposedConfig, signal)</span>
-<span class="code-line"><span class="ln">488</span>      config = preparedCall.config</span>
-<span class="code-line"><span class="ln">489</span>    } <span class="tok-k">catch</span> (error: unknown) {</span>
-<span class="code-line"><span class="ln">491</span>      <span class="tok-k">if</span> (!(error <span class="tok-k">instanceof</span> LlmError) || error.code !== <span class="tok-s">'NO_ADAPTER'</span>) <span class="tok-k">throw</span> error</span>
-<span class="code-line"><span class="ln">492</span>      config = proposedConfig</span>
-<span class="code-line"><span class="ln">493</span>    }</span>
-<span class="code-line"><span class="ln">494</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">496</span>    <span class="tok-k">const</span> header = <span class="tok-f">canonicalHeader</span>({</span>
-<span class="code-line"><span class="ln">497</span>      config,</span>
-<span class="code-line"><span class="ln">498</span>      ...preparedCall === <span class="tok-k">undefined</span> ? {} : { adapterDefaults: preparedCall.adapterDefaults },</span>
-<span class="code-line"><span class="ln">499</span>      ...system ? { system } : {},</span>
-<span class="code-line"><span class="ln">500</span>      ...tools.length &gt; 0 ? { tools } : {},</span>
-<span class="code-line"><span class="ln">501</span>    })</span>
-<span class="code-line"><span class="ln">502</span>    <span class="tok-k">const</span> baseline = <span class="tok-k">this</span>.session.<span class="tok-f">requestHeader</span>()</span>
-<span class="code-line"><span class="ln">503</span>    <span class="tok-k">const</span> startsSeries = startsRequestSeries
-<span class="code-line"><span class="ln">504</span>      || <span class="tok-k">this</span>.requestSurfaceGeneration !== surfaceGeneration</span>
-<span class="code-line"><span class="ln">505</span>    <span class="tok-k">if</span> (!<span class="tok-k">this</span>.requestHeaderLogged) {</span>
-<span class="code-line"><span class="ln">506</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'request/header'</span>, { header, reason: baseline === <span class="tok-k">undefined</span> ? <span class="tok-s">'initial'</span> : <span class="tok-s">'resume'</span> })</span>
-<span class="code-line"><span class="ln">507</span>      <span class="tok-k">this</span>.requestHeaderLogged = <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">508</span>    } <span class="tok-k">else if</span> (baseline === <span class="tok-k">undefined</span> || !<span class="tok-f">headerEquals</span>(baseline, header)) {</span>
-<span class="code-line"><span class="ln">509</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'request/header'</span>, {
-<span class="code-line"><span class="ln">510</span>        header,
-<span class="code-line"><span class="ln">511</span>        reason: <span class="tok-s">'change'</span>,
-<span class="code-line"><span class="ln">512</span>        ...startsSeries ? { startsSeries: <span class="tok-n">true</span> } : {},
-<span class="code-line"><span class="ln">513</span>      })</span>
-<span class="code-line"><span class="ln">514</span>    } <span class="tok-k">else if</span> (startsSeries) {
-<span class="code-line"><span class="ln">515</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'request/header'</span>, { header, reason: <span class="tok-s">'series'</span> })
-<span class="code-line"><span class="ln">516</span>    }</span>
-<span class="code-line"><span class="ln">518</span>    <span class="tok-k">this</span>.requestSurfaceGeneration = surfaceGeneration
-<span class="code-line"><span class="ln">519</span>    <span class="tok-k">const</span> contextWindow = preparedCall?.context?.contextWindow</span>
-<span class="code-line"><span class="ln">520</span>    <span class="tok-k">const</span> requestContext: RequestContext = { provider: config.provider, model: config.model,</span>
-<span class="code-line"><span class="ln">523</span>      ...contextWindow === <span class="tok-k">undefined</span> ? {} : { contextWindow } }</span>
-<span class="code-line"><span class="ln">525</span>    <span class="tok-k">const</span> previousContext = session.<span class="tok-f">requestContext</span>()</span>
-<span class="code-line"><span class="ln">526</span>    <span class="tok-k">if</span> (previousContext?.provider !== requestContext.provider</span>
-<span class="code-line"><span class="ln">527</span>      || previousContext.model !== requestContext.model</span>
-<span class="code-line"><span class="ln">528</span>      || previousContext.contextWindow !== requestContext.contextWindow) {</span>
-<span class="code-line"><span class="ln">529</span>      session.<span class="tok-f">append</span>(<span class="tok-s">'request/context'</span>, requestContext)</span>
-<span class="code-line"><span class="ln">530</span>    }</span>
-<span class="code-line"><span class="ln">531</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">533</span>    <span class="tok-k">const</span> request = <span class="tok-f">markAgentLoopRequest</span>(<span class="tok-f">deepFreeze</span>({</span>
-<span class="code-line"><span class="ln">534</span>      ...header.config,</span>
-<span class="code-line"><span class="ln">535</span>      messages: boundaryMessages,</span>
-<span class="code-line"><span class="ln">536</span>      ...header.system !== <span class="tok-k">undefined</span> ? { system: header.system } : {},</span>
-<span class="code-line"><span class="ln">537</span>      ...header.tools !== <span class="tok-k">undefined</span> ? { tools: header.tools } : {},</span>
-<span class="code-line"><span class="ln">538</span>      sessionId: <span class="tok-k">this</span>.session.id,</span>
-<span class="code-line"><span class="ln">539</span>      signal,</span>
-<span class="code-line"><span class="ln">540</span>    }))</span>
-<span class="code-line"><span class="ln">541</span>    <span class="tok-k">return</span> { request, ...preparedCall === <span class="tok-k">undefined</span> ? {} : { preparedCall } }</span>
-<span class="code-line"><span class="ln">543</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>buildRequest 全文</span><span class="ln-range">488-588</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">564</span>  <span class="tok-k">private async</span> <span class="tok-f">buildRequest</span>(turn, step, tools, system, boundaryMessages, startsRequestSeries, surfaceGeneration, signal) {</span>
+<span class="code-line"><span class="ln">520</span>    <span class="tok-k">const</span> persistedHeader = session.<span class="tok-f">requestHeader</span>()</span>
+<span class="code-line"><span class="ln">540</span>    <span class="tok-k">const</span> persistedConfig = persistedHeader?.config</span>
+<span class="code-line"><span class="ln">560</span>    <span class="tok-k">const</span> route = { provider: <span class="tok-k">this</span>.options.provider ?? <span class="tok-s">''</span>, model: <span class="tok-k">this</span>.options.model ?? <span class="tok-s">''</span> }</span>
+<span class="code-line"><span class="ln">561</span>    <span class="tok-k">const</span> persistedReasoningEffort = persistedConfig?.provider === route.provider</span>
+<span class="code-line"><span class="ln">562</span>      &amp;&amp; persistedConfig.model === route.model</span>
+<span class="code-line"><span class="ln">563</span>      &amp;&amp; persistedHeader?.adapterDefaults?.reasoningEffort !== <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">564</span>      ? persistedConfig.reasoningEffort : <span class="tok-k">undefined</span>
+<span class="code-line"><span class="ln">565</span>    <span class="tok-k">const</span> reasoningEffort = <span class="tok-k">this</span>.options.reasoningEffort ?? persistedReasoningEffort</span>
+<span class="code-line"><span class="ln">566</span>    <span class="tok-k">const</span> maxTokens = <span class="tok-k">this</span>.options.maxTokens</span>
+<span class="code-line"><span class="ln">548</span>    <span class="tok-k">const</span> seedConfig = <span class="tok-f">deepFreeze</span>(<span class="tok-f">structuredClone</span>(</span>
+<span class="code-line"><span class="ln">568</span>      <span class="tok-k">this</span>.requestHeaderLogged</span>
+<span class="code-line"><span class="ln">570</span>        ? <span class="tok-f">requestProposal</span>(persistedHeader!)</span>
+<span class="code-line"><span class="ln">571</span>        : {</span>
+<span class="code-line"><span class="ln">515</span>          ...route,</span>
+<span class="code-line"><span class="ln">573</span>          ...reasoningEffort === <span class="tok-k">undefined</span> ? {} : { reasoningEffort },</span>
+<span class="code-line"><span class="ln">574</span>          ...maxTokens === <span class="tok-k">undefined</span> ? {} : { maxTokens },</span>
+<span class="code-line"><span class="ln">537</span>        },</span>
+<span class="code-line"><span class="ln">538</span>    ))</span>
+<span class="code-line"><span class="ln">520</span>    <span class="tok-k">const</span> proposedConfig = <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">waterfall</span>(</span>
+<span class="code-line"><span class="ln">540</span>      <span class="tok-s">'agent/request'</span>, { turn, step, signal },</span>
+<span class="code-line"><span class="ln">560</span>      () =&gt; Promise.<span class="tok-f">resolve</span>(seedConfig),</span>
+<span class="code-line"><span class="ln">561</span>    )</span>
+<span class="code-line"><span class="ln">562</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">563</span>    <span class="tok-k">if</span> (!proposedConfig.provider || !proposedConfig.model) {</span>
+<span class="code-line"><span class="ln">564</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`agent <span class="tok-s">"${this.id}"</span> has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)</span>
+<span class="code-line"><span class="ln">565</span>    }</span>
+<span class="code-line"><span class="ln">566</span>    <span class="tok-k">let</span> config: LlmCallConfig</span>
+<span class="code-line"><span class="ln">548</span>    <span class="tok-k">let</span> preparedCall: PreparedLlmCall | <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">568</span>    <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">569</span>      preparedCall = <span class="tok-k">await</span> <span class="tok-k">this</span>.loopCtx.llm.<span class="tok-f">prepareCall</span>(proposedConfig, signal)</span>
+<span class="code-line"><span class="ln">570</span>      config = preparedCall.config</span>
+<span class="code-line"><span class="ln">571</span>    } <span class="tok-k">catch</span> (error: unknown) {</span>
+<span class="code-line"><span class="ln">573</span>      <span class="tok-k">if</span> (!(error <span class="tok-k">instanceof</span> LlmError) || error.code !== <span class="tok-s">'NO_ADAPTER'</span>) <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">574</span>      config = proposedConfig</span>
+<span class="code-line"><span class="ln">537</span>    }</span>
+<span class="code-line"><span class="ln">538</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">540</span>    <span class="tok-k">const</span> header = <span class="tok-f">canonicalHeader</span>({</span>
+<span class="code-line"><span class="ln">560</span>      config,</span>
+<span class="code-line"><span class="ln">561</span>      ...preparedCall === <span class="tok-k">undefined</span> ? {} : { adapterDefaults: preparedCall.adapterDefaults },</span>
+<span class="code-line"><span class="ln">562</span>      ...system ? { system } : {},</span>
+<span class="code-line"><span class="ln">563</span>      ...tools.length &gt; 0 ? { tools } : {},</span>
+<span class="code-line"><span class="ln">564</span>    })</span>
+<span class="code-line"><span class="ln">565</span>    <span class="tok-k">const</span> baseline = <span class="tok-k">this</span>.session.<span class="tok-f">requestHeader</span>()</span>
+<span class="code-line"><span class="ln">566</span>    <span class="tok-k">const</span> startsSeries = startsRequestSeries
+<span class="code-line"><span class="ln">548</span>      || <span class="tok-k">this</span>.requestSurfaceGeneration !== surfaceGeneration</span>
+<span class="code-line"><span class="ln">568</span>    <span class="tok-k">if</span> (!<span class="tok-k">this</span>.requestHeaderLogged) {</span>
+<span class="code-line"><span class="ln">569</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'request/header'</span>, { header, reason: baseline === <span class="tok-k">undefined</span> ? <span class="tok-s">'initial'</span> : <span class="tok-s">'resume'</span> })</span>
+<span class="code-line"><span class="ln">570</span>      <span class="tok-k">this</span>.requestHeaderLogged = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">571</span>    } <span class="tok-k">else if</span> (baseline === <span class="tok-k">undefined</span> || !<span class="tok-f">headerEquals</span>(baseline, header)) {</span>
+<span class="code-line"><span class="ln">572</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'request/header'</span>, {
+<span class="code-line"><span class="ln">573</span>        header,
+<span class="code-line"><span class="ln">574</span>        reason: <span class="tok-s">'change'</span>,
+<span class="code-line"><span class="ln">575</span>        ...startsSeries ? { startsSeries: <span class="tok-n">true</span> } : {},
+<span class="code-line"><span class="ln">576</span>      })</span>
+<span class="code-line"><span class="ln">577</span>    } <span class="tok-k">else if</span> (startsSeries) {
+<span class="code-line"><span class="ln">559</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'request/header'</span>, { header, reason: <span class="tok-s">'series'</span> })
+<span class="code-line"><span class="ln">560</span>    }</span>
+<span class="code-line"><span class="ln">562</span>    <span class="tok-k">this</span>.requestSurfaceGeneration = surfaceGeneration
+<span class="code-line"><span class="ln">563</span>    <span class="tok-k">const</span> contextWindow = preparedCall?.context?.contextWindow</span>
+<span class="code-line"><span class="ln">564</span>    <span class="tok-k">const</span> requestContext: RequestContext = { provider: config.provider, model: config.model,</span>
+<span class="code-line"><span class="ln">567</span>      ...contextWindow === <span class="tok-k">undefined</span> ? {} : { contextWindow } }</span>
+<span class="code-line"><span class="ln">569</span>    <span class="tok-k">const</span> previousContext = session.<span class="tok-f">requestContext</span>()</span>
+<span class="code-line"><span class="ln">570</span>    <span class="tok-k">if</span> (previousContext?.provider !== requestContext.provider</span>
+<span class="code-line"><span class="ln">571</span>      || previousContext.model !== requestContext.model</span>
+<span class="code-line"><span class="ln">572</span>      || previousContext.contextWindow !== requestContext.contextWindow) {</span>
+<span class="code-line"><span class="ln">573</span>      session.<span class="tok-f">append</span>(<span class="tok-s">'request/context'</span>, requestContext)</span>
+<span class="code-line"><span class="ln">574</span>    }</span>
+<span class="code-line"><span class="ln">575</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">577</span>    <span class="tok-k">const</span> request = <span class="tok-f">markAgentLoopRequest</span>(<span class="tok-f">deepFreeze</span>({</span>
+<span class="code-line"><span class="ln">578</span>      ...header.config,</span>
+<span class="code-line"><span class="ln">579</span>      messages: boundaryMessages,</span>
+<span class="code-line"><span class="ln">580</span>      ...header.system !== <span class="tok-k">undefined</span> ? { system: header.system } : {},</span>
+<span class="code-line"><span class="ln">581</span>      ...header.tools !== <span class="tok-k">undefined</span> ? { tools: header.tools } : {},</span>
+<span class="code-line"><span class="ln">582</span>      sessionId: <span class="tok-k">this</span>.session.id,</span>
+<span class="code-line"><span class="ln">583</span>      signal,</span>
+<span class="code-line"><span class="ln">584</span>    }))</span>
+<span class="code-line"><span class="ln">585</span>    <span class="tok-k">return</span> { request, ...preparedCall === <span class="tok-k">undefined</span> ? {} : { preparedCall } }</span>
+<span class="code-line"><span class="ln">587</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">457-464</span><p><strong>① 从日志折叠上次配置</strong>：<code>requestHeader()</code>（06 页的增量缓存 fold）拿上次请求的完整 header。reasoningEffort 的恢复有严格条件：provider <strong>且</strong> model 都与路由完全匹配、<strong>且</strong>该 effort 不是 adapter 默认值——防止跨模型残留一个无意义的 effort。</p></div>
-    <div class="lr"><span class="ln-ref">466-475</span><p>seedConfig 两态：首个请求（requestHeaderLogged=false）从 AgentOptions 出发；后续请求从持久 header 折叠（requestProposal，§2）。整体 <code>structuredClone</code> + <code>deepFreeze</code>——waterfall 拿到的是冻结的种子，监听器只能构建替换值。</p></div>
-    <div class="lr"><span class="ln-ref">476-479</span><p><strong>② <code>agent/request</code> waterfall</strong>（第二个扩展点）：插件可补 provider/model 或整体替换配置。JSDoc 硬约束：<strong>不能改 messages</strong>——模型可见内容必须走日志通道（messages 是 deriveMessages() 的产物，参数里根本没有它）。</p></div>
-    <div class="lr"><span class="ln-ref">481-483</span><p>fail-loud：waterfall 之后 provider/model 必须齐备，报错信息直接给出两种修复路径（设 AgentOptions 或经 agent/request 提供）。</p></div>
-    <div class="lr"><span class="ln-ref">486-493</span><p><strong>③ prepareCall（§3）</strong>。NO_ADAPTER 被特别宽容：中间件可能服务未注册的 route，终局派发（stream）仍会要求 adapter——所以这里回退到 proposedConfig，把失败推迟到 10 页的 stream。</p></div>
-    <div class="lr"><span class="ln-ref">496-501</span><p><code>canonicalHeader</code>：把 config、adapterDefaults、system、tools 折叠成一个规范 header——空 optional 字段缺席（system 为空则不出现，tools 为空则缺席）。这就是 <code>request/header</code> 事件的数据。</p></div>
-    <div class="lr"><span class="ln-ref">502-516</span><p><strong>④ header 落盘（0.1.2-rc.1 起带 series 维度）</strong>：本实例第一次请求记 initial/resume（日志里已有 header 事件就是 resume——进程重启/fork seed）。之后三条路：header 变了 → 记 change（<code>startsSeries</code> 时附 <code>startsSeries: true</code>，change 与系列边界重合时保留两个事实）；header 没变但 startsSeries（enter 显式宣告，或 surface 被 replace 过——503-504 行的 surfaceGeneration 比较）→ 记 <code>reason: 'series'</code>；否则不落。类型层 <code>RequestHeaderReason</code> 相应扩为 <code>'initial' | 'resume' | 'change' | 'series'</code>（session/src/types.ts:208）。</p></div>
-    <div class="lr"><span class="ln-ref">519-530</span><p>request/context 记录 provider/model/contextWindow——只在路由或容量<strong>变化</strong>时落盘（不参与请求重建或 header 相等性）。它是遥测/UI 的「容量元数据」。</p></div>
-    <div class="lr"><span class="ln-ref">533-540</span><p><strong>⑤ 最终请求</strong>：<code>messages: boundaryMessages</code>——这个参数来自 11 页 step 的 <code>session.deriveMessages()</code>，<strong>不是任何内存对象</strong>。deepFreeze + <code>markAgentLoopRequest</code> 打标：invariant.ts 就靠这个标记断言「请求 frozen、带 sessionId、messages 与 deriveMessages() 一致」。请求对象由此不可变。</p></div>
-    <div class="lr"><span class="ln-ref">541</span><p>返回 request + 可选的 preparedCall。11 页的 step 优先用 <code>preparedCall.stream()</code>，没有才退回 <code>ctx.llm.stream()</code>。</p></div>
+    <div class="lr"><span class="ln-ref">520-527</span><p><strong>① 从日志折叠上次配置</strong>：<code>requestHeader()</code>（06 页的增量缓存 fold）拿上次请求的完整 header。reasoningEffort 的恢复有严格条件：provider <strong>且</strong> model 都与路由完全匹配、<strong>且</strong>该 effort 不是 adapter 默认值——防止跨模型残留一个无意义的 effort。</p></div>
+    <div class="lr"><span class="ln-ref">529-538</span><p>seedConfig 两态：首个请求（requestHeaderLogged=false）从 AgentOptions 出发；后续请求从持久 header 折叠（requestProposal，§2）。整体 <code>structuredClone</code> + <code>deepFreeze</code>——waterfall 拿到的是冻结的种子，监听器只能构建替换值。</p></div>
+    <div class="lr"><span class="ln-ref">539-542</span><p><strong>② <code>agent/request</code> waterfall</strong>（第二个扩展点）：插件可补 provider/model 或整体替换配置。JSDoc 硬约束：<strong>不能改 messages</strong>——模型可见内容必须走日志通道（messages 是 deriveMessages() 的产物，参数里根本没有它）。</p></div>
+    <div class="lr"><span class="ln-ref">544-546</span><p>fail-loud：waterfall 之后 provider/model 必须齐备，报错信息直接给出两种修复路径（设 AgentOptions 或经 agent/request 提供）。</p></div>
+    <div class="lr"><span class="ln-ref">549-556</span><p><strong>③ prepareCall（§3）</strong>。NO_ADAPTER 被特别宽容：中间件可能服务未注册的 route，终局派发（stream）仍会要求 adapter——所以这里回退到 proposedConfig，把失败推迟到 10 页的 stream。</p></div>
+    <div class="lr"><span class="ln-ref">559-564</span><p><code>canonicalHeader</code>：把 config、adapterDefaults、system、tools 折叠成一个规范 header——空 optional 字段缺席（system 为空则不出现，tools 为空则缺席）。这就是 <code>request/header</code> 事件的数据。</p></div>
+    <div class="lr"><span class="ln-ref">565-579</span><p><strong>④ header 落盘（0.1.3-alpha.1 起带 series 维度）</strong>：本实例第一次请求记 initial/resume（日志里已有 header 事件就是 resume——进程重启/fork seed）。之后三条路：header 变了 → 记 change（<code>startsSeries</code> 时附 <code>startsSeries: true</code>，change 与系列边界重合时保留两个事实）；header 没变但 startsSeries（enter 显式宣告，或 surface 被 replace 过——503-504 行的 surfaceGeneration 比较）→ 记 <code>reason: 'series'</code>；否则不落。类型层 <code>RequestHeaderReason</code> 相应扩为 <code>'initial' | 'resume' | 'change' | 'series'</code>（session/src/types.ts:252）。</p></div>
+    <div class="lr"><span class="ln-ref">538-549</span><p>request/context 记录 provider/model/contextWindow——只在路由或容量<strong>变化</strong>时落盘（不参与请求重建或 header 相等性）。它是遥测/UI 的「容量元数据」。</p></div>
+    <div class="lr"><span class="ln-ref">552-559</span><p><strong>⑤ 最终请求</strong>：<code>messages: boundaryMessages</code>——这个参数来自 11 页 step 的 <code>session.deriveMessages()</code>，<strong>不是任何内存对象</strong>。deepFreeze + <code>markAgentLoopRequest</code> 打标：invariant.ts 就靠这个标记断言「请求 frozen、带 sessionId、messages 与 deriveMessages() 一致」。请求对象由此不可变。</p></div>
+    <div class="lr"><span class="ln-ref">560</span><p>返回 request + 可选的 preparedCall。11 页的 step 优先用 <code>preparedCall.stream()</code>，没有才退回 <code>ctx.llm.stream()</code>。</p></div>
   </div>
 
   <div class="callout key">
-    <p><strong>为什么请求必须从日志折叠？</strong>看 535 行——messages 是 deriveMessages() 对日志的投影。任何想给模型塞内容的路径都只能先 append 到日志。<strong>「模型可见 ⟺ 已记录」在这里从纪律变成结构上不可能违反的约束</strong>：请求本身就是日志的函数。</p>
+    <p><strong>为什么请求必须从日志折叠？</strong>看 554 行——messages 是 deriveMessages() 对日志的投影。任何想给模型塞内容的路径都只能先 append 到日志。<strong>「模型可见 ⟺ 已记录」在这里从纪律变成结构上不可能违反的约束</strong>：请求本身就是日志的函数。</p>
   </div>
 </section>
 
 <section id="s4">
-  <h2><span class="sec-num">§4</span>0.1.2-rc.1 新增：request/header 的 series 维度</h2>
+  <h2><span class="sec-num">§4</span>0.1.3-alpha.1 新增：request/header 的 series 维度</h2>
   <p>这一版为 <code>request/header</code> 引入「消息系列」概念。背景：模型对话可以包含多个<strong>显式区分</strong>的消息系列（例如 compaction 之后的新系列、跨模型代际的系列切换）——若 header 完全没变，日志里就没有「这里开始了一个新系列」的持久标记，下游投影/续跑无法定位系列边界。</p>
   <ul>
-    <li><strong>两个触发源</strong>（503-504 行）：① <code>preStep</code> 的 enter 决定带 <code>startsRequestSeries: true</code>（08 页 PreparedStep，插件显式宣告）；② surface 的 <code>replaceGeneration</code> 变了（compaction 的 replace 重写过 surface）——step 在每次迭代时快照 <code>surfaceGeneration</code>（11 页），buildRequest 拿它和 <code>requestSurfaceGeneration</code>（上一个已建请求的代数）比较。</li>
-    <li><strong>落盘三条路</strong>（505-516 行）：见上表——initial/resume 只落一次；change 可附 <code>startsSeries</code>；series 是「header 未变但系列开始」的专门 reason。</li>
-    <li><strong>类型层</strong>：<code>RequestHeaderReason = 'initial' | 'resume' | 'change' | 'series'</code>（<code class="path">session/src/types.ts:208</code>），<code>request/header</code> 数据新增可选 <code>startsSeries?: true</code>（types.ts:290）。</li>
+    <li><strong>两个触发源</strong>（522-523 行）：① <code>preStep</code> 的 enter 决定带 <code>startsRequestSeries: true</code>（08 页 PreparedStep，插件显式宣告）；② surface 的 <code>replaceGeneration</code> 变了（compaction 的 replace 重写过 surface）——step 在每次迭代时快照 <code>surfaceGeneration</code>（11 页），buildRequest 拿它和 <code>requestSurfaceGeneration</code>（上一个已建请求的代数）比较。</li>
+    <li><strong>落盘三条路</strong>（524-535 行）：见上表——initial/resume 只落一次；change 可附 <code>startsSeries</code>；series 是「header 未变但系列开始」的专门 reason。</li>
+    <li><strong>类型层</strong>：<code>RequestHeaderReason = 'initial' | 'resume' | 'change' | 'series'</code>（<code class="path">session/src/types.ts:252</code>），<code>request/header</code> 数据新增可选 <code>startsSeries?: true</code>（types.ts:313）。</li>
   </ul>
 </section>
 
@@ -259,43 +259,43 @@
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">54-61</span><p>上一次请求的 config 里可能混着 <strong>adapter 物化出来的默认值</strong>（调用方没指定，adapter 按模型目录补上的）。如果把它们原样作为下一次提案的种子，切换模型后这些值会「粘」在新模型上。所以：凡是 <code>adapterDefaults</code> 标记过的字段，从提案里删掉，让下一个 adapter 重新物化自己的默认值。这就是 460-464 行「effort 只在同模型时恢复」的姊妹逻辑。</p></div>
+    <div class="lr"><span class="ln-ref">54-61</span><p>上一次请求的 config 里可能混着 <strong>adapter 物化出来的默认值</strong>（调用方没指定，adapter 按模型目录补上的）。如果把它们原样作为下一次提案的种子，切换模型后这些值会「粘」在新模型上。所以：凡是 <code>adapterDefaults</code> 标记过的字段，从提案里删掉，让下一个 adapter 重新物化自己的默认值。这就是 479-483 行「effort 只在同模型时恢复」的姊妹逻辑。</p></div>
   </div>
 </section>
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>prepareCall：一次性派发 + 代际绑定</h2>
-  <p><code>prepareCall</code> 在 <code class="path">packages/llm/llm/src/index.ts:890</code>（10 页会看到 LlmRuntime 全貌）。这里只看它守卫的部分（llm/src/index.ts:907-927）：</p>
+  <p><code>prepareCall</code> 在 <code class="path">packages/llm/llm/src/index.ts:904</code>（10 页会看到 LlmRuntime 全貌）。这里只看它守卫的部分（llm/src/index.ts:921-941）：</p>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>stream 闭包里的守卫</span><span class="ln-range">907-927</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">907</span>    <span class="tok-k">let</span> dispatched = <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">908</span>    <span class="tok-k">return</span> Object.<span class="tok-f">freeze</span>({</span>
-<span class="code-line"><span class="ln">909</span>      config: resolvedConfig,</span>
-<span class="code-line"><span class="ln">910</span>      retryPolicy: registration.retryPolicy,</span>
-<span class="code-line"><span class="ln">911</span>      adapterDefaults,</span>
-<span class="code-line"><span class="ln">912</span>      ...context === <span class="tok-k">undefined</span> ? {} : { context },</span>
-<span class="code-line"><span class="ln">913</span>      ...modelInfo.inputModalities === <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">914</span>        ? {}</span>
-<span class="code-line"><span class="ln">915</span>        : { inputModalities: Object.<span class="tok-f">freeze</span>([...modelInfo.inputModalities]) },</span>
-<span class="code-line"><span class="ln">916</span>      stream: (options: GenerateOptions): AsyncIterable&lt;StreamChunk&gt; =&gt; {</span>
-<span class="code-line"><span class="ln">917</span>        <span class="tok-k">if</span> (dispatched) {</span>
-<span class="code-line"><span class="ln">918</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(<span class="tok-s">'a prepared LLM call can only be dispatched once'</span>, <span class="tok-s">'INVALID_PREPARED_CALL'</span>)</span>
-<span class="code-line"><span class="ln">919</span>        }</span>
-<span class="code-line"><span class="ln">920</span>        <span class="tok-k">if</span> (!<span class="tok-f">callConfigEquals</span>(options, resolvedConfig)) {</span>
-<span class="code-line"><span class="ln">921</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(</span>
-<span class="code-line"><span class="ln">922</span>            <span class="tok-s">'prepared LLM call config changed before adapter dispatch'</span>,</span>
-<span class="code-line"><span class="ln">923</span>            <span class="tok-s">'INVALID_PREPARED_CALL'</span>,</span>
-<span class="code-line"><span class="ln">924</span>          )</span>
-<span class="code-line"><span class="ln">925</span>        }</span>
-<span class="code-line"><span class="ln">926</span>        dispatched = <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">927</span>        <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">streamWithRegistration</span>(options, { registration, ... })</span></code></pre>
+  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>stream 闭包里的守卫</span><span class="ln-range">921-941</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">921</span>    <span class="tok-k">let</span> dispatched = <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">922</span>    <span class="tok-k">return</span> Object.<span class="tok-f">freeze</span>({</span>
+<span class="code-line"><span class="ln">923</span>      config: resolvedConfig,</span>
+<span class="code-line"><span class="ln">924</span>      retryPolicy: registration.retryPolicy,</span>
+<span class="code-line"><span class="ln">925</span>      adapterDefaults,</span>
+<span class="code-line"><span class="ln">926</span>      ...context === <span class="tok-k">undefined</span> ? {} : { context },</span>
+<span class="code-line"><span class="ln">927</span>      ...modelInfo.inputModalities === <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">928</span>        ? {}</span>
+<span class="code-line"><span class="ln">929</span>        : { inputModalities: Object.<span class="tok-f">freeze</span>([...modelInfo.inputModalities]) },</span>
+<span class="code-line"><span class="ln">930</span>      stream: (options: GenerateOptions): AsyncIterable&lt;StreamChunk&gt; =&gt; {</span>
+<span class="code-line"><span class="ln">931</span>        <span class="tok-k">if</span> (dispatched) {</span>
+<span class="code-line"><span class="ln">932</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(<span class="tok-s">'a prepared LLM call can only be dispatched once'</span>, <span class="tok-s">'INVALID_PREPARED_CALL'</span>)</span>
+<span class="code-line"><span class="ln">933</span>        }</span>
+<span class="code-line"><span class="ln">934</span>        <span class="tok-k">if</span> (!<span class="tok-f">callConfigEquals</span>(options, resolvedConfig)) {</span>
+<span class="code-line"><span class="ln">935</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(</span>
+<span class="code-line"><span class="ln">936</span>            <span class="tok-s">'prepared LLM call config changed before adapter dispatch'</span>,</span>
+<span class="code-line"><span class="ln">937</span>            <span class="tok-s">'INVALID_PREPARED_CALL'</span>,</span>
+<span class="code-line"><span class="ln">938</span>          )</span>
+<span class="code-line"><span class="ln">939</span>        }</span>
+<span class="code-line"><span class="ln">940</span>        dispatched = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">941</span>        <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">streamWithRegistration</span>(options, { registration, ... })</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">907-926</span><p><strong>两个守卫</strong>：① <code>dispatched</code>——一个 prepared call 只能派发一次；② <code>callConfigEquals</code>——派发时的请求 config 必须与 prepare 时解析出的 config 完全一致。违者 <code>INVALID_PREPARED_CALL</code>。</p></div>
-    <div class="lr"><span class="ln-ref">908-915</span><p>返回对象整体 freeze；resolvedConfig 在 895 行已 deepFreeze + structuredClone。0.1.2-rc.1 起还携带 <code>inputModalities</code>（该 adapter 代际捕获的精确模型模态，同样冻结）——prepare 之后的一切都是不可变的。</p></div>
-    <div class="lr"><span class="ln-ref">890-894</span><p><strong>0.1.2-rc.1 的新机制：代际绑定</strong>。prepareCall 现在先调 <code>registration.adapter.prepareCall(provider, model, signal)</code>（<code>LlmAdapter.prepareCall</code>，llm/src/index.ts:262，动态 adapter 可 override）拿到与「最终 stream 调用」<strong>同一代际</strong>的精确模型元数据（<code>PreparedAdapterCall</code>），再 resolve 配置——设置变更发生在 prepare 与 dispatch 之间时，不可能把一代的能力与另一代的 endpoint 拼起来。</p></div>
+    <div class="lr"><span class="ln-ref">921-940</span><p><strong>两个守卫</strong>：① <code>dispatched</code>——一个 prepared call 只能派发一次；② <code>callConfigEquals</code>——派发时的请求 config 必须与 prepare 时解析出的 config 完全一致。违者 <code>INVALID_PREPARED_CALL</code>。</p></div>
+    <div class="lr"><span class="ln-ref">922-929</span><p>返回对象整体 freeze；resolvedConfig 在 909 行已 deepFreeze + structuredClone。0.1.3-alpha.1 起还携带 <code>inputModalities</code>（该 adapter 代际捕获的精确模型模态，同样冻结）——prepare 之后的一切都是不可变的。</p></div>
+    <div class="lr"><span class="ln-ref">904-908</span><p><strong>0.1.3-alpha.1 机制：代际绑定</strong>。prepareCall 现在先调 <code>registration.adapter.prepareCall(provider, model, signal)</code>（<code>LlmAdapter.prepareCall</code>，llm/src/index.ts:266，动态 adapter 可 override）拿到与「最终 stream 调用」<strong>同一代际</strong>的精确模型元数据（<code>PreparedAdapterCall</code>），再 resolve 配置——设置变更发生在 prepare 与 dispatch 之间时，不可能把一代的能力与另一代的 endpoint 拼起来。</p></div>
   </div>
 
   <div class="callout info">

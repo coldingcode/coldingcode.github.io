@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -76,7 +76,7 @@
 </header>
 
 <div class="chain">
-  <span class="seg">11 step:395 executeToolCalls(...)</span>
+  <span class="seg">11 step:468 executeToolCalls(...)</span>
   <span class="arrow">→</span>
   <span class="here">tool-calls.ts:59 executeToolCalls → :121 runGroup</span>
   <span class="arrow">→</span>
@@ -87,7 +87,7 @@
   <h2><span class="sec-num">示例</span>本次示例：bash 调用在调度器里的实况</h2>
   <div class="trace">
     <div class="trace-head">示例轨迹 13-1 · 单工具调用的 runGroup</div>
-    <pre># 11 页 414 行 executeToolCalls(ctx, 1, 1, [bash 调用块], signal, acceptContext)
+    <pre># 11 页 468 行 executeToolCalls(ctx, 1, 1, [bash 调用块], signal, acceptContext)
 # planned = [{ block, exec:{ callId:'c1', name:'bash', arguments:{command:'ls -la'},
 #                            agent, signal } }]
 # 88 行：executionMode(bash) = 'parallel'（bash 并发安全）→ group = 全部
@@ -98,7 +98,7 @@
 #   208 行：commitReady → 顺序提交
 #   155 行：appendToolResult → seq 9，sourceEventSeqs:[8]
 # 工具结果 content 里有目录列表；concluded=false
-# → { concluded:false } → 11 页 418 行返回 null → step 2 继续</pre>
+# → { concluded:false } → 11 页 472 行返回 null → step 2 继续</pre>
     <div class="src">来源：13 页行级解读 + 11 页示例轨迹 11-1 的 seq 序列</div>
   </div>
   <div class="trace">

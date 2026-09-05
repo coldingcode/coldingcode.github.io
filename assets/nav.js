@@ -64,6 +64,6 @@ function renderNav(active) {
   <ul class="nav-list">
     ${['20','21','22','23','24','25','26','27','28','29','30','31','32','33','34'].map(navLink).join('\n    ')}
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>`;
 }

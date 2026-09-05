@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -79,7 +79,8 @@
   <div class="toc-title">本页目录</div>
   <ol>
     <li><a href="#s1">站点当前状态</a></li>
-    <li><a href="#s00">最新：0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</a></li>
+    <li><a href="#s000">最新：0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</a></li>
+    <li><a href="#s00">0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</a></li>
     <li><a href="#s0">0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</a></li>
     <li><a href="#s2">示例贯穿：全书配套真实轨迹（2026-08-23）</a></li>
     <li><a href="#s3">结构性重构：从叙事到全书（2026-08-23）</a></li>
@@ -94,15 +95,44 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
-    <tr><td>站点锚定版本</td><td><strong>0.1.2-rc.1</strong>（commit <code>76fda72979</code> Merge PR #3481）</td></tr>
+    <tr><td>站点锚定版本</td><td><strong>0.1.3-alpha.1</strong>（commit <code>d347e70390</code> Merge PR #3554）</td></tr>
     <tr><td>覆盖范围</td><td>35 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>60+ 处文件:行号引用，均经上游源码逐行验证</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
 </section>
 
+<section id="s000">
+  <h2><span class="sec-num">§000</span>最新：0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</h2>
+  <p>本轮 pull 的变更量：<strong>1672 个文件、+43229/-14119</strong>。站点锚定文件里的核心语义变更：assistant-stream 机制重构（一处大主题）+ 文件引用投影：</p>
+
+  <h3>① assistant-stream 机制（assistant/chunk 退役）—— 05/06/10/11 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/core/agent-loop/src/agent.ts</code>（545→589 行）</td><td>step 的流消费重构：<code>AssistantStreamAttempt</code>（新文件 assistant-stream.ts，140 行）取代 BlockAssembler——start/push/settle/abandon 三态；settle 时一次性落 <code>assistant/attempt</code> 或带内嵌 <code>stream</code> 的 <code>assistant/message</code>；未结算走 abandon（不落盘）；结算失败抛 AggregateError</td></tr>
+    <tr><td><code class="path">packages/llm/llm/src/assistant-stream.ts</code>（新增，297 行）</td><td>流帧/compact 编码/expandAssistantStream 恢复解压</td></tr>
+    <tr><td><code class="path">packages/core/session/src/types.ts</code>（483 行）</td><td><code>SESSION_FORMAT_VERSION</code> 0 → 2（86 行）；<code>assistant/chunk</code> 从 SessionEventMap 移除；<code>assistant/attempt</code>（313 行，内嵌 stream）；<code>assistant/message</code> 内嵌 stream、sourceEventSeqs 移除</td></tr>
+    <tr><td><code class="path">packages/core/session/src/index.ts</code>（1224→1254 行）</td><td>恢复路径用 <code>expandAssistantStream</code> 校验内嵌流（295 行）；chunk-rows.ts 删除（packChunkRuns/decodeStorageRecord 退役）</td></tr>
+    <tr><td><code class="path">packages/core/agent/src/runtime-types.ts</code>（299→347 行）</td><td>新增 <code>agent/assistant-stream</code> live 帧事件（315 行）</td></tr>
+  </table></div>
+
+  <h3>② 文件引用投影—— 10 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/llm/llm/src/index.ts</code>（1092→1134 行）</td><td>新增 <code>fileRequestText(ref)</code>（673 行）与 <code>fileReadPath</code>：把持久文件引用（FileAttachmentRef）解析为每次 provider 请求的确定性文本（PR #3109 generic file upload）；<code>contentHasFile</code>/<code>projectFilesToText</code> 加入投影</td></tr>
+  </table></div>
+
+  <h3>③ 其余影响面</h3>
+  <ul>
+    <li>agent.ts 行号位移（preStep 234→237、turn 255→258、kick 219→222、wakeDriver 181→184、send 122→125、setPhase 113→116、buildRequest 444→488）——05/08/09 页已全面重映射。</li>
+    <li>session/index.ts 行号位移（append 668→699、构造器 514→541、deriveMessages 790→820、firstLiveSeq 555→581）——06 页已重映射。</li>
+    <li>llm/index.ts 行号位移（prepareCall 890→904、adapterStream 964→998、streamWithRegistration 1055→1097、forAdapter 944→958）——09/10 页已重映射。</li>
+    <li>06 页真实 fixture 行更新为 assistant/attempt 格式（v2）。</li>
+  </ul>
+</section>
+
 <section id="s00">
-  <h2><span class="sec-num">§00</span>最新：0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</h2>
+  <h2><span class="sec-num">§00</span>0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</h2>
   <p>本轮 pull 的变更量：<strong>2682 个文件、+46669/-33253</strong>。站点锚定文件里的实质语义变更集中在一处大主题（session 序列品牌化）与两处引导层变化：</p>
 
   <h3>① Session 序列品牌化（SessionSeq / SessionLogOffset）—— 06/07/13 页更新</h3>

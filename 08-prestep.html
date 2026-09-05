@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.2-rc.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,13 +72,13 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 08</p>
   <h1>preStep：决定模型看到什么的四个动作</h1>
-  <p class="lede"><code>agent.ts:234-252</code>。每一步开始前，<code>preStep</code> 依次做四件事：<strong>claim 输入 → assemble 提示词 → project 运行时上下文 → 过 <code>agent/pre-step</code> waterfall</strong>。最后一步是全 harness 最重要的扩展点之一——它决定模型看到什么。</p>
+  <p class="lede"><code>agent.ts:237-255</code>。每一步开始前，<code>preStep</code> 依次做四件事：<strong>claim 输入 → assemble 提示词 → project 运行时上下文 → 过 <code>agent/pre-step</code> waterfall</strong>。最后一步是全 harness 最重要的扩展点之一——它决定模型看到什么。</p>
 </header>
 
 <div class="chain">
-  <span class="seg">05 turn:275 preStep(target, {turn, step})</span>
+  <span class="seg">05 turn:278 preStep(target, {turn, step})</span>
   <span class="arrow">→</span>
-  <span class="here">agent.ts:234 preStep</span>
+  <span class="here">agent.ts:237 preStep</span>
   <span class="arrow">→</span>
   <span class="seg">(分叉) 12 systemPrompt.assemble · 07 inbox.claim</span>
   <span class="arrow">→</span>
@@ -89,14 +89,14 @@
   <h2><span class="sec-num">示例</span>本次示例：step 1 的 preStep 四动作实况</h2>
   <div class="trace">
     <div class="trace-head">示例轨迹 08-1 · 四动作的输入输出</div>
-    <pre># ① claim（238 行）：next-step=[]，next-turn=['帮我列一下当前目录']
+    <pre># ① claim（241 行）：next-step=[]，next-turn=['帮我列一下当前目录']
 #    → claimed = ['帮我列一下当前目录']
-# ② assemble（239 行）：systemPrompt.assemble(assembleContextFor(agent, signal))
+# ② assemble（242 行）：systemPrompt.assemble(assembleContextFor(agent, signal))
 #    → assembly = { sections:[harness 身份, persona, 工具指引...],
 #                   tools:[bash, read, write, ... 的 schema],
 #                   contexts:[...] }            ← 12 页详述
-# ③ project（243 行）：runtimeContext 无变化（首步）→ context = undefined
-# ④ waterfall agent/pre-step（244 行）：
+# ③ project（246 行）：runtimeContext 无变化（首步）→ context = undefined
+# ④ waterfall agent/pre-step（247 行）：
 #    fallback 返回 { kind:'enter',
 #      messages: context===undefined ? claimed : [...claimed, context] }
 #      = { kind:'enter', messages:['帮我列一下当前目录'] }
@@ -128,43 +128,43 @@
   <h2><span class="sec-num">§1</span>完整代码与行级解读</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>preStep 全文</span><span class="ln-range">234-252</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">234</span>  <span class="tok-k">private async</span> <span class="tok-f">preStep</span>(target, position: { turn: number; step: number }): Promise&lt;PreparedStep&gt; {</span>
-<span class="code-line"><span class="ln">236</span>    <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind !== <span class="tok-s">'running'</span>) <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`agent <span class="tok-s">"${this.id}"</span>: pre-step outside running phase`)</span>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>preStep 全文</span><span class="ln-range">237-255</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">237</span>  <span class="tok-k">private async</span> <span class="tok-f">preStep</span>(target, position: { turn: number; step: number }): Promise&lt;PreparedStep&gt; {</span>
+<span class="code-line"><span class="ln">239</span>    <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind !== <span class="tok-s">'running'</span>) <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`agent <span class="tok-s">"${this.id}"</span>: pre-step outside running phase`)</span>
 <span class="code-line"><span class="ln">228</span>    <span class="tok-k">const</span> signal = <span class="tok-k">this</span>.phase.abort.signal</span>
-<span class="code-line"><span class="ln">238</span>    <span class="tok-k">const</span> claimed = <span class="tok-k">this</span>.inbox.<span class="tok-f">claim</span>(target, position.turn)              <span class="tok-c">// ①</span></span>
-<span class="code-line"><span class="ln">239</span>    <span class="tok-k">const</span> assembly = <span class="tok-k">await</span> <span class="tok-k">this</span>.loopCtx.systemPrompt.<span class="tok-f">assemble</span>(        <span class="tok-c">// ②</span></span>
-<span class="code-line"><span class="ln">240</span>      <span class="tok-f">assembleContextFor</span>(<span class="tok-k">this</span>, signal))</span>
-<span class="code-line"><span class="ln">241</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">242</span>    <span class="tok-k">const</span> sections = <span class="tok-f">renderContextSections</span>(assembly)</span>
-<span class="code-line"><span class="ln">243</span>    <span class="tok-k">const</span> context = <span class="tok-k">this</span>.runtimeContext.<span class="tok-f">project</span>(<span class="tok-f">joinContextSections</span>(sections), sections)  <span class="tok-c">// ③</span></span>
-<span class="code-line"><span class="ln">244</span>    <span class="tok-k">const</span> decision = <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">waterfall</span>(                       <span class="tok-c">// ④</span></span>
-<span class="code-line"><span class="ln">245</span>      <span class="tok-s">'agent/pre-step'</span>, { messages: claimed, ...position, signal },</span>
-<span class="code-line"><span class="ln">246</span>      (): Promise&lt;PreStepDecision&gt; =&gt; Promise.<span class="tok-f">resolve</span>&lt;PreStepDecision&gt;({</span>
-<span class="code-line"><span class="ln">247</span>        kind: <span class="tok-s">'enter'</span>,</span>
-<span class="code-line"><span class="ln">248</span>        messages: context === <span class="tok-k">undefined</span> ? claimed : [...claimed, context],</span>
-<span class="code-line"><span class="ln">249</span>      }),</span>
-<span class="code-line"><span class="ln">250</span>    )</span>
-<span class="code-line"><span class="ln">251</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">252</span>    <span class="tok-k">return</span> decision.kind === <span class="tok-s">'reject'</span> ? decision : { ...decision, assembly }</span>
+<span class="code-line"><span class="ln">241</span>    <span class="tok-k">const</span> claimed = <span class="tok-k">this</span>.inbox.<span class="tok-f">claim</span>(target, position.turn)              <span class="tok-c">// ①</span></span>
+<span class="code-line"><span class="ln">242</span>    <span class="tok-k">const</span> assembly = <span class="tok-k">await</span> <span class="tok-k">this</span>.loopCtx.systemPrompt.<span class="tok-f">assemble</span>(        <span class="tok-c">// ②</span></span>
+<span class="code-line"><span class="ln">243</span>      <span class="tok-f">assembleContextFor</span>(<span class="tok-k">this</span>, signal))</span>
+<span class="code-line"><span class="ln">244</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">245</span>    <span class="tok-k">const</span> sections = <span class="tok-f">renderContextSections</span>(assembly)</span>
+<span class="code-line"><span class="ln">246</span>    <span class="tok-k">const</span> context = <span class="tok-k">this</span>.runtimeContext.<span class="tok-f">project</span>(<span class="tok-f">joinContextSections</span>(sections), sections)  <span class="tok-c">// ③</span></span>
+<span class="code-line"><span class="ln">247</span>    <span class="tok-k">const</span> decision = <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">waterfall</span>(                       <span class="tok-c">// ④</span></span>
+<span class="code-line"><span class="ln">248</span>      <span class="tok-s">'agent/pre-step'</span>, { messages: claimed, ...position, signal },</span>
+<span class="code-line"><span class="ln">249</span>      (): Promise&lt;PreStepDecision&gt; =&gt; Promise.<span class="tok-f">resolve</span>&lt;PreStepDecision&gt;({</span>
+<span class="code-line"><span class="ln">250</span>        kind: <span class="tok-s">'enter'</span>,</span>
+<span class="code-line"><span class="ln">251</span>        messages: context === <span class="tok-k">undefined</span> ? claimed : [...claimed, context],</span>
+<span class="code-line"><span class="ln">252</span>      }),</span>
+<span class="code-line"><span class="ln">253</span>    )</span>
+<span class="code-line"><span class="ln">254</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">255</span>    <span class="tok-k">return</span> decision.kind === <span class="tok-s">'reject'</span> ? decision : { ...decision, assembly }</span>
 <span class="code-line"><span class="ln">244</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">236</span><p>防御性前置：preStep 只在 running phase 合法。注释标了 v8 ignore——私有调用者（turn）已经建立了 running phase。</p></div>
-    <div class="lr"><span class="ln-ref">238</span><p><strong>① claim（07 页）</strong>：纯删除 splice，清空 next-step（+ 一条 next-turn）。注意它的位置在 assemble <strong>之前</strong>——消息先离开 inbox 再组装。即使后面的 pre-step 被插件 reject，这些消息也已经移除、不进入 step，日志里不会有它们的 user/message。这是有意设计：被拒的消息就丢弃。</p></div>
-    <div class="lr"><span class="ln-ref">239-240</span><p><strong>② assemble（12 页详述）</strong>：收集所有插件贡献的提示词片段 + 工具 schema，<code>assembleContextFor(this, signal)</code> 把 agent 与取消信号放进组装上下文。整个组装的产物 assembly 会一路传到 step 里渲染成最终 prompt。</p></div>
-    <div class="lr"><span class="ln-ref">241</span><p>assemble 之后查一次 abort——组装期间可能已被取消，不继续做无用功。</p></div>
-    <div class="lr"><span class="ln-ref">242-243</span><p><strong>③ project（§3）</strong>：把动态运行时上下文（如工作目录、平台信息）快照成候选 user/message。注意 <code>sections</code> 既被 join 成完整文本（作为候选消息的 content），也原样传入（作为结构化元数据）。</p></div>
-    <div class="lr"><span class="ln-ref">244-250</span><p><strong>④ waterfall 扩展点</strong>：payload 是 { messages: claimed, turn, step, signal }。默认值（fallback 回调）是 enter + claimed + 投影出的 context。任何插件可以改写 messages 或直接 reject。返回值的语义见 §2。</p></div>
-    <div class="lr"><span class="ln-ref">251</span><p>waterfall 之后再查一次 abort——监听器里可能发生取消。</p></div>
-    <div class="lr"><span class="ln-ref">252</span><p><strong>assembly 只随 enter 返回</strong>：reject 的 decision 不携带 assembly（反正不进 step）。return 类型 <code>PreparedStep</code>（51-58 行）的形态：<code>{kind:'reject'}</code> 或 <code>{kind:'enter', messages, assembly}</code>；0.1.2-rc.1 起 enter 还可带 <code>startsRequestSeries?: true</code>（宣告一个显式区分的新消息系列，见 09 页 §4 的 request/header series 机制）。</p></div>
+    <div class="lr"><span class="ln-ref">239</span><p>防御性前置：preStep 只在 running phase 合法。注释标了 v8 ignore——私有调用者（turn）已经建立了 running phase。</p></div>
+    <div class="lr"><span class="ln-ref">244</span><p><strong>① claim（07 页）</strong>：纯删除 splice，清空 next-step（+ 一条 next-turn）。注意它的位置在 assemble <strong>之前</strong>——消息先离开 inbox 再组装。即使后面的 pre-step 被插件 reject，这些消息也已经移除、不进入 step，日志里不会有它们的 user/message。这是有意设计：被拒的消息就丢弃。</p></div>
+    <div class="lr"><span class="ln-ref">245-246</span><p><strong>② assemble（12 页详述）</strong>：收集所有插件贡献的提示词片段 + 工具 schema，<code>assembleContextFor(this, signal)</code> 把 agent 与取消信号放进组装上下文。整个组装的产物 assembly 会一路传到 step 里渲染成最终 prompt。</p></div>
+    <div class="lr"><span class="ln-ref">244</span><p>assemble 之后查一次 abort——组装期间可能已被取消，不继续做无用功。</p></div>
+    <div class="lr"><span class="ln-ref">245-246</span><p><strong>③ project（§3）</strong>：把动态运行时上下文（如工作目录、平台信息）快照成候选 user/message。注意 <code>sections</code> 既被 join 成完整文本（作为候选消息的 content），也原样传入（作为结构化元数据）。</p></div>
+    <div class="lr"><span class="ln-ref">247-253</span><p><strong>④ waterfall 扩展点</strong>：payload 是 { messages: claimed, turn, step, signal }。默认值（fallback 回调）是 enter + claimed + 投影出的 context。任何插件可以改写 messages 或直接 reject。返回值的语义见 §2。</p></div>
+    <div class="lr"><span class="ln-ref">254</span><p>waterfall 之后再查一次 abort——监听器里可能发生取消。</p></div>
+    <div class="lr"><span class="ln-ref">255</span><p><strong>assembly 只随 enter 返回</strong>：reject 的 decision 不携带 assembly（反正不进 step）。return 类型 <code>PreparedStep</code>（51-58 行）的形态：<code>{kind:'reject'}</code> 或 <code>{kind:'enter', messages, assembly}</code>；0.1.3-alpha.1 起 enter 还可带 <code>startsRequestSeries?: true</code>（宣告一个显式区分的新消息系列，见 09 页 §4 的 request/header series 机制）。</p></div>
   </div>
 </section>
 
 <section id="s2">
   <h2><span class="sec-num">§2</span>扩展点语义：waterfall 的四个返回形态</h2>
-  <p><code>agent/pre-step</code> 的声明在 <code class="path">packages/core/agent/src/runtime-types.ts:238</code>。它的 waterfall 返回 <code>PreStepDecision</code>：</p>
+  <p><code>agent/pre-step</code> 的声明在 <code class="path">packages/core/agent/src/runtime-types.ts:276</code>。它的 waterfall 返回 <code>PreStepDecision</code>：</p>
 
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>监听器行为</th><th>结果</th></tr>
