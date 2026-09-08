@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -78,7 +78,7 @@
 <div class="chain">
   <span class="seg">15 seam 全景：Consumer 位</span>
   <span class="arrow">→</span>
-  <span class="here">tool-bash/src/index.ts apply:190 → defineTool:242 → execute:330</span>
+  <span class="here">tool-bash/src/index.ts apply:189 → defineTool:241 → execute:329</span>
   <span class="arrow">→</span>
   <span class="seg">(回到主干) 13/14 页的调度器与流水线执行它</span>
 </div>
@@ -88,7 +88,7 @@
   <div class="trace">
     <div class="trace-head">示例轨迹 17-1 · 前台路径（我们的 ls -la）</div>
     <pre># 模型调用 bash({ command:'ls -la' })
-# → execute（339 行）→ ctx.shellEnv.collect(exec)（340 行）
+# → execute（329 行）→ ctx.shellEnv.collect(exec)（340 行）
 # → ctx.shell.run(ctx.shell.resolve({...}))（379 行）
 # → ShellRunResult { exitCode:0, stdout:'total 8\ndrwxr-xr-x ...', timedOut:false }
 # → renderResult（render.ts）→ 模型看到的文本：
@@ -101,16 +101,16 @@
   <div class="trace">
     <div class="trace-head">示例轨迹 17-2 · 后台路径与沙箱升级路径</div>
     <pre># 后台：模型请求 background:true
-# 354 行 ctx.get('jobs') 有值 → 370 行 ctx.shell.start(resolve(request))
+# 353 行 ctx.get('jobs') 有值 → 369 行 ctx.shell.start(resolve(request))
 # → ShellProcess → background.ts 的 processOutcome → jobs 任务
 # → 结果变成「任务已启动，id=...」；模型稍后用 tool-jobs 查看（25 页）
 
 # 沙箱升级：挂载了 bash-sandbox 时（15 页示例 15-2）
 # 模型传 sandbox_permissions:['network'] 请求升级
-# → 223-227 行 approveEscalation → approver.request
+# → 222-226 行 approveEscalation → approver.request
 # → approval/request waterfall → 用户批准/拒绝（29 页）
 # → 批准后按升级的权限跑；拒绝则按原权限或失败</pre>
-    <div class="src">来源：17 页 330-382 行 + 25 页 jobs + 29 页审批</div>
+    <div class="src">来源：17 页 329-382 行 + 25 页 jobs + 29 页审批</div>
   </div>
 </section>
 
@@ -143,27 +143,27 @@
   <h2><span class="sec-num">§2</span>apply：注册工具与沙箱升级</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>apply 主体（节选）</span><span class="ln-range">190-242</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">190</span><span class="tok-k">export function</span> <span class="tok-f">apply</span>(ctx: Context, config: Config = {}): <span class="tok-k">void</span> {</span>
-<span class="code-line"><span class="ln">192</span>  <span class="tok-k">const</span> defaultMode = ctx.shell.sandboxMode</span>
-<span class="code-line"><span class="ln">194</span>  <span class="tok-k">const</span> sandboxPolicy = defaultMode === <span class="tok-k">undefined</span></span>
+  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>apply 主体（节选）</span><span class="ln-range">189-241</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">189</span><span class="tok-k">export function</span> <span class="tok-f">apply</span>(ctx: Context, config: Config = {}): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">191</span>  <span class="tok-k">const</span> defaultMode = ctx.shell.sandboxMode</span>
+<span class="code-line"><span class="ln">193</span>  <span class="tok-k">const</span> sandboxPolicy = defaultMode === <span class="tok-k">undefined</span></span>
 <span class="code-line"><span class="ln">195</span>    ? <span class="tok-k">undefined</span></span>
 <span class="code-line"><span class="ln">196</span>    : ctx.<span class="tok-f">get</span>(<span class="tok-s">'sandboxPolicy'</span>)</span>
-<span class="code-line"><span class="ln">200</span>    sandboxPolicy?.<span class="tok-f">resolve</span>(exec.agent === <span class="tok-k">undefined</span> ? {} : { session: exec.agent.session })</span>
-<span class="code-line"><span class="ln">223</span>    <span class="tok-k">return</span> <span class="tok-f">approveEscalation</span>(</span>
-<span class="code-line"><span class="ln">226</span>      { approver: ctx.<span class="tok-f">get</span>(<span class="tok-s">'approval'</span>), ... },</span>
-<span class="code-line"><span class="ln">227</span>    )</span>
-<span class="code-line"><span class="ln">242</span>  ctx.tools.<span class="tok-f">register</span>(<span class="tok-f">defineTool</span>({</span>
-<span class="code-line"><span class="ln">243</span>    name: <span class="tok-s">'bash'</span>,</span>
-<span class="code-line"><span class="ln">330</span>    <span class="tok-k">async</span> <span class="tok-f">execute</span>(args: BashToolArgs, exec) { ... },</span></code></pre>
+<span class="code-line"><span class="ln">199</span>    sandboxPolicy?.<span class="tok-f">resolve</span>(exec.agent === <span class="tok-k">undefined</span> ? {} : { session: exec.agent.session })</span>
+<span class="code-line"><span class="ln">222</span>    <span class="tok-k">return</span> <span class="tok-f">approveEscalation</span>(</span>
+<span class="code-line"><span class="ln">225</span>      { approver: ctx.<span class="tok-f">get</span>(<span class="tok-s">'approval'</span>), ... },</span>
+<span class="code-line"><span class="ln">226</span>    )</span>
+<span class="code-line"><span class="ln">241</span>  ctx.tools.<span class="tok-f">register</span>(<span class="tok-f">defineTool</span>({</span>
+<span class="code-line"><span class="ln">242</span>    name: <span class="tok-s">'bash'</span>,</span>
+<span class="code-line"><span class="ln">329</span>    <span class="tok-k">async</span> <span class="tok-f">execute</span>(args: BashToolArgs, exec) { ... },</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">190</span><p><strong>插件入口是 apply</strong>——Cordis 插件协议（03 页的 Inject/Plugin）。树挂载时 Loader 调它，返回 void（注册是副作用，卸载时由 fiber 逆转）。</p></div>
-    <div class="lr"><span class="ln-ref">192-196</span><p>能力探针：读 <code>ctx.shell.sandboxMode</code>（15 页接口里的可选能力声明）。本地 executor 返回 undefined（不沙箱）；沙箱化 executor 返回具体 mode——tool-bash 由此决定是否启用升级审批路径。</p></div>
-    <div class="lr"><span class="ln-ref">223-227</span><p><strong>沙箱升级走审批</strong>：<code>approveEscalation</code>（来自 dsh-sandbox）最终调 <code>approver.request</code> 的 <code>approval/request</code> waterfall——这是 shell seam 唯一相交的 Cordis 事件（15 页图里标过）。</p></div>
-    <div class="lr"><span class="ln-ref">242-243</span><p><code>ctx.tools.register(defineTool({name:'bash',...}))</code>——<strong>「工具从哪来」的最终答案</strong>：一个插件用 defineTool 定义，register 进 registry（14 页），schema 经 systemPrompt 进提示词（12 页），模型就能调它。</p></div>
-    <div class="lr"><span class="ln-ref">330</span><p>execute 是工具的 body——14 页流水线的 dispatchToolBody 最终调到这里。</p></div>
+    <div class="lr"><span class="ln-ref">189</span><p><strong>插件入口是 apply</strong>——Cordis 插件协议（03 页的 Inject/Plugin）。树挂载时 Loader 调它，返回 void（注册是副作用，卸载时由 fiber 逆转）。</p></div>
+    <div class="lr"><span class="ln-ref">191-195</span><p>能力探针：读 <code>ctx.shell.sandboxMode</code>（15 页接口里的可选能力声明）。本地 executor 返回 undefined（不沙箱）；沙箱化 executor 返回具体 mode——tool-bash 由此决定是否启用升级审批路径。</p></div>
+    <div class="lr"><span class="ln-ref">222-226</span><p><strong>沙箱升级走审批</strong>：<code>approveEscalation</code>（来自 dsh-sandbox）最终调 <code>approver.request</code> 的 <code>approval/request</code> waterfall——这是 shell seam 唯一相交的 Cordis 事件（15 页图里标过）。</p></div>
+    <div class="lr"><span class="ln-ref">241-242</span><p><code>ctx.tools.register(defineTool({name:'bash',...}))</code>——<strong>「工具从哪来」的最终答案</strong>：一个插件用 defineTool 定义，register 进 registry（14 页），schema 经 systemPrompt 进提示词（12 页），模型就能调它。</p></div>
+    <div class="lr"><span class="ln-ref">329</span><p>execute 是工具的 body——14 页流水线的 dispatchToolBody 最终调到这里。</p></div>
   </div>
 </section>
 
@@ -171,8 +171,8 @@
   <h2><span class="sec-num">§3</span>execute：三条路径</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>execute 的分支（节选）</span><span class="ln-range">330-382</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">330</span>    <span class="tok-k">async</span> <span class="tok-f">execute</span>(args: BashToolArgs, exec) {</span>
+  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>execute 的分支（节选）</span><span class="ln-range">329-382</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">329</span>    <span class="tok-k">async</span> <span class="tok-f">execute</span>(args: BashToolArgs, exec) {</span>
 <span class="code-line"><span class="ln">341</span>      <span class="tok-k">const</span> dshEnv = ctx.shellEnv.<span class="tok-f">collect</span>(exec)</span>
 <span class="code-line"><span class="ln">354</span>        <span class="tok-k">const</span> jobs = ctx.<span class="tok-f">get</span>(<span class="tok-s">'jobs'</span>)</span>
 <span class="code-line"><span class="ln">370</span>            <span class="tok-k">const</span> proc = ctx.shell.<span class="tok-f">start</span>(ctx.shell.<span class="tok-f">resolve</span>(request))</span>

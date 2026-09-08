@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -79,7 +79,8 @@
   <div class="toc-title">本页目录</div>
   <ol>
     <li><a href="#s1">站点当前状态</a></li>
-    <li><a href="#s000">最新：0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</a></li>
+    <li><a href="#s0000">最新：0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</a></li>
+    <li><a href="#s000">0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</a></li>
     <li><a href="#s00">0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</a></li>
     <li><a href="#s0">0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</a></li>
     <li><a href="#s2">示例贯穿：全书配套真实轨迹（2026-08-23）</a></li>
@@ -95,15 +96,45 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
-    <tr><td>站点锚定版本</td><td><strong>0.1.3-alpha.1</strong>（commit <code>d347e70390</code> Merge PR #3554）</td></tr>
+    <tr><td>站点锚定版本</td><td><strong>0.1.3-alpha.2</strong>（commit <code>c389f96bf3</code> Merge PR #3713）</td></tr>
     <tr><td>覆盖范围</td><td>35 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>60+ 处文件:行号引用，均经上游源码逐行验证</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
 </section>
 
+<section id="s0000">
+  <h2><span class="sec-num">§0000</span>最新：0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</h2>
+  <p>本轮 pull 的变更量：<strong>4345 个文件、+90046/-19843</strong>（含 alpha.2 与大量 web/CI 合入）。站点锚定文件里的核心语义变更两处：</p>
+
+  <h3>① Inbox 迁移为 session projection—— 07 页重写</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/core/agent-loop/src/inbox.ts</code>（新增 247 行）<br><code class="path">packages/core/agent/src/inbox.ts</code>（删除 220 行）</td><td><strong>文件从 core/agent 迁到 core/agent-loop</strong>，类改名 <code>Inbox</code> → <code>ReactLoopInbox</code>（implements <code>InboxContract</code>）。架构重构：不再是「构造器自己回放日志维护内存 state」，而是注册一个 <strong>session projection</strong>（<code>inboxProjectionDefinition</code>，key <code>'inbox'</code>，<code>stateVersion: 1</code>，<code>apply</code> 内做坐标与 id 唯一性校验）；状态经 <code>projections.stateOf(session, 'inbox')</code> 读取。<code>mutate</code> 顺序变化：先 <code>toSpliced</code> 本地试算并校验，再 <code>append</code> 落盘</td></tr>
+    <tr><td><code class="path">packages/core/agent/src/types.ts</code>（95 行）</td><td><code>InboxState</code>/<code>InboxWireState</code>/<code>InboxContract</code> 契约类型留在 core/agent，实现迁走</td></tr>
+    <tr><td><code class="path">packages/core/agent-loop/src/agent.ts</code>（589→597 行）</td><td>构造顺序变化：先建 dispatch/scope/ctx，再 <code>new ReactLoopInbox(this.ctx.sessionProjections, session, this.dispatch)</code>（103 行）；inbox 类型为 <code>ReactLoopInbox</code></td></tr>
+  </table></div>
+
+  <h3>② bin.ts 抽出 runCli—— 00 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">apps/cli/src/bin.ts</code>（50→60 行）</td><td>dispatch 收进导出的 <code>runCli()</code>（28 行）；末尾 <code>if (import.meta.main) await runCli()</code>（58-60 行）——测试 import 本模块不再触发进程自执行</td></tr>
+    <tr><td><code class="path">apps/cli/src/args.ts</code>（191→199 行）</td><td><code>parseDshArgs</code> 112→118、<code>resolveBoot</code> 83→89</td></tr>
+  </table></div>
+
+  <h3>③ 其余行号位移（站点已同步）</h3>
+  <ul>
+    <li>session/index.ts 1254→1248：Session 类 451→422、构造器 541→522、append 699→678、eventAt 618→597、ownEvents 645→624、deriveMessages 820→799；<code>session/end-seed</code> 新增 <code>{ inherited: true }</code> 变体（583 行）。</li>
+    <li>session/types.ts 483→489：SessionEvent 447→453、assistant/attempt 313→319、RequestHeaderReason 252→258。</li>
+    <li>system-prompt/index.ts 614→630：assemble 536→552。</li>
+    <li>app-boot/profile.ts 861→853：PROFILE_TEMPLATES 137→110、新增 <code>loadProfileDirectory</code>（774 行）、manifest 类型迁到 <code>@deepseek-ai/dsh-package-manifest</code>。</li>
+    <li>app-boot/index.ts 862：boot 790→787、assertEntriesActivated 725→722。</li>
+    <li>tool-bash 393：apply 190→189、defineTool 242→241、execute 330→329。</li>
+  </ul>
+</section>
+
 <section id="s000">
-  <h2><span class="sec-num">§000</span>最新：0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</h2>
+  <h2><span class="sec-num">§000</span>0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</h2>
   <p>本轮 pull 的变更量：<strong>1672 个文件、+43229/-14119</strong>。站点锚定文件里的核心语义变更：assistant-stream 机制重构（一处大主题）+ 文件引用投影：</p>
 
   <h3>① assistant-stream 机制（assistant/chunk 退役）—— 05/06/10/11 页更新</h3>
