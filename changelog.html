@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -79,7 +79,8 @@
   <div class="toc-title">本页目录</div>
   <ol>
     <li><a href="#s1">站点当前状态</a></li>
-    <li><a href="#s0000">最新：0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</a></li>
+    <li><a href="#s00000">最新：0.1.3-alpha.2 → 0.1.5-rc.2 同步（2026-09-11）</a></li>
+    <li><a href="#s0000">0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</a></li>
     <li><a href="#s000">0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</a></li>
     <li><a href="#s00">0.1.2-alpha.3 → 0.1.2-rc.1 同步（2026-09-04）</a></li>
     <li><a href="#s0">0.1.1-rc.2 → 0.1.2-alpha.3 同步（2026-09-01）</a></li>
@@ -96,15 +97,58 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
-    <tr><td>站点锚定版本</td><td><strong>0.1.3-alpha.2</strong>（commit <code>c389f96bf3</code> Merge PR #3713）</td></tr>
+    <tr><td>站点锚定版本</td><td><strong>0.1.5-rc.2</strong>（commit <code>c291e7961a</code> Merge PR #3977）</td></tr>
     <tr><td>覆盖范围</td><td>35 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ 总览 + 版本更新</td></tr>
-    <tr><td>锚点数量</td><td>60+ 处文件:行号引用，均经上游源码逐行验证</td></tr>
+    <tr><td>锚点数量</td><td>200+ 处文件:行号引用，均经上游源码逐行验证（<code>_verify.py</code> 自动比对，当前 0 差异）</td></tr>
+    <tr><td>显示版本</td><td><code>0.1.3-alpha.2</code> → <code>0.1.5-rc.2</code>：22 个页面 + <code>assets/nav.js</code> 的页脚</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
 </section>
 
+<section id="s00000">
+  <h2><span class="sec-num">§00000</span>最新：0.1.3-alpha.2 → 0.1.5-rc.2 同步（2026-09-11）</h2>
+  <p>跨两个 minor 版本（0.1.3 → 0.1.4 → 0.1.5）的一次同步。核心语义变更一个主题：<strong>system prompt 从请求头字段迁移为 surface 事件</strong>——它连带改了会话格式版本、step 的结构、以及适配器的一个能力位。</p>
+
+  <h3>① system prompt 迁为 <code>system/message</code> surface 事件—— 05/06/08/09/11/12 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/core/session/src/types.ts</code>（489→495 行）</td><td><strong><code>SESSION_FORMAT_VERSION</code> 2 → 3</strong>（88 行）。<code>SurfaceEventType</code> 扩到 4 个成员——新增 <code>'system/message'</code>（310 行），形状 <code>{ turn: number; step: number; message: SystemMessage }</code>。它是 <strong>surface 节点 0</strong>，排在所有 user/message 之前</td></tr>
+    <tr><td><code class="path">packages/core/session/src/surface.ts</code>（566 行）</td><td>新增 <code>validateSessionEventData</code>（140 行）——字段级校验，其中 <strong>149 行拒绝带 <code>system</code> 字段的 <code>request/header</code></strong>（「must omit header.system; use system/message」）。<code>deriveEventMessage</code> 增加 <code>'system/message'</code> 分支（113 行）</td></tr>
+    <tr><td><code class="path">packages/core/agent-loop/src/runtime-context.ts</code>（76→159 行）</td><td><strong>新增 <code>SystemPromptProjection</code>（60-106 行）</strong>：<code>project(rendered, input)</code>（83 行）比较 surface 上现存的 system 节点与本次渲染结果，返回 <code>SystemPromptCommit[]</code>。<code>in-history</code> 能力位为真时追加新节点（96-97 行），否则 replace head（90-95 行）</td></tr>
+    <tr><td><code class="path">packages/core/agent-loop/src/agent.ts</code>（597→619 行）</td><td>新增字段 <code>systemPrompt: SystemPromptProjection</code>（92 行，构造器 111 行）。<code>requestSurfaceGeneration</code> 改为<strong>构造时即赋值</strong>（102 行，不再 <code>undefined</code> 起步）——它现在同时服务 series 判定（367 行）。<code>this.ctx = this.scope.ctx</code>（105 行，不再 <code>extend({agent})</code>）。<strong>step 拆成 <code>prepareRequest</code>（501 行）+ <code>buildRequest</code>（553 行，同步纯函数）</strong></td></tr>
+    <tr><td><code class="path">packages/llm/llm/src/index.ts</code>（1134→1147 行）</td><td><code>prepareCall</code> 新增能力位 <code>systemPromptUpdate</code>（942 行）——适配器声明「能否把 prompt 更新当作历史内的一条消息」。<code>adapterStream</code> 输入投影改为两段：文件投影（1045-1047）+ 图片投影（1048-1051）</td></tr>
+  </table></div>
+
+  <h3>② <code>--from-default-profile</code>：用模板初始化自定义 profile—— 00/01/04 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">apps/cli/src/args.ts</code>（199→211 行）</td><td>新增 <code>--from-default-profile &lt;name&gt;</code>（注册 146 行），<code>ProfileInvocation.fromDefaultProfile?</code>（25 行）与 <code>DumpConfigInvocation.fromDefaultProfile?</code>（37 行）都要带上——预览树必须与真实启动同规则</td></tr>
+    <tr><td><code class="path">apps/cli/src/profile-boot.ts</code>（320→392 行）</td><td><strong>新增 <code>initializeProfileFromDefault</code>（104-154 行）</strong>：用出厂模板建一个自定义名字的 profile。独占创建（127 行 <code>mkdirSync</code> 不带 recursive）、出货名保留（119-124 行）、失败即回滚（145 行）。<code>prepareProfile</code>（187 行）新增第三参数并在此调用</td></tr>
+    <tr><td><code class="path">apps/cli/src/bin.ts</code>（60→66 行）</td><td><code>fromDefaultProfile</code> 透传给 <code>runProfile</code>（37 行）与 <code>runDumpConfig</code>（54 行）</td></tr>
+  </table></div>
+
+  <h3>③ 其他机制变更（站点已同步）</h3>
+  <ul>
+    <li><strong>turn 的提前收敛</strong>：<code>agent.ts:294</code> 新增 <code>if (turnEnds &amp;&amp; decision.messages.length === 0) break</code>——终局已定且无新输入就不再空跑一次 step。</li>
+    <li><strong>step 的 <code>firstAttempt</code> 标志</strong>（<code>agent.ts:360</code>）：重试循环里 user/message 与 system/message 只在首次尝试落盘一次，避免重试时重复注入。</li>
+    <li><strong>inbox 的 <code>unban</code> / <code>splice</code> 语义</strong>：<code>determineStartOfRevertedRange</code> 逐槽取 <code>Math.max</code>，负 <code>startIndex</code> 的钳制更精确。</li>
+    <li><strong>session/end-seed</strong> 拆分：<code>Session.fromRestore</code>（530-544 行）成为静态工厂，私有构造器带 5 个参数（546-552 行）。</li>
+  </ul>
+
+  <h3>④ 站点级修正（本轮新发现的历史错误）</h3>
+  <ul>
+    <li><strong><code>packages/host/apiproxy/</code> 不存在</strong>——32 页曾引用它。该包在 0.1.2-alpha 之前就被删除（<code>4f00a8b82a</code> refactor(api): remove ApiProxy package），任何发布标签里都查不到。已改指 <code class="path">packages/api/gateway/</code>（11 文件 / 4391 行，<code>TypertGatewayService</code> @ src/index.ts:169）。</li>
+    <li><strong><code>system-prompt/assemble</code> 是连字符不是斜杠</strong>——12 页曾写作 <code>systemPrompt/assemble</code>，全仓库 0 命中。真实事件名声明在 <code>system-prompt/src/index.ts:31</code>，派发在 617-620 行。</li>
+    <li><strong>20 页的 <code>static inject = ['sessions']</code></strong> 在 jsonl 后端里并不存在——它靠基类 <code>super(ctx, 'sessionPersistence')</code> 注册（<code>session-persistence-jsonl/src/index.ts:261</code>）。已补上格式版本守卫（263-268 行）。</li>
+    <li><strong>03 页 boot 代码块缺 <code>&lt;/code&gt;&lt;/pre&gt;</code> 闭合标签</strong>——预先存在的 HTML 结构错误，导致后续块边界错位。已修复。</li>
+  </ul>
+
+  <h3>⑤ 校验方式升级</h3>
+  <p>本轮起站点带一个可执行的锚点校验器 <code class="path">_verify.py</code>：扫描所有 HTML 里 <code>&lt;figcaption&gt;</code> 标明的文件路径与每个 <code>&lt;span class="ln"&gt;</code> 行号，去上游源码取对应行、按标识符集合做模糊比对（容忍折叠签名与中文尾注）。<strong>当前全站 0 差异</strong>。以后的同步只需重跑它即可定位所有漂移。</p>
+</section>
+
 <section id="s0000">
-  <h2><span class="sec-num">§0000</span>最新：0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</h2>
+  <h2><span class="sec-num">§0000</span>0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</h2>
   <p>本轮 pull 的变更量：<strong>4345 个文件、+90046/-19843</strong>（含 alpha.2 与大量 web/CI 合入）。站点锚定文件里的核心语义变更两处：</p>
 
   <h3>① Inbox 迁移为 session projection—— 07 页重写</h3>
@@ -242,7 +286,9 @@
     <li><strong>卷二（20-34）</strong>：每章配该能力域的实况轨迹（持久化的崩溃恢复、压缩的 replace 事件、子代理的血缘头、审批的升级流程等），并与卷一的 seq 序列交叉引用。</li>
     <li>所有示例标注「来源」行（真实文件/真实行号/真实输出），与解读严格分离——轨迹是可复现的数据，不是叙事。</li>
   </ul>
+</section>
 
+<section id="s3">
   <h2><span class="sec-num">§3</span>结构性重构：从叙事到全书（2026-08-23）</h2>
   <p>用户反馈：旧结构只讲了「叙事逻辑」（核心机制的故事），没有把<strong>整个项目线性地讲清</strong>。重构为三卷全书结构：</p>
   <ul>
@@ -251,7 +297,9 @@
     <li><strong>卷二 · 能力全景（20-34，新增 15 章）</strong>：按 cordis.patch.yml 挂载顺序遍历每一个能力域——20 持久化、21 压缩、22 子代理、23 技能命令、24 目标计划、25 工作流任务、26 文件系统、27 终端 LSP、28 Web、29 审批沙箱、30 存储查询、31 设置凭据、32 SDK/API、33 客户端/Python/Native、34 工程基础设施。每章统一结构：挂载条目 → 包文件地图 → 机制 → 与卷一连接点 → 关键代码 → 易错点。</li>
     <li>导航改为三卷分组；新增 <code>assets/nav.js</code> 共享导航。</li>
   </ul>
+</section>
 
+<section id="s4">
   <h2><span class="sec-num">§4</span>rc.7 → 0.1.1-rc.2：同步（2026-08-21）</h2>
   <p>本轮 pull 的变更量：<strong>3319 个文件、+83084/-21535</strong>（含两个 rc 版本的全部合入）。站点锚定的 18 个文件里有实质语义变更的集中在四处，均已更新：</p>
 

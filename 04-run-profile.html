@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,15 +72,15 @@
 <header class="page-head">
   <p class="kicker">Main Chain A · Step 04</p>
   <h1>runProfile：五层拼齐 + 热更新 + 信号</h1>
-  <p class="lede"><code class="path">apps/cli/src/profile-boot.ts</code>（307 行）是启动链的最后一站，也是 00 页 <code>bin.ts</code> 直接调用的那个函数。它把五层补丁拼齐、调 <code>boot()</code>、再给树挂上「改配置即热重组」的 watch。</p>
+  <p class="lede"><code class="path">apps/cli/src/profile-boot.ts</code>（392 行）是启动链的最后一站，也是 00 页 <code>bin.ts</code> 直接调用的那个函数。它把五层补丁拼齐、调 <code>boot()</code>、再给树挂上「改配置即热重组」的 watch。</p>
 </header>
 
 <div class="chain">
-  <span class="seg">bin.ts:31 runProfile({...})</span>
+  <span class="seg">bin.ts:34 runProfile({...})</span>
   <span class="arrow">→</span>
-  <span class="here">profile-boot.ts:209 runProfile</span>
+  <span class="here">profile-boot.ts:282 runProfile</span>
   <span class="arrow">→</span>
-  <span class="seg">(内部) composeProfile:156 · composeLive:243 · boot:251</span>
+  <span class="seg">(内部) prepareProfile:187 · composeProfile:226 · composeLive:328 · boot:336</span>
   <span class="arrow">→</span>
   <span class="seg">(终点) 活插件树 → 05 脊柱</span>
 </div>
@@ -89,7 +89,7 @@
   <h2><span class="sec-num">示例</span>本次示例：dsh web 的五层拼齐 + 热更新</h2>
   <div class="trace">
     <div class="trace-head">示例轨迹 04-1 · 本次 dsh web 的五层补丁实际内容</div>
-    <pre># composeProfile('web', []) 的真实结果（对照 04 页 142-171 行）：
+    <pre># composeProfile('web', []) 的真实结果（对照 04 页 226-244 行）：
 # ① bundle 层：dsh-base 的 78 行 + dsh-web-app 的行（02 页示例轨迹 02-2 的 patches）
 # ② profile 用户层：~/.dsh/profiles/web/cordis.patch.yml → 真实内容是空数组 []
 # ③ home 用户层：~/.dsh/cordis.patch.yml → 不存在 → loadOptionalPatches 返回 []
@@ -106,10 +106,10 @@
 # 2. 编辑 ~/.dsh/profiles/web/cordis.patch.yml，例如禁用 timer：
 #    - id: timer
 #      disabled: true
-# 3. 进程不重启：watchUserPatches（285 行）发现变化 → composeLive() 重算
+# 3. 进程不重启：watchUserPatches（372-381 行）发现变化 → composeLive()（328 行）重算
 #    → Loader 卸载旧 timer fiber（其注册全部逆转）→ 无新 timer 挂载
 # 4. 再删掉这两行 → timer 恢复。改配置即改树。</pre>
-    <div class="src">来源：04 页 279-290 行 + profile-boot.ts 的 watchUserPatches</div>
+    <div class="src">来源：04 页 §2「HMR 补挂」+ profile-boot.ts:355-385</div>
   </div>
   <p>卷零完成。下一卷：<a href="05-spine.html">05 脊柱</a>——这棵树里 <code>dsh-agent-loop</code> 的心脏。</p>
 </section>
@@ -119,6 +119,7 @@
   <div class="toc-title">本页目录</div>
   <ol>
     <li><a href="#s1">composeProfile：五层拼齐</a></li>
+    <li><a href="#s1b">initializeProfileFromDefault：模板初始化</a></li>
     <li><a href="#s2">runProfile：boot + 信号</a></li>
     <li><a href="#s3">composeLive：热重组的补丁快照</a></li>
     <li><a href="#s4">启动链完成：你拥有了一棵树</a></li>
@@ -129,41 +130,115 @@
   <h2><span class="sec-num">§1</span>composeProfile：五层拼齐</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>五层的组合（节选）</span><span class="ln-range">156-185</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">157</span><span class="tok-k">async function</span> <span class="tok-f">composeProfile</span>(name, patchFiles): Promise&lt;ComposedProfile&gt; {</span>
-<span class="code-line"><span class="ln">161</span>  <span class="tok-k">const</span> profile = <span class="tok-f">prepareProfile</span>(name)          <span class="tok-c">// 02 页的 loadProfile + 重写空根配置</span></span>
-<span class="code-line"><span class="ln">162</span>  <span class="tok-k">const</span> homePatches = <span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? []</span>
-<span class="code-line"><span class="ln">163</span>  <span class="tok-k">const</span> overlays = patchFiles.<span class="tok-f">flatMap</span>(file =&gt; <span class="tok-f">loadOverlayPatches</span>(NAME, <span class="tok-f">resolve</span>(file)))</span>
-<span class="code-line"><span class="ln">164</span>  <span class="tok-k">const</span> bundlePatches = profile.layers.<span class="tok-f">flatMap</span>(layer =&gt; layer.patches)</span>
-<span class="code-line"><span class="ln">165</span>  <span class="tok-k">const</span> rows = <span class="tok-k">new</span> Map&lt;string, EntryOptions&gt;()</span>
-<span class="code-line"><span class="ln">166</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> row <span class="tok-k">of</span> <span class="tok-f">composeEntries</span>([bundlePatches, profile.patches, homePatches, overlays])) {</span>
-<span class="code-line"><span class="ln">167</span>    <span class="tok-k">if</span> (<span class="tok-k">typeof</span> row.id === <span class="tok-s">'string'</span>) rows.<span class="tok-f">set</span>(row.id, row)</span>
-<span class="code-line"><span class="ln">168</span>  }</span>
-<span class="code-line"><span class="ln">169</span>  <span class="tok-k">const</span> composedOverlays = [...overlays]</span>
-<span class="code-line"><span class="ln">174</span>  <span class="tok-k">if</span> (rows.<span class="tok-f">has</span>(<span class="tok-s">'agent-presets'</span>)) {</span>
-<span class="code-line"><span class="ln">175</span>    composedOverlays.<span class="tok-f">push</span>({</span>
-<span class="code-line"><span class="ln">176</span>      id: <span class="tok-s">'agent-presets'</span>,</span>
-<span class="code-line"><span class="ln">177</span>      config: { ...rows.<span class="tok-f">get</span>(<span class="tok-s">'agent-presets'</span>)?.config, roots: [{ path: SHIPPED_PRESET_ROOT, trust: <span class="tok-s">'system'</span> }] },</span>
-<span class="code-line"><span class="ln">178</span>    })</span>
-<span class="code-line"><span class="ln">179</span>  }</span>
-<span class="code-line"><span class="ln">183</span>  <span class="tok-k">const</span> telemetryPatch = <span class="tok-f">resolveTelemetryPatch</span>(process.env.DSH_TELEMETRY_DISABLED, rows.<span class="tok-f">has</span>(TELEMETRY_ROW_ID))</span>
-<span class="code-line"><span class="ln">184</span>  <span class="tok-k">if</span> (telemetryPatch !== <span class="tok-k">undefined</span>) composedOverlays.<span class="tok-f">push</span>(telemetryPatch)</span>
-<span class="code-line"><span class="ln">185</span>  <span class="tok-k">return</span> { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }</span>
-<span class="code-line"><span class="ln">186</span>}</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>五层的组合（节选）</span><span class="ln-range">226-244</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">226</span><span class="tok-k">async function</span> <span class="tok-f">composeProfile</span>(</span>
+<span class="code-line"><span class="ln">227</span>  name: string,</span>
+<span class="code-line"><span class="ln">228</span>  patchFiles: readonly string[],</span>
+<span class="code-line hl"><span class="ln">229</span>  fromDefaultProfile?: string,   <span class="tok-c">// 0.1.5 新增参数</span></span><span class="note">一路透传到 prepareProfile</span></span>
+<span class="code-line"><span class="ln">230</span>): Promise&lt;ComposedProfile&gt; {</span>
+<span class="code-line"><span class="ln">231</span>  <span class="tok-k">const</span> profile = <span class="tok-f">prepareProfile</span>(name, <span class="tok-n">true</span>, fromDefaultProfile)</span>
+<span class="code-line hl"><span class="ln">232</span>  <span class="tok-k">await</span> <span class="tok-f">healProfilesModuleFallback</span>({ installAnchor: INSTALL_ANCHOR, profile })</span><span class="note">symlink 补全</span></span>
+<span class="code-line"><span class="ln">233</span>  <span class="tok-k">const</span> homePatches = <span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? []</span>
+<span class="code-line"><span class="ln">234</span>  <span class="tok-k">const</span> overlays = patchFiles.<span class="tok-f">flatMap</span>(file =&gt; <span class="tok-f">loadOverlayPatches</span>(NAME, <span class="tok-f">resolve</span>(file)))</span>
+<span class="code-line"><span class="ln">235</span>  <span class="tok-k">const</span> bundlePatches = profile.layers.<span class="tok-f">flatMap</span>(layer =&gt; layer.patches)</span>
+<span class="code-line"><span class="ln">236</span>  <span class="tok-k">const</span> rows = <span class="tok-k">new</span> Map&lt;string, EntryOptions&gt;()</span>
+<span class="code-line"><span class="ln">237</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> row <span class="tok-k">of</span> <span class="tok-f">composeEntries</span>([bundlePatches, profile.patches, homePatches, overlays])) {</span>
+<span class="code-line"><span class="ln">238</span>    <span class="tok-k">if</span> (<span class="tok-k">typeof</span> row.id === <span class="tok-s">'string'</span>) rows.<span class="tok-f">set</span>(row.id, row)</span>
+<span class="code-line"><span class="ln">239</span>  }</span>
+<span class="code-line"><span class="ln">240</span>  <span class="tok-k">const</span> composedOverlays = [...overlays]</span>
+<span class="code-line"><span class="ln">241</span>  <span class="tok-k">const</span> telemetryPatch = <span class="tok-f">resolveTelemetryPatch</span>(process.env.DSH_TELEMETRY_DISABLED, rows.<span class="tok-f">has</span>(TELEMETRY_ROW_ID))</span>
+<span class="code-line"><span class="ln">242</span>  <span class="tok-k">if</span> (telemetryPatch !== <span class="tok-k">undefined</span>) composedOverlays.<span class="tok-f">push</span>(telemetryPatch)</span>
+<span class="code-line"><span class="ln">243</span>  <span class="tok-k">return</span> { profile, bundlePatches, homePatches, overlays: composedOverlays }</span>
+<span class="code-line"><span class="ln">244</span>}</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">163</span><p><code>prepareProfile</code>（98-103 行）：调 02 页的 loadProfile，然后<strong>重写空根配置</strong>。注释解释为什么每次都要重写：Loader 的树写回（插件自卸载会持久化当前树）可能把组合好的行烤进 cordis.yml——下次 boot 就会重复每个 bundle 的 insert。所以根永远是空的。</p></div>
-    <div class="lr"><span class="ln-ref">163</span><p>第③层：home 级 <code>$DSH_HOME/cordis.patch.yml</code>——机器级偏好，<strong>在 profile 层之后应用</strong>（高于它）。<code>loadOptionalPatches</code>：文件不存在就返回空（可选层）。</p></div>
-    <div class="lr"><span class="ln-ref">163</span><p>第④层：<code>--patch</code> overlay，按 argv 顺序。注意这里 overlay 只是被 load；真正 push 进 composedOverlays 是在 154 行复制之后——因为第⑤层遥测开关也要进 overlay，而用户 overlay 不能被污染。</p></div>
-    <div class="lr"><span class="ln-ref">167</span><p><strong>五层压成一张表</strong>（只列前四层；第五层在 169 行并入）：同一个 <code>composeEntries</code>——与 boot 里的挂载用同一个算法，保证「flag 推导和配置 dump 看到的，就是实际挂载的」。</p></div>
-    <div class="lr"><span class="ln-ref">167</span><p>rows 是 id → Entry 索引，供 launcher 自己的行级检查（如 159 行查 agent-presets 是否存在）。</p></div>
-    <div class="lr"><span class="ln-ref">174-178</span><p>agent-presets 特例：SHIPPED_PRESET_ROOT（app 自带的预设目录，源码/产物两种布局下都在 app 旁边）只有这个 launcher 能解析，所以作为 overlay 推入。注释：「writable root 由 dsh-agent-presets 自己追加」，launcher 永不覆盖用户目录，只补系统目录。</p></div>
-    <div class="lr"><span class="ln-ref">183-184</span><p>第⑤层：遥测开关。<code>resolveTelemetryPatch</code>（80-83 行）——<strong>任何非空值（包括 '0'/'false'）都禁用</strong>：隐私开关宁可误关不可误开。组合里没有遥测行时开关自然满足，不产生补丁。</p></div>
+    <div class="lr"><span class="ln-ref">229-231</span><p><code>prepareProfile</code>（187-192 行）：<strong>先按需初始化</strong>（0.1.5 新增：<code>fromDefaultProfile</code> 非空时调 <code>initializeProfileFromDefault</code>），再调 02 页的 <code>loadProfile</code>，然后<strong>重写空根配置</strong>。注释解释为什么每次都要重写：Loader 的树写回（插件自卸载会持久化当前树）可能把组合好的行烤进 cordis.yml——下次 boot 就会重复每个 bundle 的 insert。所以根永远是空的。</p></div>
+    <div class="lr"><span class="ln-ref">232</span><p><code>healProfilesModuleFallback</code>：02 页末提过的 symlink 补全。放在这里而不是 loadProfile 里，是因为它需要已解析好的 profile（含全部 bundle 层）才能算依赖闭包；而且它是 async 的（0.1.3-alpha.2 起重构为 async + 锁内更新）。</p></div>
+    <div class="lr"><span class="ln-ref">233</span><p>第③层：home 级 <code>$DSH_HOME/cordis.patch.yml</code>——机器级偏好，<strong>在 profile 层之后应用</strong>（高于它）。<code>loadOptionalPatches</code>：文件不存在就返回空（可选层）。</p></div>
+    <div class="lr"><span class="ln-ref">234</span><p>第④层：<code>--patch</code> overlay，按 argv 顺序。这里 overlay 只是被 load；真正 push 进 <code>composedOverlays</code> 是在 240 行复制之后——因为第⑤层遥测开关也要进 overlay，而用户 overlay 不能被污染。</p></div>
+    <div class="lr"><span class="ln-ref">237-239</span><p><strong>四层压成一张表</strong>（第五层在 242 行并入）：同一个 <code>composeEntries</code>——与 boot 里的挂载用同一个算法，保证「flag 推导和配置 dump 看到的，就是实际挂载的」。</p></div>
+    <div class="lr"><span class="ln-ref">236-239</span><p><code>rows</code> 是 id → Entry 索引，供 launcher 自己的行级检查（如 241 行查遥测行是否存在）。</p></div>
+    <div class="lr"><span class="ln-ref">241-242</span><p>第⑤层：遥测开关。<code>resolveTelemetryPatch</code>（<code>profile-boot.ts:167-170</code>）——<strong>任何非空值（包括 '0'/'false'）都禁用</strong>：隐私开关宁可误关不可误开。组合里没有遥测行时开关自然满足，不产生补丁。</p></div>
+  </div>
+</section>
+
+
+<section id="s1b">
+  <h2><span class="sec-num">§1b</span>initializeProfileFromDefault：0.1.5 的模板初始化</h2>
+  <p>0.1.5 之前，「用出厂模板创建一个新 profile」只有一条隐式路径：profile 目录不存在且名字恰好有模板时，<code>loadProfile</code> 自动初始化（02 页 820-828 行）。这带来一个尴尬——<strong>想以 <code>web</code> 为底稿建一个自己的 <code>rescue</code> profile 做不到</strong>，因为 <code>rescue</code> 没有模板，loadProfile 只会报错让你用 <code>dsh plugin</code> 从零建。</p>
+  <p>0.1.5 的 <code>--from-default-profile &lt;name&gt;</code> 补上了这条路径：<code>dsh --profile rescue --from-default-profile web</code>。</p>
+
+<figure class="code">
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>initializeProfileFromDefault（0.1.5 新增）</span><span class="ln-range">104-154</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">104</span><span class="tok-k">export function</span> <span class="tok-f">initializeProfileFromDefault</span>(</span>
+<span class="code-line"><span class="ln">105</span>  name: string,</span>
+<span class="code-line"><span class="ln">106</span>  fromDefaultProfile: string,</span>
+<span class="code-line"><span class="ln">107</span>  home: string = <span class="tok-f">resolveDshHome</span>(),</span>
+<span class="code-line"><span class="ln">108</span>): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">109</span>  <span class="tok-k">const</span> dir = <span class="tok-f">resolveProfileDir</span>(name, home)</span>
+<span class="code-line"><span class="ln">110</span>  <span class="tok-k">const</span> template = Object.<span class="tok-f">hasOwn</span>(PROFILE_TEMPLATES, fromDefaultProfile)</span>
+<span class="code-line"><span class="ln">111</span>    ? PROFILE_TEMPLATES[fromDefaultProfile]</span>
+<span class="code-line"><span class="ln">112</span>    : <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">113</span>  <span class="tok-k">if</span> (template === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">114</span>    <span class="tok-k">const</span> expected = Object.<span class="tok-f">keys</span>(PROFILE_TEMPLATES).<span class="tok-f">sort</span>().<span class="tok-f">map</span>(value =&gt; JSON.<span class="tok-f">stringify</span>(value)).<span class="tok-f">join</span>(<span class="tok-s">', '</span>)</span>
+<span class="code-line"><span class="ln">115</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">116</span>      `${NAME}: unknown default profile ${JSON.<span class="tok-f">stringify</span>(fromDefaultProfile)}; expected one of ${expected}`,</span>
+<span class="code-line"><span class="ln">117</span>    )</span>
+<span class="code-line"><span class="ln">118</span>  }</span>
+<span class="code-line hl"><span class="ln">119</span>  <span class="tok-k">if</span> (Object.<span class="tok-f">hasOwn</span>(PROFILE_TEMPLATES, name)) {</span><span class="note">出货名保留</span></span>
+<span class="code-line"><span class="ln">120</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">121</span>      `${NAME}: profile ${JSON.<span class="tok-f">stringify</span>(name)} is shipped and cannot be a custom profile target; `</span>
+<span class="code-line"><span class="ln">122</span>      + <span class="tok-s">'omit --from-default-profile to use it'</span>,</span>
+<span class="code-line"><span class="ln">123</span>    )</span>
+<span class="code-line"><span class="ln">124</span>  }</span>
+<span class="code-line"><span class="ln">125</span>  <span class="tok-f">mkdirSync</span>(<span class="tok-f">dirname</span>(dir), { recursive: <span class="tok-n">true</span> })</span>
+<span class="code-line"><span class="ln">126</span>  <span class="tok-k">try</span> {</span>
+<span class="code-line hl"><span class="ln">127</span>    <span class="tok-f">mkdirSync</span>(dir)   <span class="tok-c">// 独占创建：不用 recursive，目录已存在即 EEXIST</span></span><span class="note">并发安全</span></span>
+<span class="code-line"><span class="ln">128</span>  } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">129</span>    <span class="tok-k">if</span> ((error <span class="tok-k">as</span> NodeJS.ErrnoException).code !== <span class="tok-s">'EEXIST'</span>) <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">130</span>    <span class="tok-k">const</span> manifestPath = <span class="tok-f">join</span>(dir, <span class="tok-s">'package.json'</span>)</span>
+<span class="code-line"><span class="ln">131</span>    <span class="tok-k">if</span> (<span class="tok-f">existsSync</span>(manifestPath)) {</span>
+<span class="code-line"><span class="ln">132</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">133</span>        `${NAME}: profile ${JSON.<span class="tok-f">stringify</span>(name)} already exists at ${manifestPath}; `</span>
+<span class="code-line"><span class="ln">134</span>        + <span class="tok-s">'omit --from-default-profile to use it'</span>,</span>
+<span class="code-line"><span class="ln">135</span>      )</span>
+<span class="code-line"><span class="ln">136</span>    }</span>
+<span class="code-line"><span class="ln">137</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">138</span>      `${NAME}: profile directory ${dir} already exists; choose an unused profile name`,</span>
+<span class="code-line"><span class="ln">139</span>    )</span>
+<span class="code-line"><span class="ln">140</span>  }</span>
+<span class="code-line"><span class="ln">141</span>  <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">142</span>    <span class="tok-f">initProfile</span>(dir, template.bundles, template.patchReload)</span>
+<span class="code-line"><span class="ln">143</span>  } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">144</span>    <span class="tok-k">try</span> {</span>
+<span class="code-line hl"><span class="ln">145</span>      <span class="tok-f">rmSync</span>(dir, { recursive: <span class="tok-n">true</span>, force: <span class="tok-n">true</span> })   <span class="tok-c">// 失败即回滚，不留半成品</span></span><span class="note">原子性</span></span>
+<span class="code-line"><span class="ln">146</span>    } <span class="tok-k">catch</span> (cleanupError) {</span>
+<span class="code-line"><span class="ln">147</span>      <span class="tok-k">throw new</span> <span class="tok-t">AggregateError</span>(</span>
+<span class="code-line"><span class="ln">148</span>        [error, cleanupError],</span>
+<span class="code-line"><span class="ln">149</span>        `${NAME}: profile initialization failed and ${dir} could not be removed`,</span>
+<span class="code-line"><span class="ln">150</span>      )</span>
+<span class="code-line"><span class="ln">151</span>    }</span>
+<span class="code-line"><span class="ln">152</span>    <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">153</span>  }</span>
+<span class="code-line"><span class="ln">154</span>}</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">104-118</span><p><strong>只复制模板的 bundle 列表与 reload 策略</strong>（93-98 行的 JSDoc 原文）：不读同名出厂 profile 的任何本地状态，也不持久化任何继承元数据。所以「从 web 派生」得到的是一份<strong>快照</strong>，不是一条持续跟随 web 变化的链接——后续 web 模板升级不会影响已建好的 profile（除了 <code>normalizeShippedProfile</code> 覆盖的历史元组规范化，见 02 页）。</p></div>
+    <div class="lr"><span class="ln-ref">119-124</span><p><strong>出货名保留</strong>：<code>--profile web --from-default-profile acp</code> 被拒。理由很清楚——<code>web</code> 是出厂模板名，它的内容由安装方定义；让你用别的模板把它覆盖掉，等于让安装方的 profile 名不再可靠。想自定义就换个名字。</p></div>
+    <div class="lr"><span class="ln-ref">125-140</span><p><strong>独占创建</strong>：<code>mkdirSync(dir)</code> 故意不加 <code>recursive</code>——目录已存在就抛 <code>EEXIST</code>。<code>recursive: true</code> 会静默成功，那样两个并发的 <code>dsh --from-default-profile</code> 就可能都以为自己是创建者。抛错后分两种情况报出不同的提示：已有 package.json（是个真 profile，别覆盖）vs 只有一个空目录（名字被别人占了）。</p></div>
+    <div class="lr"><span class="ln-ref">141-153</span><p><strong>失败即回滚</strong>：<code>initProfile</code> 写文件到一半失败时，<code>rmSync</code> 把整个目录删掉——绝不留一个「有目录但没 package.json」的半成品（那会让下次 loadProfile 走进 02 页的自动初始化分支，行为难以预测）。连清理都失败时用 <code>AggregateError</code> 把两个错误一起抛出。</p></div>
   </div>
 
   <div class="callout key">
-    <p><strong>五层顺序定案</strong>：bundle 层 → profile 用户层 → home 用户层 → --patch overlay → 遥测开关。应用在空列表 <code>[]</code> 上，命中同 id 即整行替换。这就是整个 dsh 的「配置树」的全部真相。</p>
+    <p><strong>三条初始化路径的分工（0.1.5 起）</strong>：</p>
+    <ul>
+      <li><strong>隐式</strong>——<code>loadProfile</code>（02 页 820-828 行）：名字有出厂模板 → 自动建。这是 <code>dsh web</code> 第一次跑就能用的原因。</li>
+      <li><strong>显式</strong>——<code>initializeProfileFromDefault</code>（本页）：用 <strong>任意</strong>出厂模板建一个<strong>自定义名字</strong>的 profile。这是新增能力。</li>
+      <li><strong>手动</strong>——<code>dsh plugin --profile &lt;name&gt; add &lt;package&gt;</code>：从零建，bundle 列表自己攒。</li>
+    </ul>
+    <p>显式路径<strong>只作用于「目录还不存在」的那一次</strong>：<code>prepareProfile</code> 每次都先调它，但已存在的 profile 会让它抛错——所以 <code>prepareProfile</code> 的调用点必须先判存在性。看 188 行的实现：<code>if (fromDefaultProfile !== undefined) initializeProfileFromDefault(...)</code>，随后 <code>loadProfile</code> 的隐式分支自然不会触发。</p>
   </div>
 </section>
 
@@ -171,56 +246,78 @@
   <h2><span class="sec-num">§2</span>runProfile：boot + 信号</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>runProfile 主体（节选）</span><span class="ln-range">209-261</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">209</span><span class="tok-k">export async function</span> <span class="tok-f">runProfile</span>(options): Promise&lt;{ ctx; shutdown }&gt; {</span>
-<span class="code-line"><span class="ln">215</span>  <span class="tok-k">const</span> disposeProxy = <span class="tok-k">await</span> <span class="tok-f">installProxyFromEnvironment</span>(  <span class="tok-c">// 0.1.3-alpha.2 新增：HTTP 代理引导</span></span>
-<span class="code-line"><span class="ln">216</span>    options.environment,</span>
-<span class="code-line"><span class="ln">217</span>    (message) =&gt; { process.stderr.<span class="tok-f">write</span>(`${NAME}: ${message}\n`) },</span>
-<span class="code-line"><span class="ln">218</span>  )</span>
-<span class="code-line"><span class="ln">220</span>  <span class="tok-k">const</span> composed = <span class="tok-k">await</span> <span class="tok-f">composeProfile</span>(options.profile, options.patchFiles)</span>
-<span class="code-line"><span class="ln">221</span>  <span class="tok-k">const</span> app: { current?: Context } = {}</span>
-<span class="code-line"><span class="ln">223</span>  <span class="tok-k">const</span> shutdown = <span class="tok-f">createProcessShutdown</span>(<span class="tok-k">async</span> () =&gt; {
-<span class="code-line"><span class="ln">224</span>    <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>()</span>
-<span class="code-line"><span class="ln">225</span>    <span class="tok-k">await</span> <span class="tok-f">disposeProxy</span>()     <span class="tok-c">// 代理随树一起卸载</span></span>
-<span class="code-line"><span class="ln">226</span>  })</span>
-<span class="code-line"><span class="ln">227</span>  <span class="tok-k">const</span> signalShutdown = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
-<span class="code-line"><span class="ln">237</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGTERM'</span>, () =&gt; { <span class="tok-f">interrupt</span>(0) })</span>
-<span class="code-line"><span class="ln">238</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGINT'</span>, () =&gt; { <span class="tok-f">interrupt</span>(130) })</span>
-<span class="code-line"><span class="ln">239</span>  <span class="tok-f">installFailLoud</span>(NAME, process, <span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
-<span class="code-line"><span class="ln">256</span>  <span class="tok-k">const</span> composeLive = (): PatchOptions[] =&gt; <span class="tok-f">structuredClone</span>([</span>
-<span class="code-line"><span class="ln">257</span>    ...composed.bundlePatches,</span>
-<span class="code-line"><span class="ln">258</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, composed.profile.patchPath) ?? [],</span>
-<span class="code-line"><span class="ln">259</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? [],</span>
-<span class="code-line"><span class="ln">260</span>    ...composed.overlays,</span>
-<span class="code-line"><span class="ln">261</span>  ])</span>
-<span class="code-line"><span class="ln">265</span>  <span class="tok-k">const</span> ctx = <span class="tok-k">await</span> <span class="tok-f">boot</span>(NAME, rootConfig, <span class="tok-f">structuredClone</span>(<span class="tok-f">allPatches</span>(composed)), (hostCtx) =&gt; {</span>
-<span class="code-line"><span class="ln">266</span>    app.current = hostCtx</span>
-<span class="code-line"><span class="ln">269</span>    hostCtx.<span class="tok-f">provide</span>(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)</span>
-<span class="code-line"><span class="ln">272</span>    <span class="tok-f">provideCmdline</span>(hostCtx, { args: options.args, exit: code =&gt; <span class="tok-k">void</span> shutdown.<span class="tok-f">shutdown</span>(code) })</span>
-<span class="code-line"><span class="ln">273</span>  })</span>
-<span class="code-line"><span class="ln">274</span>  app.current = ctx</span>
-<span class="code-line"><span class="ln">296</span>  <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'hmr'</span>) === <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">297</span>    <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'timer'</span>) === <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">298</span>      <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-timer'</span> })</span>
-<span class="code-line"><span class="ln">299</span>    }</span>
-<span class="code-line"><span class="ln">300</span>    <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-hmr'</span>, config: { root: [] } })</span>
-<span class="code-line"><span class="ln">301</span>  }</span>
-<span class="code-line"><span class="ln">302</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: composed.profile.patchPath, compose: composeLive })</span>
-<span class="code-line"><span class="ln">307</span>  <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: <span class="tok-f">homePatchPath</span>(), compose: composeLive })</span>
-<span class="code-line"><span class="ln">316</span>  <span class="tok-k">return</span> { ctx, shutdown }</span>
-<span class="code-line"><span class="ln">317</span>}</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>runProfile 主体（节选）</span><span class="ln-range">282-392</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">282</span><span class="tok-k">export async function</span> <span class="tok-f">runProfile</span>(options: RunProfileOptions): Promise&lt;{ ctx; shutdown }&gt; {</span>
+<span class="code-line"><span class="ln">287</span>  <span class="tok-k">const</span> disposeProxy = <span class="tok-k">await</span> <span class="tok-f">installProxyFromEnvironment</span>(  <span class="tok-c">// 0.1.3-alpha.2 新增：HTTP 代理引导</span></span>
+<span class="code-line"><span class="ln">288</span>    options.environment,</span>
+<span class="code-line"><span class="ln">289</span>    (message) =&gt; { process.stderr.<span class="tok-f">write</span>(`${NAME}: ${message}\n`) },</span>
+<span class="code-line"><span class="ln">290</span>  )</span>
+<span class="code-line hl"><span class="ln">292</span>  <span class="tok-k">const</span> composed = <span class="tok-k">await</span> <span class="tok-f">composeProfile</span>(options.profile, options.patchFiles, options.fromDefaultProfile)</span><span class="note">0.1.5：第三个参数</span></span>
+<span class="code-line"><span class="ln">293</span>  <span class="tok-k">const</span> app: { current?: Context } = {}</span>
+<span class="code-line"><span class="ln">294</span>  <span class="tok-k">const</span> appReady = <span class="tok-f">createAppReady</span>()   <span class="tok-c">// 0.1.3-alpha.2：就绪信号</span></span>
+<span class="code-line"><span class="ln">295</span>  <span class="tok-k">const</span> shutdown = <span class="tok-f">createProcessShutdown</span>(<span class="tok-k">async</span> () =&gt; {</span>
+<span class="code-line"><span class="ln">296</span>    <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>()</span>
+<span class="code-line"><span class="ln">297</span>    <span class="tok-k">await</span> <span class="tok-f">disposeProxy</span>()     <span class="tok-c">// 代理随树一起卸载</span></span>
+<span class="code-line"><span class="ln">298</span>  })</span>
+<span class="code-line"><span class="ln">299</span>  <span class="tok-k">const</span> signalShutdown = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
+<span class="code-line"><span class="ln">309</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGTERM'</span>, () =&gt; { <span class="tok-f">interrupt</span>(0) })</span>
+<span class="code-line"><span class="ln">310</span>  process.<span class="tok-f">on</span>(<span class="tok-s">'SIGINT'</span>, () =&gt; { <span class="tok-f">interrupt</span>(130) })</span>
+<span class="code-line"><span class="ln">311</span>  <span class="tok-f">installFailLoud</span>(NAME, process, <span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
+<span class="code-line"><span class="ln">315</span>  <span class="tok-k">const</span> rootConfig = <span class="tok-f">join</span>(composed.profile.dir, PROFILE_ROOT_FILENAME)</span>
+<span class="code-line"><span class="ln">328</span>  <span class="tok-k">const</span> composeLive = (): PatchOptions[] =&gt; <span class="tok-f">structuredClone</span>([</span>
+<span class="code-line"><span class="ln">329</span>    ...composed.bundlePatches,</span>
+<span class="code-line"><span class="ln">330</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, composed.profile.patchPath) ?? [],</span>
+<span class="code-line"><span class="ln">331</span>    ...<span class="tok-f">loadOptionalPatches</span>(NAME, <span class="tok-f">homePatchPath</span>()) ?? [],</span>
+<span class="code-line"><span class="ln">332</span>    ...composed.overlays,</span>
+<span class="code-line"><span class="ln">333</span>  ])</span>
+<span class="code-line"><span class="ln">336</span>  <span class="tok-k">const</span> ctx = <span class="tok-k">await</span> <span class="tok-f">boot</span>(NAME, rootConfig, <span class="tok-f">structuredClone</span>(<span class="tok-f">allPatches</span>(composed)), (hostCtx) =&gt; {</span>
+<span class="code-line"><span class="ln">337</span>    app.current = hostCtx</span>
+<span class="code-line"><span class="ln">340</span>    hostCtx.<span class="tok-f">provide</span>(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)</span>
+<span class="code-line"><span class="ln">343</span>    <span class="tok-f">provideCmdline</span>(hostCtx, {</span>
+<span class="code-line"><span class="ln">344</span>      args: options.args,</span>
+<span class="code-line"><span class="ln">345</span>      exit: code =&gt; <span class="tok-k">void</span> shutdown.<span class="tok-f">shutdown</span>(code),</span>
+<span class="code-line"><span class="ln">346</span>      ready: appReady.service,   <span class="tok-c">// 0.1.3-alpha.2：把就绪信号交给应用</span></span>
+<span class="code-line"><span class="ln">347</span>    })</span>
+<span class="code-line"><span class="ln">348</span>  })</span>
+<span class="code-line"><span class="ln">349</span>  app.current = ctx</span>
+<span class="code-line hl"><span class="ln">355</span>  <span class="tok-k">if</span> (composed.profile.patchReload === <span class="tok-s">'live'</span>   <span class="tok-c">// 只有 live profile 才挂 watch</span></span><span class="note">0.1.3-alpha.2 契约</span></span>
+<span class="code-line"><span class="ln">356</span>    &amp;&amp; !signalShutdown.signal.aborted</span>
+<span class="code-line"><span class="ln">357</span>    &amp;&amp; ctx.fiber.state === FiberState.ACTIVE</span>
+<span class="code-line"><span class="ln">358</span>    &amp;&amp; ctx.get(<span class="tok-s">'loader'</span>) !== <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">366</span>      <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'hmr'</span>) === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">367</span>        <span class="tok-k">if</span> (ctx.get(<span class="tok-s">'timer'</span>) === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">368</span>          <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-timer'</span> })</span>
+<span class="code-line"><span class="ln">369</span>        }</span>
+<span class="code-line"><span class="ln">370</span>        <span class="tok-k">await</span> ctx.loader.<span class="tok-f">create</span>({ name: <span class="tok-s">'@deepseek-ai/cordis-plugin-hmr'</span>, config: { root: [] } })</span>
+<span class="code-line"><span class="ln">371</span>      }</span>
+<span class="code-line"><span class="ln">372</span>      <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: composed.profile.patchPath, compose: composeLive })</span>
+<span class="code-line"><span class="ln">377</span>      <span class="tok-k">await</span> <span class="tok-f">watchUserPatches</span>(ctx, { binName: NAME, filename: <span class="tok-f">homePatchPath</span>(), compose: composeLive })</span>
+<span class="code-line"><span class="ln">382</span>    } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">383</span>      <span class="tok-f">suppressShutdownError</span>(ctx, signalShutdown.signal, error)</span>
+<span class="code-line"><span class="ln">384</span>    }</span>
+<span class="code-line"><span class="ln">385</span>  }</span>
+<span class="code-line"><span class="ln">386</span>  <span class="tok-k">if</span> (!signalShutdown.signal.aborted</span>
+<span class="code-line"><span class="ln">387</span>    &amp;&amp; ctx.fiber.state === FiberState.ACTIVE</span>
+<span class="code-line"><span class="ln">388</span>    &amp;&amp; ctx.get(<span class="tok-s">'loader'</span>) !== <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">389</span>    appReady.<span class="tok-f">commit</span>()</span>
+<span class="code-line"><span class="ln">390</span>  }</span>
+<span class="code-line"><span class="ln">391</span>  <span class="tok-k">return</span> { ctx, shutdown }</span>
+<span class="code-line"><span class="ln">392</span>}</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">223-226</span><p><code>createProcessShutdown</code>（<code class="path">process-shutdown.ts</code>）：有界关机的控制器——dispose 整棵树、再卸载代理。之后所有退出路径（信号、app 请求退出、one-shot 完成）都走它。</p></div>
-    <div class="lr"><span class="ln-ref">237-238</span><p>信号语义：<strong>SIGTERM 退出码 0</strong>（supervisor 的普通停止请求，launcher 不知道应用是否算完成）；<strong>SIGINT 退出码 130</strong>（用户中断）。信号在 boot() settle 之前就接管 teardown——注释解释：insert 的 provider 可能在兄弟行还没挂完时就 publish。</p></div>
-    <div class="lr"><span class="ln-ref">239</span><p><code>installFailLoud</code>：boot 完成后的未处理 rejection 也不再静默——每个未处理错误都 dispose 树并报告。这是「错了就大声崩」原则的进程级实现。</p></div>
-    <div class="lr"><span class="ln-ref">256-261</span><p><strong>composeLive 是热重组的补丁快照</strong>：bundle 层在底、overlay 在顶，用户的两个文件（profile 的 + home 的）<strong>每次重组都重新读盘</strong>。注意整体 <code>structuredClone</code>——见 §3。</p></div>
-    <div class="lr"><span class="ln-ref">265</span><p>调 03 页的 <code>boot()</code>。传的 patches 也是 <code>structuredClone(allPatches(composed))</code>——boot 应用补丁时不能 mutate 后续热重组要用的原对象。</p></div>
-    <div class="lr"><span class="ln-ref">272</span><p>prepare 回调（03 页的 prepare 参数）：provide <strong>启动环境快照</strong>——在任何配置树条目挂载前，插件解析启动期环境值（DSH_* env 等）都从这同一个不可变来源读。</p></div>
-    <div class="lr"><span class="ln-ref">272</span><p>provide 命令行：内部参数（01 页的 args）+ <code>exit</code> 请求函数。任何注入的 app 插件都能读同一份不可变参数快照；one-shot 完成时通过 exit 请求关机。</p></div>
-    <div class="lr"><span class="ln-ref">296-301</span><p>HMR 补挂：web bundle 禁用了共享的模块重载 hmr 行（其 reload 生命周期未测试），所以这里补一个 <code>root: []</code> 的 watch-only HMR 实例——只做「cordis.patch.yml 编辑即时生效」的配置热重载，不做模块重载。缺 timer 服务就先挂 timer（HMR 依赖它）。<strong>静默跳过会破坏文档承诺的热重载契约</strong>，所以宁可显式补挂。</p></div>
-    <div class="lr"><span class="ln-ref">302-307</span><p>两个 watch：profile 的 patch 文件和 home 的 patch 文件。文件一改，watchUserPatches 就用 <code>composeLive</code> 重算补丁、重组插件树。</p></div>
+    <div class="lr"><span class="ln-ref">295-298</span><p><code>createProcessShutdown</code>（<code class="path">process-shutdown.ts</code>）：有界关机的控制器——dispose 整棵树、再卸载代理。之后所有退出路径（信号、app 请求退出、one-shot 完成）都走它。</p></div>
+    <div class="lr"><span class="ln-ref">309-310</span><p>信号语义：<strong>SIGTERM 退出码 0</strong>（supervisor 的普通停止请求，launcher 不知道应用是否算完成）；<strong>SIGINT 退出码 130</strong>（用户中断）。这两行的注释解释：信号在 boot() settle 之前就接管 teardown——因为 insert 的 provider 可能在兄弟行还没挂完时就 publish。</p></div>
+    <div class="lr"><span class="ln-ref">311</span><p><code>installFailLoud</code>：boot 完成后的未处理 rejection 也不再静默——每个未处理错误都 dispose 树并报告。这是「错了就大声崩」原则的进程级实现。</p></div>
+    <div class="lr"><span class="ln-ref">328-333</span><p><strong>composeLive 是热重组的补丁快照</strong>：bundle 层在底、overlay 在顶，用户的两个文件（profile 的 + home 的）<strong>每次重组都重新读盘</strong>（316-322 行的注释解释：两个 watcher 各自只拿到「变化的那个文件」的补丁，重读两个文件才不会让它们互相缝进对方的陈旧副本）。注意整体 <code>structuredClone</code>——见 §3。</p></div>
+    <div class="lr"><span class="ln-ref">336</span><p>调 03 页的 <code>boot()</code>。传的 patches 也是 <code>structuredClone(allPatches(composed))</code>——boot 应用补丁时不能 mutate 后续热重组要用的原对象（334-335 行的注释：「与 composeLive 同一个 insert 别名理由」）。</p></div>
+    <div class="lr"><span class="ln-ref">340</span><p>prepare 回调（03 页的 prepare 参数）：provide <strong>启动环境快照</strong>——在任何配置树条目挂载前，插件解析启动期环境值（DSH_* env 等）都从这同一个不可变来源读。</p></div>
+    <div class="lr"><span class="ln-ref">343-347</span><p>provide 命令行：内部参数（01 页的 args）+ <code>exit</code> 请求函数 + <code>ready</code> 就绪信号。任何注入的 app 插件都能读同一份不可变参数快照；one-shot 完成时通过 exit 请求关机。</p></div>
+    <div class="lr"><span class="ln-ref">355-358</span><p><strong>watch 只在 <code>patchReload === 'live'</code> 时挂</strong>（02 页 86 行的 profile 声明）。启动即冻结的 profile（headless/acp/sdk）跳过这整段——350-354 行的注释说明这个取舍：它们照样应用所有用户层，只是不装 HMR 回退与 watcher。</p></div>
+    <div class="lr"><span class="ln-ref">366-371</span><p>HMR 补挂：dsh-base 默认禁用了模块重载的 hmr 行，所以这里补一个 <code>root: []</code> 的 watch-only HMR 实例——只做「cordis.patch.yml 编辑即时生效」的配置热重载，不做模块重载。缺 timer 服务就先挂 timer（HMR 依赖它）。<strong>静默跳过会破坏文档承诺的热重载契约</strong>（363-365 行注释），所以宁可显式补挂。</p></div>
+    <div class="lr"><span class="ln-ref">372-381</span><p>两个 watch：profile 的 patch 文件和 home 的 patch 文件。文件一改，watchUserPatches 就用 <code>composeLive</code> 重算补丁、重组插件树。</p></div>
+    <div class="lr"><span class="ln-ref">382-384</span><p><code>suppressShutdownError</code>（270-274 行）：watcher 安装期间的失败要分两种——树已经因为信号或 appExit 在退出（那这个失败是「如期退出」的副产品，吞掉）vs 真的装不上 watch（抛出）。判据是 <code>signalShutdown.signal.aborted</code> 加 fiber 状态。</p></div>
+    <div class="lr"><span class="ln-ref">386-390</span><p><strong>就绪信号在最后才 commit</strong>：只有「没被信号打断 + fiber 仍 ACTIVE + loader 还在」三条件齐备，才通知应用「可以开始干活了」。这样应用不会在树还在重组、或者已经被要求退出的情况下开始服务。</p></div>
   </div>
 </section>
 
@@ -230,18 +327,18 @@
     <p><strong>为什么 composeLive 和 boot 调用前都要 <code>structuredClone</code>？</strong>（这是全库最重要的 gotcha，02 页提过，这里看它的完整因果）：include 的 <code>insert</code> 行按<strong>引用</strong> push 进挂载树，后续 id 定向补丁<strong>原地 mutate</strong>那些对象。如果复用同一份解析出的补丁对象，一次 boot 的覆盖就会「烤」进 bundle 的 in-memory insert 行——之后删除用户 override 也回不去了。每次应用前 clone，才能保证「删除 override = 回到 bundle 默认」。</p>
   </div>
   <div class="callout key">
-    <p><strong>热重组的完整机制</strong>：watch 发现文件变化 → <code>composeLive()</code> 重读两个用户文件 + 重新拼四层 → Loader 对差异行做「卸载旧的、挂载新的」→ 被换掉的插件 fiber 销毁，其<strong>全部注册逆转</strong>（服务、事件、effect）→ 新 fiber 挂载。进程不重启，配置即代码。</p>
+    <p><strong>热重组的完整机制</strong>：watch 发现文件变化 → <code>composeLive()</code>（328 行）重读两个用户文件 + 重新拼四层 → Loader 对差异行做「卸载旧的、挂载新的」→ 被换掉的插件 fiber 销毁，其<strong>全部注册逆转</strong>（服务、事件、effect）→ 新 fiber 挂载。进程不重启，配置即代码。</p>
   </div>
 </section>
 
 <section id="s4">
   <h2><span class="sec-num">§4</span>启动链完成：你拥有了一棵树</h2>
   <p>到这里，主干 A 走完了。回望这条链：</p>
-  <blockquote><code>bin.ts</code>（分派）→ <code>args.ts</code>（解析）→ <code>loadProfile</code>（发现 profile 与 bundle）→ <code>composeEntries</code>（五层补丁压成条目表）→ <code>boot()</code>（条目表挂成插件树）→ <code>runProfile</code>（信号 + 热更新 watch）。</blockquote>
+  <blockquote><code>bin.ts</code>（分派）→ <code>args.ts</code>（解析，含 0.1.5 的 <code>--from-default-profile</code>）→ <code>initializeProfileFromDefault</code>（按需用模板建 profile）→ <code>loadProfile</code>（发现 profile 与 bundle）→ <code>composeEntries</code>（五层补丁压成条目表）→ <code>boot()</code>（条目表挂成插件树）→ <code>runProfile</code>（就绪信号 + 信号处理 + 热更新 watch）。</blockquote>
   <p>现在 <code>runProfile</code> 返回 <code>{ ctx, shutdown }</code>——ctx 就是那棵活树。树上有 78+ 个插件，其中一个叫 <code>dsh-agent-loop</code>。<strong>接下来的主干 B（05→14 页）就钻进这个插件的心脏</strong>，跟踪一条消息从进入 inbox 到工具结果落盘的每一步代码。</p>
 
   <div class="callout verify">
-    <p>动手验证：<code>pnpm dsh --profile web --dump-config</code> 打印的就是这台机器实际会启动的条目表；在 <code>$DSH_HOME/cordis.patch.yml</code> 里改一行，长驻的 web 进程会即时重组。</p>
+    <p>动手验证：<code>pnpm dsh --profile web --dump-config</code> 打印的就是这台机器实际会启动的条目表（0.1.5 起 <code>--from-default-profile</code> 也对这个 dump 生效，见 00 页 54 行）；在 <code>$DSH_HOME/cordis.patch.yml</code> 里改一行，长驻的 web 进程会即时重组。</p>
   </div>
 </section>
 

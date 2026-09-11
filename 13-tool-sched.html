@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -174,48 +174,48 @@
   <h2><span class="sec-num">§2</span>runGroup：滚动池与顺序提交</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/tool-calls.ts</span><span>runGroup 的核心（节选）</span><span class="ln-range">145-245</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">145</span>  <span class="tok-c">// committed 只跨连续 model 序 slot 前进</span></span>
-<span class="code-line"><span class="ln">146</span>  <span class="tok-k">const</span> commitReady = <span class="tok-k">async</span> () =&gt; {</span>
-<span class="code-line"><span class="ln">147</span>    <span class="tok-k">while</span> (committed &lt; group.length) {</span>
-<span class="code-line"><span class="ln">148</span>      <span class="tok-k">const</span> slot = slots[committed]</span>
-<span class="code-line"><span class="ln">149</span>      <span class="tok-k">if</span> (slot === <span class="tok-k">undefined</span>) <span class="tok-k">break</span></span>
-<span class="code-line"><span class="ln">151</span>      <span class="tok-k">const</span> result = slot.needsPost</span>
-<span class="code-line"><span class="ln">152</span>        ? <span class="tok-k">await</span> ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">finalize</span>(slot.exec, slot.result)</span>
-<span class="code-line"><span class="ln">153</span>        : ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">finish</span>(slot.exec, slot.result)</span>
-<span class="code-line"><span class="ln">155</span>      <span class="tok-f">appendToolResult</span>(session, turn, step, call.block, result, callSeqs[committed])</span>
-<span class="code-line"><span class="ln">156</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> context <span class="tok-k">of</span> result.additionalContexts ?? []) <span class="tok-f">acceptContext</span>(context)</span>
-<span class="code-line"><span class="ln">157</span>      concluded ||= result.concludesTurn === <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">158</span>      committed++</span>
-<span class="code-line"><span class="ln">159</span>    }</span>
-<span class="code-line"><span class="ln">160</span>  }</span>
-<span class="code-line"><span class="ln">164</span>  <span class="tok-k">const</span> startCall = <span class="tok-k">async</span> (index) =&gt; {</span>
-<span class="code-line"><span class="ln">167</span>    callSeqs[index] = <span class="tok-f">appendToolCall</span>(session, turn, step, call.block)</span>
-<span class="code-line"><span class="ln">169</span>    <span class="tok-k">const</span> prepared = <span class="tok-k">await</span> ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">prepare</span>(call.exec)</span>
-<span class="code-line"><span class="ln">171</span>    <span class="tok-k">switch</span> (prepared.kind) {</span>
-<span class="code-line"><span class="ln">172</span>      <span class="tok-k">case</span> <span class="tok-s">'dispatch'</span>: { ... <span class="tok-f">dispatch</span>(prepared.exec).<span class="tok-f">then</span>(...) }</span>
-<span class="code-line"><span class="ln">186</span>      <span class="tok-k">case</span> <span class="tok-s">'post-result'</span>: slots[index] = { ...prepared.result, needsPost: <span class="tok-n">true</span> }</span>
-<span class="code-line"><span class="ln">189</span>      <span class="tok-k">case</span> <span class="tok-s">'final-result'</span>: slots[index] = { ...prepared.result, needsPost: <span class="tok-n">false</span> }</span>
-<span class="code-line"><span class="ln">198</span>  <span class="tok-k">const</span> fillPool = <span class="tok-k">async</span> () =&gt; {</span>
-<span class="code-line"><span class="ln">199</span>    <span class="tok-k">while</span> (!aborted &amp;&amp; nextToStart &lt; group.length &amp;&amp; inFlight.size &lt; maxParallelToolCalls) {</span>
-<span class="code-line"><span class="ln">203</span>      <span class="tok-k">if</span> (nextToStart &gt; 0 &amp;&amp; mode === <span class="tok-s">'parallel'</span></span>
-<span class="code-line"><span class="ln">204</span>        &amp;&amp; ctx.tools.<span class="tok-f">executionMode</span>(nextCall.exec).kind !== <span class="tok-s">'parallel'</span>) <span class="tok-k">break</span></span>
-<span class="code-line"><span class="ln">205</span>      <span class="tok-k">await</span> <span class="tok-f">startCall</span>(nextToStart)</span>
-<span class="code-line"><span class="ln">206</span>      nextToStart++</span>
-<span class="code-line"><span class="ln">208</span>      <span class="tok-k">await</span> <span class="tok-f">commitReady</span>()</span>
-<span class="code-line"><span class="ln">211</span>      <span class="tok-k">if</span> (signal.aborted) aborted = <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">212</span>    }</span>
-<span class="code-line"><span class="ln">213</span>  }</span>
-<span class="code-line"><span class="ln">219</span>    <span class="tok-k">await</span> <span class="tok-f">fillPool</span>()</span>
-<span class="code-line"><span class="ln">220</span>    <span class="tok-k">while</span> (inFlight.size &gt; 0) {</span>
-<span class="code-line"><span class="ln">221</span>      <span class="tok-k">const</span> settledIndex = <span class="tok-k">await</span> Promise.<span class="tok-f">race</span>(inFlight.<span class="tok-f">values</span>())</span>
-<span class="code-line"><span class="ln">222</span>      inFlight.<span class="tok-f">delete</span>(settledIndex)</span>
-<span class="code-line"><span class="ln">224</span>      <span class="tok-k">await</span> <span class="tok-f">commitReady</span>()</span>
-<span class="code-line"><span class="ln">228</span>      <span class="tok-k">if</span> (signal.aborted) aborted = <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">229</span>      <span class="tok-k">await</span> <span class="tok-f">fillPool</span>()</span>
-<span class="code-line"><span class="ln">230</span>    }</span>
-<span class="code-line"><span class="ln">240</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> call <span class="tok-k">of</span> group.<span class="tok-f">slice</span>(started)) <span class="tok-f">appendSkippedToolCall</span>(session, turn, step, call.block)</span>
-<span class="code-line"><span class="ln">245</span>  <span class="tok-k">return</span> { consumed: started, aborted: <span class="tok-n">false</span>, concluded }</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/tool-calls.ts</span><span>runGroup 的核心（节选）</span><span class="ln-range">146-231</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">146</span>  <span class="tok-c">// `committed` advances only across contiguous model-order slots.</span></span>
+<span class="code-line"><span class="ln">147</span>  <span class="tok-k">const</span> commitReady = <span class="tok-k">async</span> (): Promise&lt;<span class="tok-k">void</span>&gt; =&gt; {</span>
+<span class="code-line"><span class="ln">148</span>    <span class="tok-k">while</span> (committed &lt; group.length) {</span>
+<span class="code-line"><span class="ln">149</span>      <span class="tok-k">const</span> slot = slots[committed]</span>
+<span class="code-line"><span class="ln">150</span>      <span class="tok-k">if</span> (slot === <span class="tok-k">undefined</span>) <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">151</span>      <span class="tok-k">const</span> call = group[committed]</span>
+<span class="code-line"><span class="ln">152</span>      <span class="tok-k">const</span> result = slot.needsPost</span>
+<span class="code-line"><span class="ln">153</span>        ? <span class="tok-k">await</span> ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">finalize</span>(slot.exec, slot.result)</span>
+<span class="code-line"><span class="ln">154</span>        : ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">finish</span>(slot.exec, slot.result)</span>
+<span class="code-line"><span class="ln">156</span>      <span class="tok-f">appendToolResult</span>(session, turn, step, call!.block, result, callSeqs[committed]!)</span>
+<span class="code-line"><span class="ln">157</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> context <span class="tok-k">of</span> result.additionalContexts ?? []) <span class="tok-f">acceptContext</span>(context)</span>
+<span class="code-line hl"><span class="ln">158</span>      concluded ||= result.concludesTurn === <span class="tok-n">true</span></span><span class="note">按模型顺序结算</span></span>
+<span class="code-line"><span class="ln">159</span>      committed++</span>
+<span class="code-line"><span class="ln">160</span>    }</span>
+<span class="code-line"><span class="ln">161</span>  }</span>
+<span class="code-line"><span class="ln">163</span>  <span class="tok-k">const</span> inFlight = <span class="tok-k">new</span> <span class="tok-t">Map</span>&lt;number, Promise&lt;number&gt;&gt;()</span>
+<span class="code-line"><span class="ln">165</span>  <span class="tok-k">const</span> startCall = <span class="tok-k">async</span> (index: number): Promise&lt;<span class="tok-k">void</span>&gt; =&gt; {</span>
+<span class="code-line"><span class="ln">167</span>    <span class="tok-k">const</span> call = group[index]!</span>
+<span class="code-line"><span class="ln">168</span>    callSeqs[index] = <span class="tok-f">appendToolCall</span>(session, turn, step, call.block)</span>
+<span class="code-line"><span class="ln">169</span>    started++</span>
+<span class="code-line"><span class="ln">170</span>    <span class="tok-k">const</span> prepared = <span class="tok-k">await</span> ctx.tools[TOOL_RUNTIME_SCHEDULER].<span class="tok-f">prepare</span>(call.exec)</span>
+<span class="code-line"><span class="ln">199</span>  <span class="tok-k">const</span> fillPool = <span class="tok-k">async</span> (): Promise&lt;<span class="tok-k">void</span>&gt; =&gt; {</span>
+<span class="code-line"><span class="ln">200</span>    <span class="tok-k">while</span> (!aborted &amp;&amp; nextToStart &lt; group.length &amp;&amp; inFlight.size &lt; maxParallelToolCalls) {</span>
+<span class="code-line"><span class="ln">203</span>      <span class="tok-k">const</span> nextCall = group[nextToStart]!</span>
+<span class="code-line hl"><span class="ln">204</span>      <span class="tok-k">if</span> (nextToStart &gt; 0 &amp;&amp; mode === <span class="tok-s">'parallel'</span></span><span class="note">exclusive 调用形成 barrier</span></span>
+<span class="code-line"><span class="ln">205</span>        &amp;&amp; ctx.tools.<span class="tok-f">executionMode</span>(nextCall.exec).kind !== <span class="tok-s">'parallel'</span>) <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">206</span>      <span class="tok-k">await</span> <span class="tok-f">startCall</span>(nextToStart)</span>
+<span class="code-line"><span class="ln">207</span>      nextToStart++</span>
+<span class="code-line"><span class="ln">209</span>      <span class="tok-k">await</span> <span class="tok-f">commitReady</span>()</span>
+<span class="code-line"><span class="ln">212</span>      <span class="tok-k">if</span> (signal.aborted) aborted = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">213</span>    }</span>
+<span class="code-line"><span class="ln">214</span>  }</span>
+<span class="code-line"><span class="ln">219</span>  <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">220</span>    <span class="tok-k">await</span> <span class="tok-f">fillPool</span>()</span>
+<span class="code-line"><span class="ln">221</span>    <span class="tok-k">while</span> (inFlight.size &gt; 0) {</span>
+<span class="code-line"><span class="ln">222</span>      <span class="tok-k">const</span> settledIndex = <span class="tok-k">await</span> Promise.<span class="tok-f">race</span>(inFlight.<span class="tok-f">values</span>())</span>
+<span class="code-line"><span class="ln">223</span>      inFlight.<span class="tok-f">delete</span>(settledIndex)</span>
+<span class="code-line"><span class="ln">225</span>      <span class="tok-k">await</span> <span class="tok-f">commitReady</span>()</span>
+<span class="code-line"><span class="ln">229</span>      <span class="tok-k">if</span> (signal.aborted) aborted = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">230</span>      <span class="tok-k">await</span> <span class="tok-f">fillPool</span>()</span>
+<span class="code-line"><span class="ln">231</span>    }</span></code></pre>
 </figure>
 
   <div class="le">
@@ -233,17 +233,19 @@
   <h2><span class="sec-num">§3</span>abort 的合成结果</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/tool-calls.ts</span><span>appendSkippedToolCall</span><span class="ln-range">248-259</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">248</span><span class="tok-c">/** Append the durable call/result pair for a model call skipped after cancellation. */</span></span>
-<span class="code-line"><span class="ln">249</span><span class="tok-k">function</span> <span class="tok-f">appendSkippedToolCall</span>(session, turn, step, block) {</span>
-<span class="code-line"><span class="ln">250</span>  <span class="tok-k">const</span> callSeq = <span class="tok-f">appendToolCall</span>(session, turn, step, block)</span>
-<span class="code-line"><span class="ln">251</span>  <span class="tok-f">appendToolResult</span>(session, turn, step, block, {</span>
-<span class="code-line"><span class="ln">252</span>    content: [{ type: <span class="tok-s">'text'</span>, text: <span class="tok-s">'Error: tool call aborted before dispatch'</span> }],</span>
-<span class="code-line"><span class="ln">253</span>    isError: <span class="tok-n">true</span>,</span>
-<span class="code-line"><span class="ln">254</span>    error: { message: <span class="tok-s">'tool call aborted before dispatch'</span>,</span>
-<span class="code-line"><span class="ln">255</span>      info: { name: <span class="tok-s">'AbortError'</span>, code: TOOL_ABORTED_BEFORE_DISPATCH } },</span>
-<span class="code-line"><span class="ln">256</span>  }, callSeq)</span>
-<span class="code-line"><span class="ln">257</span>}</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/tool-calls.ts</span><span>appendSkippedToolCall</span><span class="ln-range">249-260</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">249</span><span class="tok-c">/** Append the durable call/result pair for a model call skipped after cancellation. */</span></span>
+<span class="code-line"><span class="ln">250</span><span class="tok-k">function</span> <span class="tok-f">appendSkippedToolCall</span>(session: Session, turn: number, step: number, block: ToolCallBlock): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">251</span>  <span class="tok-k">const</span> callSeq = <span class="tok-f">appendToolCall</span>(session, turn, step, block)</span>
+<span class="code-line"><span class="ln">252</span>  <span class="tok-f">appendToolResult</span>(session, turn, step, block, {</span>
+<span class="code-line"><span class="ln">253</span>    content: [{ type: <span class="tok-s">'text'</span>, text: <span class="tok-s">'Error: tool call aborted before dispatch'</span> }],</span>
+<span class="code-line"><span class="ln">254</span>    isError: <span class="tok-n">true</span>,</span>
+<span class="code-line"><span class="ln">255</span>    error: {</span>
+<span class="code-line"><span class="ln">256</span>      message: <span class="tok-s">'tool call aborted before dispatch'</span>,</span>
+<span class="code-line"><span class="ln">257</span>      info: { name: <span class="tok-s">'AbortError'</span>, code: TOOL_ABORTED_BEFORE_DISPATCH },</span>
+<span class="code-line"><span class="ln">258</span>    },</span>
+<span class="code-line"><span class="ln">259</span>  }, callSeq)</span>
+<span class="code-line"><span class="ln">260</span>}</span></code></pre>
 </figure>
 
   <div class="le">

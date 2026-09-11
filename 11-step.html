@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,15 +72,15 @@
 <header class="page-head">
   <p class="kicker">Main Chain B · Step 11</p>
   <h1>step：调用、落盘与三条分支</h1>
-  <p class="lede"><code>agent.ts:343-480</code>。一个 step = 一次模型调用 + 它请求的工具执行。这里把 09/10 页的请求与流串起来：<strong>逐 chunk 落盘 → 组装完成锚点 → 三条分支（max-tokens / 完成 / 有工具调用）</strong>。0.1.3-alpha.2 起新增了「取消时把已流出的文本前缀固化为 interrupted 锚点」。</p>
+  <p class="lede"><code>agent.ts:352-499</code>。一个 step = 一次模型调用 + 它请求的工具执行。这里把 09/10 页的请求与流串起来：<strong>逐 chunk 落盘 → 组装完成锚点 → 三条分支（max-tokens / 完成 / 有工具调用）</strong>。0.1.3-alpha.2 起新增了「取消时把已流出的文本前缀固化为 interrupted 锚点」。</p>
 </header>
 
 <div class="chain">
-  <span class="seg">05 turn:298 step(decision.assembly, startsRequestSeries)</span>
+  <span class="seg">05 turn:311 step(decision)</span>
   <span class="arrow">→</span>
   <span class="here">agent.ts:332 step</span>
   <span class="arrow">→</span>
-  <span class="seg">(分叉) 09 buildRequest · 10 stream · AssistantStreamAttempt · 13 executeToolCalls</span>
+  <span class="seg">(分叉) 09 prepareRequest/buildRequest · 10 stream · AssistantStreamAttempt · 13 executeToolCalls</span>
   <span class="arrow">→</span>
   <span class="seg">(终点) 返回 completed / max-tokens / null</span>
 </div>
@@ -136,128 +136,113 @@ seq 16 turn/end           {turn:1,reason:'completed'}       ← 05 页 319 行</
   <h2><span class="sec-num">§1</span>完整代码与行级解读</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>step 全文（0.1.3-alpha.2）</span><span class="ln-range">343-480</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">343</span>  <span class="tok-k">private async</span> <span class="tok-f">step</span>(assembly: PromptAssembly, startsRequestSeries: boolean): Promise&lt;StepEndReason | <span class="tok-k">null</span>&gt; {</span>
-<span class="code-line"><span class="ln">348</span>    <span class="tok-k">const</span> system = <span class="tok-f">renderPrompt</span>(assembly)</span>
-<span class="code-line"><span class="ln">350</span>    <span class="tok-k">while</span> (<span class="tok-n">true</span>) {</span>
-<span class="code-line"><span class="ln">351</span>      <span class="tok-k">const</span> surfaceGeneration = <span class="tok-k">this</span>.session.surface.replaceGeneration</span>
-<span class="code-line"><span class="ln">352</span>      <span class="tok-k">const</span> { request, preparedCall } = <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">buildRequest</span>(</span>
-<span class="code-line"><span class="ln">353</span>        turn, step, assembly.tools, system, <span class="tok-k">this</span>.session.<span class="tok-f">deriveMessages</span>(),</span>
-<span class="code-line"><span class="ln">354</span>        startsRequestSeries, surfaceGeneration, signal,</span>
-<span class="code-line"><span class="ln">355</span>      )</span>
-<span class="code-line"><span class="ln">362</span>      startsRequestSeries = <span class="tok-n">false</span></span>
-<span class="code-line hl"><span class="ln">363</span>      <span class="tok-k">const</span> live = <span class="tok-k">new</span> <span class="tok-t">AssistantStreamAttempt</span>(     <span class="tok-c">// 流尝试对象</span></span><span class="note">取代 BlockAssembler</span></span>
-<span class="code-line"><span class="ln">364</span>        <span class="tok-k">this</span>.session.id,</span>
-<span class="code-line"><span class="ln">365</span>        ++<span class="tok-k">this</span>.assistantAttemptCounter,          <span class="tok-c">// 尝试序号（会话内唯一）</span></span>
-<span class="code-line"><span class="ln">366</span>        () =&gt; ++<span class="tok-k">this</span>.assistantStreamRevision,      <span class="tok-c">// 帧修订号（UI 增量渲染）</span></span>
-<span class="code-line"><span class="ln">367</span>        turn, step,</span>
-<span class="code-line"><span class="ln">369</span>        (frame) =&gt; { <span class="tok-k">this</span>.dispatch.<span class="tok-f">emit</span>(<span class="tok-s">'agent/assistant-stream'</span>, { frame }) },  <span class="tok-c">// live 帧事件</span></span>
-<span class="code-line"><span class="ln">370</span>      )</span>
-<span class="code-line"><span class="ln">371</span>      <span class="tok-k">let</span> started = <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">372</span>      <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">373</span>        <span class="tok-k">const</span> stream = preparedCall?.<span class="tok-f">stream</span>(request) ?? <span class="tok-k">this</span>.loopCtx.llm.<span class="tok-f">stream</span>(request)</span>
-<span class="code-line"><span class="ln">374</span>        signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">375</span>        live.<span class="tok-f">start</span>()</span>
-<span class="code-line"><span class="ln">376</span>        started = <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">377</span>        <span class="tok-k">for await</span> (<span class="tok-k">const</span> chunk <span class="tok-k">of</span> stream) {</span>
-<span class="code-line"><span class="ln">378</span>          signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line hl"><span class="ln">379</span>          live.<span class="tok-f">push</span>(chunk)              <span class="tok-c">// 不逐 chunk 落盘：进尝试对象</span></span><span class="note">落盘在 settle 时一次完成</span></span>
-<span class="code-line"><span class="ln">380</span>        }</span>
-<span class="code-line"><span class="ln">381</span>        signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">382</span>      } <span class="tok-k">catch</span> (error: unknown) {</span>
-<span class="code-line"><span class="ln">383</span>        <span class="tok-k">if</span> (!started) <span class="tok-k">throw</span> error      <span class="tok-c">// 未开始：流都没建立，无账可结</span></span>
-<span class="code-line"><span class="ln">385</span>          <span class="tok-k">if</span> (signal.aborted) {</span>
-<span class="code-line"><span class="ln">386</span>            <span class="tok-k">const</span> content = live.<span class="tok-f">interruptedBlocks</span>()</span>
-<span class="code-line"><span class="ln">388</span>              live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/message'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/message'</span>, {</span>
-<span class="code-line"><span class="ln">391</span>                message: <span class="tok-f">createAssistantMessage</span>({ content, source: {...} }),</span>
-<span class="code-line"><span class="ln">401</span>                stream: live.stream,        <span class="tok-c">// 内嵌 compact 原始流</span></span>
-<span class="code-line"><span class="ln">402</span>              }, { surfaceOp: <span class="tok-s">'append'</span> }).seq)</span>
-<span class="code-line"><span class="ln">403</span>            } <span class="tok-k">else</span> {</span>
-<span class="code-line"><span class="ln">404</span>              live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/attempt'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/attempt'</span>, {</span>
-<span class="code-line"><span class="ln">406</span>                () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/attempt'</span>, { turn, step, stream: live.stream }).seq,</span>
-<span class="code-line"><span class="ln">408</span>            }</span>
-<span class="code-line"><span class="ln">409</span>          } <span class="tok-k">else</span> {</span>
-<span class="code-line"><span class="ln">410</span>            live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/attempt'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/attempt'</span>, {</span>
-<span class="code-line"><span class="ln">412</span>              () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/attempt'</span>, { turn, step, stream: live.stream }).seq,</span>
-<span class="code-line"><span class="ln">414</span>          }</span>
-<span class="code-line"><span class="ln">415</span>        } <span class="tok-k">catch</span> (settlementError: unknown) {</span>
-<span class="code-line"><span class="ln">422</span>        <span class="tok-k">throw</span> error                 <span class="tok-c">// 结算后原样抛出</span></span>
-<span class="code-line"><span class="ln">423</span>      }</span>
-<span class="code-line"><span class="ln">424</span>      <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">425</span>        <span class="tok-k">const</span> finish = live.finish</span>
-<span class="code-line"><span class="ln">426</span>        <span class="tok-k">if</span> (finish.kind === <span class="tok-s">'error'</span> || finish.kind === <span class="tok-s">'aborted'</span>) {</span>
-<span class="code-line"><span class="ln">427</span>          live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/attempt'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/attempt'</span>, {</span>
-<span class="code-line"><span class="ln">428</span>            turn, step, stream: live.stream,</span>
-<span class="code-line"><span class="ln">429</span>          }).seq)</span>
-<span class="code-line"><span class="ln">431</span>          <span class="tok-k">const</span> action = <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">waterfall</span>(</span>
-<span class="code-line"><span class="ln">432</span>            <span class="tok-s">'agent/request-error'</span>, { turn, step, provider: request.provider,</span>
-<span class="code-line"><span class="ln">433</span>              failure: finish.failure, retryPolicy: preparedCall?.retryPolicy, signal },</span>
-<span class="code-line"><span class="ln">440</span>            () =&gt; Promise.<span class="tok-f">resolve</span>&lt;RequestErrorAction&gt;(<span class="tok-k">undefined</span>),</span>
-<span class="code-line"><span class="ln">441</span>          )</span>
-<span class="code-line"><span class="ln">442</span>          signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">443</span>          <span class="tok-k">if</span> (action?.kind !== <span class="tok-s">'retry'</span>) {</span>
-<span class="code-line"><span class="ln">444</span>            <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(finish.failure.message, finish.failure.code, finish.failure)</span>
-<span class="code-line"><span class="ln">445</span>          }</span>
-<span class="code-line"><span class="ln">446</span>          <span class="tok-k">continue</span></span>
-<span class="code-line"><span class="ln">447</span>        }</span>
-<span class="code-line"><span class="ln">449</span>        <span class="tok-k">const</span> message = <span class="tok-f">createAssistantMessage</span>({</span>
-<span class="code-line"><span class="ln">450</span>          content: live.<span class="tok-f">blocks</span>(),</span>
-<span class="code-line"><span class="ln">451</span>          source: { provider: request.provider, model: request.model,</span>
-<span class="code-line"><span class="ln">454</span>            ...live.replayState !== <span class="tok-k">undefined</span> ? { replayState: live.replayState } : {} },</span>
-<span class="code-line"><span class="ln">455</span>        })</span>
-<span class="code-line"><span class="ln">457</span>        live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/message'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/message'</span>, {</span>
-<span class="code-line"><span class="ln">458</span>          turn, step, message,</span>
-<span class="code-line"><span class="ln">460</span>          ...live.usage === <span class="tok-k">undefined</span> ? {} : { usage: live.usage },</span>
-<span class="code-line"><span class="ln">461</span>          stream: live.stream,</span>
-<span class="code-line"><span class="ln">462</span>        }, { surfaceOp: <span class="tok-s">'append'</span> }).seq)</span>
-<span class="code-line"><span class="ln">463</span>        <span class="tok-k">if</span> (finish.kind === <span class="tok-s">'max-tokens'</span>) <span class="tok-k">return</span> { kind: <span class="tok-s">'max-tokens'</span> }</span>
-<span class="code-line"><span class="ln">465</span>        <span class="tok-k">const</span> toolCalls = message.content.<span class="tok-f">filter</span>(block =&gt; block.type === <span class="tok-s">'tool-call'</span>)</span>
-<span class="code-line"><span class="ln">466</span>        <span class="tok-k">if</span> (toolCalls.length === 0) <span class="tok-k">return</span> { kind: <span class="tok-s">'completed'</span> }</span>
-<span class="code-line"><span class="ln">467</span>        <span class="tok-k">const</span> { concluded } = <span class="tok-k">await</span> <span class="tok-f">executeToolCalls</span>(</span>
-<span class="code-line"><span class="ln">468</span>          <span class="tok-k">this</span>.loopCtx, turn, step, toolCalls, signal,</span>
-<span class="code-line"><span class="ln">469</span>          context =&gt; <span class="tok-k">this</span>.inbox.<span class="tok-f">splice</span>(<span class="tok-s">'next-step'</span>, <span class="tok-k">this</span>.inbox.nextStep.length, 0, [context]),</span>
-<span class="code-line"><span class="ln">470</span>        )</span>
-<span class="code-line"><span class="ln">471</span>        <span class="tok-k">return</span> concluded ? { kind: <span class="tok-s">'completed'</span> } : <span class="tok-k">null</span></span>
-<span class="code-line"><span class="ln">475</span>      } <span class="tok-k">catch</span> (error: unknown) {</span>
-<span class="code-line"><span class="ln">476</span>        <span class="tok-k">if</span> (!live.ended) live.<span class="tok-f">abandon</span>()   <span class="tok-c">// 未结算则放弃尝试（帧流中止，不落盘）</span></span>
-<span class="code-line"><span class="ln">477</span>        <span class="tok-k">throw</span> error</span>
-<span class="code-line"><span class="ln">478</span>      }</span>
-<span class="code-line"><span class="ln">479</span>    }</span>
-<span class="code-line"><span class="ln">480</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>step 全文（0.1.5-rc.2）</span><span class="ln-range">352-499</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">352</span>  <span class="tok-k">private async</span> <span class="tok-f">step</span>(decision: Extract&lt;PreparedStep, { kind: <span class="tok-s">'enter'</span> }&gt;): Promise&lt;StepEndReason | <span class="tok-k">null</span>&gt; {</span>
+<span class="code-line"><span class="ln">356</span>    <span class="tok-k">const</span> { assembly } = decision</span>
+<span class="code-line"><span class="ln">359</span>    <span class="tok-k">const</span> renderedPrompt = <span class="tok-f">renderPrompt</span>(assembly)</span>
+<span class="code-line hl"><span class="ln">360</span>    <span class="tok-k">let</span> firstAttempt = <span class="tok-n">true</span>      <span class="tok-c">// 0.1.5：首次尝试才注入 user/system 消息</span></span><span class="note">重试不再重复注入</span></span>
+<span class="code-line"><span class="ln">361</span>    <span class="tok-k">while</span> (<span class="tok-n">true</span>) {</span>
+<span class="code-line hl"><span class="ln">362</span>      <span class="tok-k">const</span> { config, preparedCall } = <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">prepareRequest</span>(turn, step, signal)</span><span class="note">拆分 1：解析配置 + 绑定 adapter</span></span>
+<span class="code-line"><span class="ln">363</span>      <span class="tok-k">const</span> startsRequestSeries = firstAttempt &amp;&amp; decision.startsRequestSeries === <span class="tok-n">true</span></span>
+<span class="code-line hl"><span class="ln">364</span>      <span class="tok-k">const</span> commits = <span class="tok-k">this</span>.systemPrompt.<span class="tok-f">project</span>(renderedPrompt, {   <span class="tok-c">// system prompt 投影</span></span><span class="note">取代 header.system 赋值</span></span>
+<span class="code-line"><span class="ln">365</span>        inHistory: preparedCall?.systemPromptUpdate === <span class="tok-s">'in-history'</span>,</span>
+<span class="code-line"><span class="ln">366</span>        startsSeries: startsRequestSeries</span>
+<span class="code-line"><span class="ln">367</span>          || <span class="tok-k">this</span>.requestSurfaceGeneration !== <span class="tok-k">this</span>.session.surface.replaceGeneration</span>
+<span class="code-line"><span class="ln">368</span>          || <span class="tok-k">this</span>.<span class="tok-f">toolsChanged</span>(assembly.tools),</span>
+<span class="code-line"><span class="ln">369</span>      })</span>
+<span class="code-line"><span class="ln">370</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> { message, intent } <span class="tok-k">of</span> commits) {</span>
+<span class="code-line hl"><span class="ln">371</span>        <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'system/message'</span>, { turn, step, message }, intent)</span><span class="note">落盘为 surface 事件</span></span>
+<span class="code-line"><span class="ln">372</span>      }</span>
+<span class="code-line"><span class="ln">373</span>      <span class="tok-k">if</span> (firstAttempt) {</span>
+<span class="code-line"><span class="ln">374</span>        <span class="tok-k">for</span> (<span class="tok-k">const</span> message <span class="tok-k">of</span> decision.messages) {</span>
+<span class="code-line"><span class="ln">375</span>          <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'user/message'</span>, message, { surfaceOp: <span class="tok-s">'append'</span> })</span>
+<span class="code-line"><span class="ln">376</span>        }</span>
+<span class="code-line"><span class="ln">377</span>      }</span>
+<span class="code-line"><span class="ln">378</span>      firstAttempt = <span class="tok-n">false</span></span>
+<span class="code-line hl"><span class="ln">379</span>      <span class="tok-k">const</span> request = <span class="tok-k">this</span>.<span class="tok-f">buildRequest</span>(config, preparedCall, assembly.tools, startsRequestSeries, signal)</span><span class="note">拆分 2：组装冻结请求</span></span>
+<span class="code-line"><span class="ln">380</span>      <span class="tok-k">const</span> live = <span class="tok-k">new</span> <span class="tok-t">AssistantStreamAttempt</span>(</span>
+<span class="code-line"><span class="ln">381</span>        <span class="tok-k">this</span>.session.id,</span>
+<span class="code-line"><span class="ln">382</span>        ++<span class="tok-k">this</span>.assistantAttemptCounter,</span>
+<span class="code-line"><span class="ln">383</span>        () =&gt; ++<span class="tok-k">this</span>.assistantStreamRevision,</span>
+<span class="code-line"><span class="ln">384</span>        turn, step,</span>
+<span class="code-line"><span class="ln">386</span>        (frame) =&gt; { <span class="tok-k">this</span>.dispatch.<span class="tok-f">emit</span>(<span class="tok-s">'agent/assistant-stream'</span>, { frame }) },</span>
+<span class="code-line"><span class="ln">387</span>      )</span>
+<span class="code-line"><span class="ln">388</span>      <span class="tok-k">let</span> started = <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">389</span>      <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">390</span>        <span class="tok-k">const</span> stream = preparedCall?.<span class="tok-f">stream</span>(request) ?? <span class="tok-k">this</span>.loopCtx.llm.<span class="tok-f">stream</span>(request)</span>
+<span class="code-line"><span class="ln">392</span>        live.<span class="tok-f">start</span>()</span>
+<span class="code-line"><span class="ln">393</span>        started = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">394</span>        <span class="tok-k">for await</span> (<span class="tok-k">const</span> chunk <span class="tok-k">of</span> stream) {</span>
+<span class="code-line"><span class="ln">396</span>          live.<span class="tok-f">push</span>(chunk)</span>
+<span class="code-line"><span class="ln">397</span>        }</span>
+<span class="code-line"><span class="ln">399</span>      } <span class="tok-k">catch</span> (error: unknown) {</span>
+<span class="code-line"><span class="ln">400</span>        <span class="tok-k">if</span> (!started) <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">405</span>              live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/message'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/message'</span>, {</span>
+<span class="code-line"><span class="ln">423</span>        <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">424</span>      }</span>
+<span class="code-line"><span class="ln">425</span>      <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">426</span>        <span class="tok-k">const</span> finish = live.finish</span>
+<span class="code-line"><span class="ln">427</span>        <span class="tok-k">if</span> (finish.kind === <span class="tok-s">'error'</span> || finish.kind === <span class="tok-s">'aborted'</span>) {</span>
+<span class="code-line"><span class="ln">428</span>          live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/attempt'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/attempt'</span>, {</span>
+<span class="code-line"><span class="ln">429</span>            turn, step, stream: live.stream,</span>
+<span class="code-line"><span class="ln">430</span>          }).seq)</span>
+<span class="code-line"><span class="ln">432</span>          <span class="tok-k">const</span> action = <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">waterfall</span>(</span>
+<span class="code-line"><span class="ln">433</span>            <span class="tok-s">'agent/request-error'</span>, { turn, step, provider: request.provider,</span>
+<span class="code-line"><span class="ln">434</span>              failure: finish.failure, retryPolicy: preparedCall?.retryPolicy, signal },</span>
+<span class="code-line"><span class="ln">441</span>            () =&gt; Promise.<span class="tok-f">resolve</span>&lt;RequestErrorAction&gt;(<span class="tok-k">undefined</span>),</span>
+<span class="code-line"><span class="ln">442</span>          )</span>
+<span class="code-line"><span class="ln">444</span>          <span class="tok-k">if</span> (action?.kind !== <span class="tok-s">'retry'</span>) {</span>
+<span class="code-line"><span class="ln">445</span>            <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(finish.failure.message, finish.failure.code, finish.failure)</span>
+<span class="code-line"><span class="ln">446</span>          }</span>
+<span class="code-line"><span class="ln">447</span>          <span class="tok-k">continue</span></span>
+<span class="code-line"><span class="ln">448</span>        }</span>
+<span class="code-line"><span class="ln">450</span>        <span class="tok-k">const</span> message = <span class="tok-f">createAssistantMessage</span>({</span>
+<span class="code-line"><span class="ln">451</span>          content: live.<span class="tok-f">blocks</span>(),</span>
+<span class="code-line"><span class="ln">452</span>          source: { provider: request.provider, model: request.model,</span>
+<span class="code-line"><span class="ln">455</span>            ...live.replayState !== <span class="tok-k">undefined</span> ? { replayState: live.replayState } : {} },</span>
+<span class="code-line"><span class="ln">456</span>        })</span>
+<span class="code-line"><span class="ln">458</span>        live.<span class="tok-f">settle</span>(<span class="tok-s">'assistant/message'</span>, () =&gt; <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'assistant/message'</span>, {</span>
+<span class="code-line"><span class="ln">459</span>          turn, step, message,</span>
+<span class="code-line"><span class="ln">461</span>          ...live.usage === <span class="tok-k">undefined</span> ? {} : { usage: live.usage },</span>
+<span class="code-line"><span class="ln">462</span>          stream: live.stream,</span>
+<span class="code-line"><span class="ln">463</span>        }, { surfaceOp: <span class="tok-s">'append'</span> }).seq)</span>
+<span class="code-line"><span class="ln">464</span>        <span class="tok-k">if</span> (finish.kind === <span class="tok-s">'max-tokens'</span>) <span class="tok-k">return</span> { kind: <span class="tok-s">'max-tokens'</span> }</span>
+<span class="code-line"><span class="ln">466</span>        <span class="tok-k">const</span> toolCalls = message.content.<span class="tok-f">filter</span>(block =&gt; block.type === <span class="tok-s">'tool-call'</span>)</span>
+<span class="code-line"><span class="ln">467</span>        <span class="tok-k">if</span> (toolCalls.length === 0) <span class="tok-k">return</span> { kind: <span class="tok-s">'completed'</span> }</span>
+<span class="code-line"><span class="ln">488</span>        <span class="tok-k">const</span> { concluded } = <span class="tok-k">await</span> <span class="tok-f">executeToolCalls</span>(</span>
+<span class="code-line"><span class="ln">489</span>          <span class="tok-k">this</span>.loopCtx, turn, step, toolCalls, signal,</span>
+<span class="code-line"><span class="ln">490</span>          context =&gt; <span class="tok-k">this</span>.inbox.<span class="tok-f">splice</span>(<span class="tok-s">'next-step'</span>, <span class="tok-k">this</span>.inbox.nextStep.length, 0, [context]),</span>
+<span class="code-line"><span class="ln">491</span>        )</span>
+<span class="code-line"><span class="ln">492</span>        <span class="tok-k">return</span> concluded ? { kind: <span class="tok-s">'completed'</span> } : <span class="tok-k">null</span></span>
+<span class="code-line"><span class="ln">494</span>        <span class="tok-k">if</span> (!live.ended) live.<span class="tok-f">abandon</span>()</span>
+<span class="code-line"><span class="ln">495</span>        <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">496</span>      }</span>
+<span class="code-line"><span class="ln">497</span>    }</span>
+<span class="code-line"><span class="ln">498</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">348</span><p><code>renderPrompt(assembly)</code>：把 12 页组装的片段渲染成最终 system 文本（严格插值，12 页 §3）。一次 step 一次渲染。</p></div>
-    <div class="lr"><span class="ln-ref">350-362</span><p><strong>内层 while(true) 是重试循环</strong>：每次迭代重新 buildRequest（§2）。注意 <code>deriveMessages()</code> 每次现取；<code>startsRequestSeries</code> 首次用后立即置 false（系列宣告只属第一个请求）。</p></div>
-    <div class="lr"><span class="ln-ref">363-370</span><p><strong>0.1.3-alpha.2 核心变更：AssistantStreamAttempt 取代 BlockAssembler</strong>（<code class="path">agent-loop/src/assistant-stream.ts</code>，140 行；llm 侧 297 行）。它持有：会话 id、尝试序号（每 step 重试 +1）、帧修订号回调（UI 增量渲染）、turn/step、以及帧回调——每个帧 emit <code>agent/assistant-stream</code>（runtime-types.ts:315 新增的 live 事件）。</p></div>
-    <div class="lr"><span class="ln-ref">372-381</span><p><strong>流消费：不再逐 chunk 落盘</strong>。优先 preparedCall（09 页冻结绑定）否则 <code>ctx.llm.stream</code>；<code>live.start()</code> 后每个 chunk 只 <code>live.push(chunk)</code> 进尝试对象。落盘推迟到 settle 一次性完成——持久化每个尝试只写一条事件。</p></div>
-    <div class="lr"><span class="ln-ref">382-423</span><p><strong>catch 是结算路径</strong>：未开始（<code>!started</code>）直接 rethrow；否则三条 settle 路：① 取消且有内容 → <code>assistant/message</code>（<code>interrupted: true</code> + 内嵌 stream）；② 取消但无内容 → <code>assistant/attempt</code>（只存原始流）；③ 非取消失败 → <code>assistant/attempt</code>。结算失败抛 <code>AggregateError</code>（「流失败 + 持久化结算被拒」两个原因都保留）。之后无条件 rethrow。</p></div>
-    <div class="lr"><span class="ln-ref">425-447</span><p>失败分支：finish 为 error/aborted → settle <code>assistant/attempt</code> 后走 <code>agent/request-error</code> waterfall 仲裁。默认 undefined = 终态失败（抛 LlmError）；监听器返回 <code>{kind:'retry'}</code> = 接管恢复 → continue 重试（新 Attempt 新序号）。</p></div>
-    <div class="lr"><span class="ln-ref">449-462</span><p><strong>完成锚点</strong>：<code>live.blocks()</code> 组装消息，<code>settle('assistant/message')</code> 落一条带内嵌 <code>stream: live.stream</code> 的事件——<strong>assistant/message 现在自带原始流</strong>（0.1.3 起 sourceEventSeqs 消失，回放保真由内嵌流承担）。</p></div>
-    <div class="lr"><span class="ln-ref">463</span><p>分支一：max-tokens → 返回 max-tokens（sticky，05 页 302 行）。</p></div>
-    <div class="lr"><span class="ln-ref">465-466</span><p>分支二：没有 tool-call 块 → completed，turn 终结。</p></div>
-    <div class="lr"><span class="ln-ref">467-471</span><p><strong>分支三：有工具调用 → executeToolCalls（13 页）</strong>。第 6 个参数 acceptContext：工具结果产生的 additionalContexts 插回 next-step inbox。</p></div>
-    <div class="lr"><span class="ln-ref">475-478</span><p>外层 catch：<code>live.abandon()</code>（未结算的尝试发出帧流中止，<strong>不落盘</strong>——与 settle 的持久语义相对），然后 rethrow。三态：settle（落盘）、abandon（放弃）、ended（已结算）。</p></div>
-  </div>
-    <div class="lr"><span class="ln-ref">348-359</span><p><strong>内层 while(true) 是重试循环</strong>（不是 turn 循环）：每次迭代都重新 buildRequest——因为重试时配置/头可以变（§2）。注意 <code>deriveMessages()</code> 每次现取：上一次失败可能已经改变了日志。</p></div>
-    <div class="lr"><span class="ln-ref">361-362</span><p>BlockAssembler（<code class="path">llm/src/assembler.ts</code>，207 行）：流→块的唯一权威组装算法。chunkSeqs 记录本 step 所有 chunk 的 seq，供 408 行引用。它把 keep/drop 决策收敛到内部 <code>assembled()</code>：<strong>max-tokens 截断会丢弃无法安全执行的 tool-call 块</strong>（<code>blocks()</code> 与 <code>replayState</code> 同源派生，二者不可能不一致）；replay envelope 的块数对不上时 replayState 归 undefined（对齐性守卫）。</p></div>
-    <div class="lr"><span class="ln-ref">363-364</span><p>优先用 preparedCall（09 页冻结绑定），否则 fallback <code>ctx.llm.stream</code>（10 页公共入口）。两种路径最终都在 llm/stream waterfall 汇合。<strong>流消费包在 try 里</strong>——为了 §4 的 interrupted 锚点。</p></div>
-    <div class="lr"><span class="ln-ref">378-381</span><p><strong>逐 chunk 入尝试对象</strong>：每个 chunk 只 <code>live.push(chunk)</code>（原始保真由尝试对象暂存），每个 chunk 边界查 abort。持久化在 settle 时一次完成。</p></div>
-    <div class="lr"><span class="ln-ref">390-407</span><p><strong>catch 只处理取消的固化，然后无条件 rethrow</strong>——非取消错误原样抛出（归 turn 的错误路径），取消错误固化前缀后也原样抛出（归 turn 的 aborted 路径）。catch 不吞任何东西。</p></div>
-    <div class="lr"><span class="ln-ref">390-407</span><p>失败分支：<code>agent/request-error</code> waterfall 仲裁。默认 undefined = 终态失败（抛 LlmError → turn 以 error 关闭）；任何监听器返回 <code>{kind:'retry'}</code> 且不调 next = 接管恢复 → <code>continue</code> 重试。payload 带 retryPolicy（preparedCall 的注册策略）供策略插件参考。</p></div>
-    <div class="lr"><span class="ln-ref">410-416</span><p>成功：把块流组装成 assistant message。source 记 provider/model + 可选 replayState（供 10 页 forAdapter 做归属检查）。</p></div>
-    <div class="lr"><span class="ln-ref">418-427</span><p><strong>完成锚点</strong>：一条 <code>assistant/message</code>，surfaceOp=append，sourceEventSeqs 引用组成它的 chunk。每次成功 finish <strong>恰好</strong>落一个锚点；派生历史只看锚点，chunk 不进（06 页 deriveEventMessage）。</p></div>
-    <div class="lr"><span class="ln-ref">428</span><p>分支一：max-tokens → 返回 max-tokens（sticky，05 页 299 行）。</p></div>
-    <div class="lr"><span class="ln-ref">430-431</span><p>分支二：没有 tool-call 块 → completed，turn 终结。</p></div>
-    <div class="lr"><span class="ln-ref">432-435</span><p><strong>分支三：有工具调用 → executeToolCalls（13 页）</strong>。第 6 个参数 acceptContext：工具结果产生的 additionalContexts 通过它插回 next-step inbox，成为下一步的输入。</p></div>
-    <div class="lr"><span class="ln-ref">436</span><p>返回三态（§3）：concluded（某工具结果带 concludesTurn）→ completed；否则 null → turn 循环继续下一步（模型欠工具结果一个回复）。</p></div>
+    <div class="lr"><span class="ln-ref">356-359</span><p>接收整个 <code>decision</code>（不再是分离的 assembly + 标志位），一次渲染 system 文本（12 页组装的片段在此变成最终 prompt）。</p></div>
+    <div class="lr"><span class="ln-ref">360</span><p><strong>0.1.5 新增 firstAttempt</strong>：只有首次尝试注入 user/system 消息；重试循环的后续迭代不再重复注入（此前每轮都重复 append user/message，导致重试时日志里出现重复消息）。</p></div>
+    <div class="lr"><span class="ln-ref">362</span><p><strong>拆分 1：prepareRequest</strong>（agent.ts:501）只做「解析 config + 绑定 adapter」——把 09 页原先塞在 buildRequest 前半段的逻辑独立出来，因为 system prompt 的投影决策需要知道 <code>preparedCall.systemPromptUpdate</code>（该路由能否读 in-history prompt）。</p></div>
+    <div class="lr"><span class="ln-ref">363-369</span><p><strong>system prompt 投影</strong>（0.1.5 核心变更）：<code>SystemPromptProjection.project()</code>（<code class="path">runtime-context.ts</code>，159 行）决定要提交哪些 system 节点。三个触发新系列的条件：显式 <code>startsRequestSeries</code>、surface 被 replace 过（generation 变了）、或 <strong><code>toolsChanged</code></strong>（262 行新方法：工具 schema 与已记录 header 不同——工具集变了必须重发 prompt）。返回 <code>commits[]</code>，每条带 <code>message</code> 与 <code>intent</code>（surfaceOp）。</p></div>
+    <div class="lr"><span class="ln-ref">370-372</span><p><strong>落盘为 <code>system/message</code> 事件</strong>：system prompt 不再是 <code>request/header.system</code> 字符串，而是 sequence 上的一个 surface 节点。模型历史由 <code>deriveMessages()</code> 投影，system 节点自然进入（06 页 §1）。</p></div>
+    <div class="lr"><span class="ln-ref">373-378</span><p>首次尝试注入 claimed 的 user 消息；随后清 firstAttempt 标志。</p></div>
+    <div class="lr"><span class="ln-ref">379</span><p><strong>拆分 2：buildRequest</strong>（agent.ts:553）变成纯函数——接收已解析的 config/preparedCall/tools，<strong>自己 derive</strong> <code>session.deriveMessages()</code>（603 行），组装并冻结请求。不再接收 system/boundaryMessages 参数——两者都从 surface 派生。</p></div>
+    <div class="lr"><span class="ln-ref">380-399</span><p>AssistantStreamAttempt 与流消费（0.1.3 机制保留）：start/push，落盘推迟到 settle。</p></div>
+    <div class="lr"><span class="ln-ref">399-423</span><p>catch 结算路径（三态 settle/abandon/ended），与前一版一致。</p></div>
+    <div class="lr"><span class="ln-ref">426-448</span><p>失败分支：<code>agent/request-error</code> waterfall 仲裁；retry → continue（新 Attempt 新序号，<strong>但 firstAttempt 已 false</strong>，不再重复注入）。</p></div>
+    <div class="lr"><span class="ln-ref">450-463</span><p>完成锚点：<code>live.blocks()</code> → <code>settle('assistant/message')</code>，内嵌 <code>stream</code>。</p></div>
+    <div class="lr"><span class="ln-ref">464-467</span><p>分支一：max-tokens；分支二：无工具调用 → completed。</p></div>
+    <div class="lr"><span class="ln-ref">488-492</span><p><strong>分支三：<code>executeToolCalls</code>（13 页）</strong>，additionalContexts 插回 next-step inbox。</p></div>
+    <div class="lr"><span class="ln-ref">494-495</span><p>外层 catch：<code>live.abandon()</code> + rethrow。</p></div>
   </div>
 </section>
 
 <section id="s2">
   <h2><span class="sec-num">§2</span>重试循环的边界</h2>
   <div class="callout warn">
-    <p><strong>两个 while(true) 不要混</strong>（05 页也强调过）：step 的内层 while(true)（350 行）是 request-error→retry 重试循环；turn 的外层 while(true)（05 页 274 行）是 step 循环；kick 的 while（05 页 223 行）是 turn 循环。三层嵌套，各管一层。</p>
+    <p><strong>两个 while(true) 不要混</strong>（05 页也强调过）：step 的内层 while(true)（361 行）是 request-error→retry 重试循环；turn 的外层 while(true)（05 页 286 行）是 step 循环；kick 的 while（05 页 224 行）是 turn 循环。三层嵌套，各管一层。</p>
   </div>
   <div class="callout info">
     <p><strong>为什么重试要重新 buildRequest？</strong>① 每次重试前的 deriveMessages() 可能已不同（失败尝试本身可能改变日志）；② agent/request waterfall 的监听器可能依赖每步最新状态；③ prepareCall 是一次性的——上次的 preparedCall 已经 dispatch 或失败，必须重新 prepare。</p>

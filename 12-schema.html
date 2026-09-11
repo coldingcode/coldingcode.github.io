@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -80,7 +80,7 @@
   <span class="arrow">→</span>
   <span class="here">system-prompt/src/index.ts:552 assemble</span>
   <span class="arrow">→</span>
-  <span class="seg">(下一步) 11 step:349 renderPrompt(assembly)</span>
+  <span class="seg">(下一步) 11 step:359 renderPrompt(assembly)</span>
 </div>
 
 <section id="trace">
@@ -99,7 +99,7 @@
 #   sections 按 order 排序：identity(-100) → persona(0) → tool-guidance(100)
 #   collected = [{name:'bash',description,parameters}, {name:'read',...}, ...]
 # → PromptAssembly 过 system-prompt/assemble waterfall（无改写 → 原样）
-# → 11 页 337 行 renderPrompt：{{persona}} → '一个严谨的工程师助手'
+# → renderPrompt（system-prompt/src/index.ts:273）：{{persona}} → '一个严谨的工程师助手'
 # → system 文本进 09 页 canonicalHeader → request/header.system</pre>
     <div class="src">来源：12 页行级解读 + fixture 的 request/header 行里 system:"SYS PROMPT" 的位置（06 页示例 06-1）</div>
   </div>
@@ -121,6 +121,7 @@
     <li><a href="#s1">合并语义：variables / sections / tools</a></li>
     <li><a href="#s2">waterfall：system-prompt/assemble</a></li>
     <li><a href="#s3">renderPrompt：严格插值</a></li>
+    <li><a href="#s4">0.1.5：从 header 字段到 surface 节点</a></li>
   </ol>
 </nav>
 
@@ -188,14 +189,42 @@
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>renderPrompt：严格插值</h2>
-  <p>11 页 step:337 调 <code>renderPrompt(assembly)</code> 产出最终 system 文本。四条规则（fail-loud 取向）：</p>
+  <p>11 页 <code>agent.ts:359</code> 调 <code>renderPrompt(assembly)</code>（<code>system-prompt/src/index.ts:273</code>）产出最终 system 文本。四条规则（fail-loud 取向）：</p>
   <ol>
     <li>未注册的变量（<code>Object.hasOwn</code> 防原型名攻击）→ <strong>throw</strong></li>
     <li>注册但值为 <code>undefined</code> → <strong>throw</strong></li>
     <li>畸形的完整组（<code>{{}}</code> 里不是合法名）→ <strong>throw</strong></li>
     <li>孤立 <code>{{</code> 后无 <code>}}</code> → 字面量（不是变量，保留原文）</li>
   </ol>
-  <p>渲染出的 system 文本随后进入 09 页的 <code>canonicalHeader</code>，落进 <code>request/header</code> 事件——<strong>模型看到的 prompt 从此可从日志重建</strong>。</p>
+  <p>渲染出的文本<strong>不再</strong>进入 <code>request/header</code>。0.1.5 起它交给 <code>SystemPromptProjection.project()</code>（<code class="path">runtime-context.ts:83</code>），由它决定以 append 还是 replace 的方式落成 <code>system/message</code> surface 节点（11 页 364-372 行）。<strong>模型看到的 prompt 依然可从日志重建</strong>——只是承载它的事件换了地方，而且现在能承载「多个版本」而非单个字符串。</p>
+</section>
+
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>0.1.5：从 header 字段到 surface 节点</h2>
+  <p>这一版把 system prompt 从「请求头里的一个字段」提升为「日志里的一个 surface 节点」。三处代码是这个转变的落点：</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>层</th><th>0.1.3-alpha.2</th><th>0.1.5</th></tr>
+    <tr><td>事件</td><td><code>request/header.system: string</code></td><td><code>system/message { turn, step, message }</code>（<code class="path">session/src/types.ts:310</code>）</td></tr>
+    <tr><td>surface</td><td>非 surface 事件</td><td><code>SurfaceEventType</code> 第 4 个成员——<strong>surface 节点 0</strong></td></tr>
+    <tr><td>格式版本</td><td><code>SESSION_FORMAT_VERSION = 2</code></td><td><code>SESSION_FORMAT_VERSION = 3</code>（types.ts:88）</td></tr>
+    <tr><td>校验</td><td>无</td><td><code>validateSessionEventData</code> 拒绝带 <code>system</code> 的 header（surface.ts:149）</td></tr>
+    <tr><td>能力位</td><td>无</td><td><code>systemPromptUpdate: 'in-history'</code>（llm/src/index.ts:942）</td></tr>
+  </table></div>
+
+  <div class="callout key">
+    <p><strong>为什么值得换？</strong>旧结构下 system prompt 是请求的一个属性——它随请求生灭，日志里只有「最后一次用的是什么」。新结构下它是一个<strong>surface 节点</strong>，于是：</p>
+    <ul>
+      <li><strong>替换而非删除</strong>：prompt 变化时用 <code>surfaceOp: {op:'replace'}</code> 遮蔽旧节点（<code>runtime-context.ts:100-105</code>），历史版本留在日志里。</li>
+      <li><strong>能在历史中间追加</strong>：适配器声明 <code>in-history</code> 能力时，prompt 的变化作为一条新的 <code>system/message</code> 追加在对话流中——模型能感知到「系统指令刚刚变了」。这是 <code>project()</code> 里 96-97 行的分支。</li>
+      <li><strong>与其他 surface 节点同构</strong>：compaction 的 replace、工具结果的 append 与它走同一套 <code>planSurfaceEvent</code> 机制——surface 只有一种规则。</li>
+    </ul>
+  </div>
+
+  <div class="callout warn">
+    <p><strong>迁移是硬断点</strong>：<code>SESSION_FORMAT_VERSION</code> 从 2 升到 3，而 dsh 的持久化<strong>没有迁移器</strong>（20 页：版本不匹配直接拒绝）。旧会话日志不能在新版本里恢复——这是「宁可起不来，也不静默读错」的又一处体现。</p>
+  </div>
 </section>
 
 <footer class="prevnext">

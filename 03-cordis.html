@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -76,7 +76,7 @@
 </header>
 
 <div class="chain">
-  <span class="seg">02 profile.ts:413 composeEntries</span>
+  <span class="seg">02 profile.ts:841 composeEntries</span>
   <span class="arrow">→</span>
   <span class="here">app-boot/src/index.ts:787 boot()</span>
   <span class="arrow">→</span>
@@ -151,8 +151,14 @@
   <h2><span class="sec-num">§1</span>boot()：九行编排</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/boot/app-boot/src/index.ts</span><span>boot 的主体（节选）</span><span class="ln-range">787-832</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">787</span><span class="tok-k">export async function</span> <span class="tok-f">boot</span>(binName, absoluteConfigPath, patches?, prepare?, bareModuleBaseUrl?): Promise&lt;Context&gt; {</span>
+  <figcaption><span class="fname">packages/boot/app-boot/src/index.ts</span><span>boot 的主体（节选）</span><span class="ln-range">787-834</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">787</span><span class="tok-k">export async function</span> <span class="tok-f">boot</span>(</span>
+<span class="code-line"><span class="ln">788</span>  binName: string,</span>
+<span class="code-line"><span class="ln">789</span>  absoluteConfigPath: string,</span>
+<span class="code-line"><span class="ln">790</span>  patches?: PatchOptions[],</span>
+<span class="code-line"><span class="ln">791</span>  prepare?: (ctx: Context) =&gt; Promise&lt;<span class="tok-k">void</span>&gt; | <span class="tok-k">void</span>,</span>
+<span class="code-line"><span class="ln">792</span>  bareModuleBaseUrl?: string,</span>
+<span class="code-line"><span class="ln">793</span>): Promise&lt;Context&gt; {</span>
 <span class="code-line"><span class="ln">794</span>  <span class="tok-k">const</span> ctx = <span class="tok-k">new</span> <span class="tok-t">Context</span>()</span>
 <span class="code-line"><span class="ln">797</span>  <span class="tok-k">let</span> stage = <span class="tok-s">'host preparation failed'</span></span>
 <span class="code-line"><span class="ln">798</span>  <span class="tok-k">try</span> {</span>
@@ -168,27 +174,27 @@
 <span class="code-line"><span class="ln">815</span>    <span class="tok-k">return</span> ctx</span>
 <span class="code-line"><span class="ln">816</span>  } <span class="tok-k">catch</span> (cause) {</span>
 <span class="code-line"><span class="ln">820</span>    <span class="tok-k">await</span> ctx.fiber.<span class="tok-f">dispose</span>()      <span class="tok-c">// 失败时销毁半成品树</span></span>
-<span class="code-line"><span class="ln">830</span>    <span class="tok-k">let</span> deepest: unknown = cause</span>
-<span class="code-line"><span class="ln">831</span>    <span class="tok-k">while</span> (deepest <span class="tok-k">instanceof</span> <span class="tok-t">Error</span> &amp;&amp; deepest.cause !== <span class="tok-k">undefined</span>) deepest = deepest.cause</span>
-<span class="code-line"><span class="ln">832</span>    <span class="tok-k">const</span> stack = deepest <span class="tok-k">instanceof</span> <span class="tok-t">Error</span> &amp;&amp; deepest !== cause ? `
-${deepest.stack ?? deepest.message}` : <span class="tok-s">''</span></span>
-<span class="code-line"><span class="ln">833</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`${binName}: ${stage}: ${detail}${stack}`, { cause })</span>
-<span class="code-line"><span class="ln">834</span>  }</span>
-<span class="code-line"><span class="ln">835</span>}</span>
-</figure>
+<span class="code-line"><span class="ln">827</span>    <span class="tok-k">let</span> deepest: unknown = cause</span>
+<span class="code-line"><span class="ln">828</span>    <span class="tok-k">while</span> (deepest <span class="tok-k">instanceof</span> <span class="tok-t">Error</span> &amp;&amp; deepest.cause !== <span class="tok-k">undefined</span>) deepest = deepest.cause</span>
+<span class="code-line"><span class="ln">829</span>    <span class="tok-k">const</span> stack = deepest <span class="tok-k">instanceof</span> <span class="tok-t">AggregateError</span></span>
+<span class="code-line"><span class="ln">830</span>      ? `\n${deepest.stack ?? deepest.message}\n${deepest.errors.map(formatActivationError).join('\n')}`</span>
+<span class="code-line"><span class="ln">831</span>      : deepest <span class="tok-k">instanceof</span> <span class="tok-t">Error</span> &amp;&amp; deepest !== cause ? `\n${deepest.stack ?? deepest.message}` : <span class="tok-s">''</span></span>
+<span class="code-line"><span class="ln">832</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`${binName}: ${stage}: ${detail}${stack}`, { cause })</span>
+<span class="code-line"><span class="ln">833</span>  }</span>
+<span class="code-line"><span class="ln">834</span>}</span></code></pre></figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">812</span><p><strong>整个 dsh 的运行时根在这里诞生</strong>：<code>new Context()</code>——Cordis 的依赖容器（§2 详述）。之后的一切（Loader、插件树）都挂在这一个对象上。</p></div>
-    <div class="lr"><span class="ln-ref">814</span><p><code>baseUrl</code> 是配置文件的目录（转成 file:// URL）——Loader 用它解析配置里的相对 specifier。这就是 02 页说的「空 cordis.yml 只为锚定 baseUrl」的锚定点。</p></div>
+    <div class="lr"><span class="ln-ref">794</span><p><strong>整个 dsh 的运行时根在这里诞生</strong>：<code>new Context()</code>——Cordis 的依赖容器（§2 详述）。之后的一切（Loader、插件树）都挂在这一个对象上。</p></div>
+    <div class="lr"><span class="ln-ref">799</span><p><code>baseUrl</code> 是配置文件的目录（转成 file:// URL）——Loader 用它解析配置里的相对 specifier。这就是 02 页说的「空 cordis.yml 只为锚定 baseUrl」的锚定点。</p></div>
     <div class="lr"><span class="ln-ref">800</span><p><code>dshHomePath</code> 是 <code>ctx.provide</code> 的第一个值——它是 cordis.patch.yml 里 <code>!!js</code> 表达式可以引用的变量。provide 在配置树条目挂载之前，所以所有插件解析启动期环境值时读到的都是同一个不可变快照。</p></div>
     <div class="lr"><span class="ln-ref">801</span><p><code>ctx.plugin(Loader)</code>：Loader 是 Cordis 的一个服务（vendored，<code class="path">vendor/loader/src/index.ts</code>），名字 <code>'loader'</code>。它是「把配置行变成 fiber」的引擎——<code>ctx.loader.create({...})</code> 就是往树里挂一个新插件。</p></div>
-    <div class="lr"><span class="ln-ref">799</span><p><code>prepare</code> 回调：宿主预备。04 页的 runProfile 用它 provide 环境快照和命令行参数——时机在「Loader 装上之后、任何配置树条目挂载之前」，保证所有插件读到的环境值一致。</p></div>
+    <div class="lr"><span class="ln-ref">802</span><p><code>prepare</code> 回调：宿主预备。04 页的 runProfile 用它 provide 环境快照和命令行参数——时机在「Loader 装上之后、任何配置树条目挂载之前」，保证所有插件读到的环境值一致。</p></div>
     <div class="lr"><span class="ln-ref">803</span><p>两段式错误标签：<code>prepare</code> 抛错是「host preparation failed」（宿主的问题）；之后抛错是「plugin tree failed to load」（插件树的问题）。诊断信息一眼定位故障归属。</p></div>
     <div class="lr"><span class="ln-ref">804</span><p><code>mountRootInclude</code>：把 Include 服务（vendored <code>cordis-plugin-include</code>）挂为 id='include' 的 <code>cordis:include</code> builtin。它做的事：读 root 配置 + 把 <code>patches</code> overlay 叠上去。到这里，02 页的条目表终于变成了「会被挂载」的配置。</p></div>
     <div class="lr"><span class="ln-ref">812</span><p><code>loader.await()</code>：等所有条目 settle。挂载是异步的（插件可以互相等待服务可用），这里阻塞到整棵树稳定。</p></div>
     <div class="lr"><span class="ln-ref">813</span><p><strong>一个微妙分支</strong>：surface（应用本体，比如 headless 的 one-shot runner）可能在树还没挂完时就完成了任务并 dispose 整棵树——此时 loader 服务已随树销毁，<code>get('loader')</code> 是 undefined，直接返回。这是「快速 one-shot 的正常退出」，不是错误。</p></div>
     <div class="lr"><span class="ln-ref">814</span><p>最终审计：<code>assertEntriesActivated</code>（§4）——有 FAILED/PENDING 就报错。</p></div>
-    <div class="lr"><span class="ln-ref">816-831</span><p>失败路径：<strong>先 dispose 半成品树</strong>（Cordis fiber 的 dispose 是幂等的，重复调用返回同一个已结算结果，所以这个 await 不会 reject 并盖掉 cause），然后挖错误链最深的 cause 拼进诊断——启动报错要带「真正的失败点」的栈，而不是包壳链。</p></div>
+    <div class="lr"><span class="ln-ref">816-832</span><p>失败路径：<strong>先 dispose 半成品树</strong>（Cordis fiber 的 dispose 是幂等的，重复调用返回同一个已结算结果，所以这个 await 不会 reject 并盖掉 cause），然后挖错误链最深的 cause 拼进诊断——启动报错要带「真正的失败点」的栈，而不是包壳链。</p></div>
   </div>
 </section>
 
@@ -216,7 +222,7 @@ ${deepest.stack ?? deepest.message}` : <span class="tok-s">''</span></span>
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>fiber：条目的生命周期</h2>
-  <p>配置树里每个 Entry 挂载后就是一个 <strong>fiber</strong>（<code class="path">vendor/cordis/src/fiber.ts</code>，754 行）——插件实例的生命周期载体。<code>FiberState</code> 枚举是审计的依据：</p>
+  <p>配置树里每个 Entry 挂载后就是一个 <strong>fiber</strong>（<code class="path">vendor/cordis/src/fiber.ts</code>）——插件实例的生命周期载体。<code>FiberState</code> 枚举是审计的依据：</p>
 
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>状态</th><th>含义</th><th>boot 审计如何处理</th></tr>
@@ -232,36 +238,48 @@ ${deepest.stack ?? deepest.message}` : <span class="tok-s">''</span></span>
   <h2><span class="sec-num">§4</span>fail-loud 审计</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/boot/app-boot/src/index.ts</span><span>assertEntriesActivated 的核心循环</span><span class="ln-range">722-757</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">722</span><span class="tok-k">export async function</span> <span class="tok-f">assertEntriesActivated</span>(ctx, binName): Promise&lt;<span class="tok-k">void</span>&gt; {</span>
-<span class="code-line"><span class="ln">727</span>  <span class="tok-k">const</span> failures: string[] = []</span>
-<span class="code-line"><span class="ln">729</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> entry <span class="tok-k">of</span> ctx.loader.<span class="tok-f">entries</span>()) {</span>
-<span class="code-line"><span class="ln">730</span>    <span class="tok-k">const</span> fiber = entry.fiber</span>
-<span class="code-line"><span class="ln">731</span>    <span class="tok-k">if</span> (fiber === <span class="tok-k">undefined</span> || entry.disabled) <span class="tok-k">continue</span></span>
-<span class="code-line"><span class="ln">732</span>    <span class="tok-k">const</span> state = fiber.state</span>
-<span class="code-line"><span class="ln">733</span>    <span class="tok-k">if</span> (state === FIBER_ACTIVE) <span class="tok-k">continue</span></span>
-<span class="code-line"><span class="ln">734</span>    <span class="tok-k">if</span> (state === FIBER_FAILED) {</span>
-<span class="code-line"><span class="ln">736</span>      <span class="tok-k">try</span> { <span class="tok-k">await</span> fiber.<span class="tok-f">await</span>() } <span class="tok-k">catch</span> (error) { rejectionReasons.<span class="tok-f">push</span>(error) ... }</span>
-<span class="code-line"><span class="ln">741</span>      <span class="tok-k">continue</span></span>
-<span class="code-line"><span class="ln">709</span>    }</span>
-<span class="code-line"><span class="ln">743</span>    <span class="tok-k">if</span> (state === FIBER_PENDING) {</span>
-<span class="code-line"><span class="ln">744</span>      <span class="tok-k">const</span> missing = Object.<span class="tok-f">keys</span>(fiber.inject).<span class="tok-f">filter</span>(service =&gt; fiber.ctx.<span class="tok-f">get</span>(service) === <span class="tok-k">undefined</span>)</span>
-<span class="code-line"><span class="ln">713</span>      failures.<span class="tok-f">push</span>(`${entry.options.name}: pending (waiting for ${subject}: ${missing.<span class="tok-f">join</span>(<span class="tok-s">', '</span>) || <span class="tok-s">'unknown'</span>})`)</span>
-<span class="code-line"><span class="ln">747</span>    } <span class="tok-k">else</span> {</span>
-<span class="code-line"><span class="ln">748</span>      failures.<span class="tok-f">push</span>(`${entry.options.name}: fiber state ${String(state)}`)</span>
-<span class="code-line"><span class="ln">749</span>    }</span>
-<span class="code-line"><span class="ln">750</span>  }</span>
-<span class="code-line"><span class="ln">751</span>  <span class="tok-k">if</span> (failures.length &gt; 0) {</span>
-<span class="code-line"><span class="ln">723</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`${binName}: ${failures.length} ${noun} did not activate\n${failures.<span class="tok-f">join</span>(<span class="tok-s">'\n'</span>)}`)</span>
-<span class="code-line"><span class="ln">757</span>  }</span>
-<span class="code-line"><span class="ln">760</span>}</span></code></pre>
+  <figcaption><span class="fname">packages/boot/app-boot/src/index.ts</span><span>assertEntriesActivated 全文</span><span class="ln-range">722-755</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">722</span><span class="tok-k">export async function</span> <span class="tok-f">assertEntriesActivated</span>(ctx: Context, binName: string): Promise&lt;<span class="tok-k">void</span>&gt; {</span>
+<span class="code-line"><span class="ln">723</span>  <span class="tok-f">assertEntriesLoaded</span>(ctx, binName)</span>
+<span class="code-line"><span class="ln">724</span>  <span class="tok-k">const</span> failures: string[] = []</span>
+<span class="code-line"><span class="ln">725</span>  <span class="tok-k">const</span> rejectionReasons: <span class="tok-k">unknown</span>[] = []</span>
+<span class="code-line"><span class="ln">726</span>  <span class="tok-k">for</span> (<span class="tok-k">const</span> entry <span class="tok-k">of</span> ctx.loader.<span class="tok-f">entries</span>()) {</span>
+<span class="code-line"><span class="ln">727</span>    <span class="tok-k">const</span> fiber = entry.fiber</span>
+<span class="code-line"><span class="ln">728</span>    <span class="tok-k">if</span> (fiber === <span class="tok-k">undefined</span> || entry.disabled) <span class="tok-k">continue</span></span>
+<span class="code-line"><span class="ln">729</span>    <span class="tok-k">const</span> state = fiber.state</span>
+<span class="code-line"><span class="ln">730</span>    <span class="tok-k">if</span> (state === FIBER_ACTIVE) <span class="tok-k">continue</span></span>
+<span class="code-line"><span class="ln">731</span>    <span class="tok-k">if</span> (state === FIBER_FAILED) {</span>
+<span class="code-line"><span class="ln">732</span>      <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">733</span>        <span class="tok-k">await</span> fiber.<span class="tok-f">await</span>()</span>
+<span class="code-line"><span class="ln">734</span>      } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">735</span>        rejectionReasons.<span class="tok-f">push</span>(error)</span>
+<span class="code-line"><span class="ln">736</span>        failures.<span class="tok-f">push</span>(`${entry.options.name}: ${<span class="tok-f">formatActivationError</span>(error)}`)</span>
+<span class="code-line"><span class="ln">737</span>      }</span>
+<span class="code-line"><span class="ln">738</span>      <span class="tok-k">continue</span></span>
+<span class="code-line"><span class="ln">739</span>    }</span>
+<span class="code-line"><span class="ln">740</span>    <span class="tok-k">if</span> (state === FIBER_PENDING) {</span>
+<span class="code-line"><span class="ln">741</span>      <span class="tok-k">const</span> missing = Object.<span class="tok-f">keys</span>(fiber.inject).<span class="tok-f">filter</span>(service =&gt; fiber.ctx.<span class="tok-f">get</span>(service) === <span class="tok-k">undefined</span>)</span>
+<span class="code-line"><span class="ln">742</span>      <span class="tok-k">const</span> subject = missing.length === 1 ? <span class="tok-s">'service'</span> : <span class="tok-s">'services'</span></span>
+<span class="code-line"><span class="ln">743</span>      failures.<span class="tok-f">push</span>(`${entry.options.name}: pending (waiting for ${subject}: ${missing.<span class="tok-f">join</span>(<span class="tok-s">', '</span>) || <span class="tok-s">'unknown'</span>})`)</span>
+<span class="code-line"><span class="ln">744</span>    } <span class="tok-k">else</span> {</span>
+<span class="code-line"><span class="ln">745</span>      failures.<span class="tok-f">push</span>(`${entry.options.name}: fiber state ${String(state)}`)</span>
+<span class="code-line"><span class="ln">746</span>    }</span>
+<span class="code-line"><span class="ln">747</span>  }</span>
+<span class="code-line"><span class="ln">748</span>  <span class="tok-k">if</span> (failures.length &gt; 0) {</span>
+<span class="code-line"><span class="ln">749</span>    <span class="tok-k">if</span> (rejectionReasons.length &gt; 0) {</span>
+<span class="code-line"><span class="ln">750</span>      <span class="tok-k">await</span> <span class="tok-f">observeLoaderRejectionCheckpoint</span>(rejectionReasons)</span>
+<span class="code-line"><span class="ln">751</span>    }</span>
+<span class="code-line"><span class="ln">752</span>    <span class="tok-k">const</span> noun = failures.length === 1 ? <span class="tok-s">'entry'</span> : <span class="tok-s">'entries'</span></span>
+<span class="code-line"><span class="ln">753</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(`${binName}: ${String(failures.length)} ${noun} did not activate\n${failures.<span class="tok-f">join</span>(<span class="tok-s">'\n'</span>)}`)</span>
+<span class="code-line"><span class="ln">754</span>  }</span>
+<span class="code-line"><span class="ln">755</span>}</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">728</span><p>跳过两类：没有 fiber 的条目（未被挂载）和 <code>disabled</code> 的条目（如 win32 上的 bash-sandbox）——disabled 是合法的「不挂」。</p></div>
-    <div class="lr"><span class="ln-ref">731-738</span><p>FAILED：<code>await fiber.await()</code> 取到 init 的 rejection，记录原始错误。这里还调了 <code>observeLoaderRejectionCheckpoint</code>——把 rejection 转成观测事件（遥测用）。</p></div>
+    <div class="lr"><span class="ln-ref">727-728</span><p>跳过两类：没有 fiber 的条目（未被挂载）和 <code>disabled</code> 的条目（如 win32 上的 bash-sandbox）——disabled 是合法的「不挂」。</p></div>
+    <div class="lr"><span class="ln-ref">731-739</span><p>FAILED：<code>await fiber.await()</code> 取到 init 的 rejection，记录原始错误。这里还调了 <code>observeLoaderRejectionCheckpoint</code>——把 rejection 转成观测事件（遥测用）。</p></div>
     <div class="lr"><span class="ln-ref">740-743</span><p>PENDING：<strong>诊断的亮点</strong>——直接列出 fiber 声明注入（inject）但拿不到的服务名。报错信息形如 <code>dsh-tool-bash: pending (waiting for services: shell)</code>，一眼定位配置树里缺了哪个 provider。</p></div>
-    <div class="lr"><span class="ln-ref">748-753</span><p>只要有一个失败就整体报错——fail-loud。没有「部分树继续跑」的静默降级。</p></div>
+    <div class="lr"><span class="ln-ref">748-754</span><p>只要有一个失败就整体报错——fail-loud。没有「部分树继续跑」的静默降级。</p></div>
   </div>
 </section>
 

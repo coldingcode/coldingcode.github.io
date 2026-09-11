@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.3-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -76,11 +76,11 @@
 </header>
 
 <div class="chain">
-  <span class="seg">(谁唤醒它) wakeDriver:183 ← send:124 ← followup/steer/inject</span>
+  <span class="seg">(谁唤醒它) wakeDriver:187 ← send:128 ← followup/steer/inject</span>
   <span class="arrow">→</span>
-  <span class="here">agent.ts:221 kick → :257 turn</span>
+  <span class="here">agent.ts:225 kick → :269 turn</span>
   <span class="arrow">→</span>
-  <span class="seg">(下一步) turn 内 :276 preStep → 08 页</span>
+  <span class="seg">(下一步) turn 内 :289 preStep → 08 页</span>
 </div>
 
 <section id="trace">
@@ -91,37 +91,39 @@
     <pre>turn 1 ──────────────────────────────────────────────────────
   step 1 ────────────────────────────────────────────────────
     [inbox]  claim: next-step[] + next-turn[「帮我列一下当前目录」]   ← 07 页
-    [event]  turn/start {turn:1}          ← 本页 266 行
-    [event]  step/start {turn:1,step:1}   ← 本页 290 行
-    [event]  user/message「帮我列一下当前目录」surfaceOp:append ← 293-294 行
+    [event]  turn/start {turn:1}          ← 本页 278 行
+    [llm]    prepareRequest + systemPrompt.project ← 本页 362-372 行
+    [event]  system/message {turn:1,step:1}（surface 节点 0）  ← 0.1.5 新增
+    [event]  step/start {turn:1,step:1}   ← 本页 302 行
+    [event]  user/message「帮我列一下当前目录」surfaceOp:append ← 本页 375 行
     [prep]   preStep 四动作               ← 08 页
-    [event]  request/header {config,system,tools} reason:initial ← 09 页
+    [event]  request/header {config,tools} reason:initial（无 system 字段）← 09 页
     [llm]    assistant 流×N「我来帮你列一下目录」              ← 10/11 页
     [event]  assistant/message（完成锚点，引用上面 chunk 的 seq）
-    [llm]    模型请求工具 bash("ls -la")                          ← 11 页 457 行
+    [llm]    模型请求工具 bash("ls -la")                          ← 11 页 486 行
     [event]  tool/call {callId:"c1", name:"bash", arguments:"..."} ← 13 页
     [tools]  pre-execute→execute→post-execute                    ← 14 页
     [event]  tool/result {callId:"c1", 内容=目录列表, sourceEventSeqs:[callSeq]}
-    [event]  step/end {turn:1,step:1}   ← 本页 292 行
+    [event]  step/end {turn:1,step:1}   ← 本页 312 行
   step 2 ────────────────────────────────────────────────────
     [inbox]  claim: next-step[]（工具结果已在日志，无新输入）
     [event]  step/start {turn:1,step:2}
     [llm]    模型看到工具结果，生成最终回答
     [event]  assistant/message「目录里有这些文件...」
     [event]  step/end {turn:1,step:2}
-    [check]  turnEnds=completed 且 nextStep 空 → agent/turn-stopping（306 行）
-    [event]  turn/end {turn:1, reason:completed}  ← 本页 330 行
-  kick 收敛：inbox 无货 → turn() 返回 false → phase 回 idle（230 行）</pre>
+    [check]  turnEnds=completed 且 nextStep 空 → agent/turn-stopping（316 行）
+    [event]  turn/end {turn:1, reason:completed}  ← 本页 339 行
+  kick 收敛：inbox 无货 → turn() 返回 false → phase 回 idle（234 行）</pre>
     <div class="src">来源：事件顺序与行号全部来自本页/06-14 页的源码；JSONL 行格式来自仓库真实 fixture（packages/test-support/acp-snapshot/tests/fixtures/suite/plain-turn/）</div>
   </div>
   <div class="trace">
     <div class="trace-head">示例轨迹 05-2 · 一个 turn 两个 step 的原因</div>
-    <pre># step 1 结束时模型请求了工具（11 页 471 行 executeToolCalls）
-# 结果不 concludesTurn → step 返回 null（11 页 476 行）
+    <pre># step 1 结束时模型请求了工具（本页 488 行 executeToolCalls）
+# 结果不 concludesTurn → step 返回 null（本页 492 行）
 # → turnEnds 仍为 null → 不 break → target='next-step' → step 2
-# step 2 模型只输出文本 → 返回 completed → turnEnds 记录 → 关 turn
+# step 2 模型只输出文本 → 返回 completed（本页 487 行）→ turnEnds 记录 → 关 turn
 # 这就是「一轮包含零个或多个步骤」的最小实例。</pre>
-    <div class="src">来源：05 页 298-310 行 + 11 页 476 行</div>
+    <div class="src">来源：本页 314-320 行 + 487-492 行</div>
   </div>
 </section>
 
@@ -141,33 +143,41 @@
   <h2><span class="sec-num">§1</span>构造器：agent 手里握着什么</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>构造器</span><span class="ln-range">71-108</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">71</span><span class="tok-k">export class</span> <span class="tok-t">ReactLoopAgent</span> <span class="tok-k">implements</span> Agent {</span>
-<span class="code-line"><span class="ln">72</span>  <span class="tok-k">readonly</span> inbox: ReactLoopInbox   <span class="tok-c">// 0.1.3-alpha.2：driver 拥有的实现</span></span>
-<span class="code-line"><span class="ln">73</span>  <span class="tok-k">private</span> phase: Phase</span>
-<span class="code-line"><span class="ln">92</span>  <span class="tok-k">private readonly</span> frozenMessages = <span class="tok-k">new</span> <span class="tok-t">WeakSet</span>&lt;Message&gt;()</span>
-<span class="code-line"><span class="ln">94</span>  <span class="tok-f">constructor</span>(</span>
-<span class="code-line"><span class="ln">95</span>    <span class="tok-k">private</span> loopCtx: Context,</span>
-<span class="code-line"><span class="ln">96</span>    <span class="tok-k">public readonly</span> id: SessionId,</span>
-<span class="code-line"><span class="ln">97</span>    <span class="tok-k">public readonly</span> options: AgentOptions,</span>
-<span class="code-line"><span class="ln">98</span>    <span class="tok-k">public readonly</span> session: Session,</span>
-<span class="code-line"><span class="ln">99</span>  ) {</span>
-<span class="code-line"><span class="ln">100</span>    <span class="tok-k">this</span>.dispatch = <span class="tok-f">agentEvents</span>(loopCtx, <span class="tok-k">this</span>)</span>
-<span class="code-line"><span class="ln">101</span>    <span class="tok-k">this</span>.scope = <span class="tok-f">createScope</span>(loopCtx, <span class="tok-k">this</span>)</span>
-<span class="code-line"><span class="ln">102</span>    <span class="tok-k">this</span>.ctx = <span class="tok-k">this</span>.scope.ctx.<span class="tok-f">extend</span>({ agent: <span class="tok-k">this</span> })</span>
-<span class="code-line hl"><span class="ln">103</span>    <span class="tok-k">this</span>.inbox = <span class="tok-k">new</span> <span class="tok-t">ReactLoopInbox</span>(<span class="tok-k">this</span>.ctx.sessionProjections, session, <span class="tok-k">this</span>.dispatch)</span><span class="note">先建 ctx，再建 inbox</span></span>
-<span class="code-line"><span class="ln">105</span>    <span class="tok-k">const</span> lastTurn = <span class="tok-k">this</span>.loopCtx.sessionProjections.<span class="tok-f">stateOf</span>(session, <span class="tok-s">'turnBoundary'</span>)?.lastTurn ?? 0</span>
-<span class="code-line"><span class="ln">106</span>    <span class="tok-k">this</span>.phase = { kind: <span class="tok-s">'idle'</span>, lastTurn }</span>
-<span class="code-line"><span class="ln">107</span>    <span class="tok-k">this</span>.runtimeContext = <span class="tok-k">new</span> <span class="tok-t">RuntimeContextProjection</span>(<span class="tok-k">this</span>.ctx, session)</span>
-<span class="code-line"><span class="ln">108</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>构造器</span><span class="ln-range">72-112</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">72</span><span class="tok-k">export class</span> <span class="tok-t">ReactLoopAgent</span> <span class="tok-k">implements</span> Agent {</span>
+<span class="code-line"><span class="ln">73</span>  <span class="tok-k">readonly</span> inbox: ReactLoopInbox</span>
+<span class="code-line"><span class="ln">74</span>  <span class="tok-k">private</span> phase: Phase</span>
+<span class="code-line"><span class="ln">87</span>  <span class="tok-k">private</span> requestSurfaceGeneration: number   <span class="tok-c">// 0.1.5：构造时即赋值，不再 undefined 起步</span></span>
+<span class="code-line hl"><span class="ln">92</span>  <span class="tok-k">private readonly</span> systemPrompt: SystemPromptProjection   <span class="tok-c">// 0.1.5 新增</span></span><span class="note">system prompt 投影器</span></span>
+<span class="code-line"><span class="ln">94</span>  <span class="tok-k">private readonly</span> frozenMessages = <span class="tok-k">new</span> <span class="tok-t">WeakSet</span>&lt;Message&gt;()</span>
+<span class="code-line"><span class="ln">96</span>  <span class="tok-f">constructor</span>(</span>
+<span class="code-line"><span class="ln">97</span>    <span class="tok-k">private</span> loopCtx: Context,</span>
+<span class="code-line"><span class="ln">98</span>    <span class="tok-k">public readonly</span> id: SessionId,</span>
+<span class="code-line"><span class="ln">99</span>    <span class="tok-k">public readonly</span> options: AgentOptions,</span>
+<span class="code-line"><span class="ln">100</span>    <span class="tok-k">public readonly</span> session: Session,</span>
+<span class="code-line"><span class="ln">101</span>  ) {</span>
+<span class="code-line"><span class="ln">102</span>    <span class="tok-k">this</span>.requestSurfaceGeneration = session.surface.replaceGeneration</span>
+<span class="code-line"><span class="ln">103</span>    <span class="tok-k">this</span>.dispatch = <span class="tok-f">agentEvents</span>(loopCtx, <span class="tok-k">this</span>)</span>
+<span class="code-line"><span class="ln">104</span>    <span class="tok-k">this</span>.scope = <span class="tok-f">createScope</span>(loopCtx, <span class="tok-k">this</span>)</span>
+<span class="code-line hl"><span class="ln">105</span>    <span class="tok-k">this</span>.ctx = <span class="tok-k">this</span>.scope.ctx   <span class="tok-c">// 0.1.5：不再 extend({ agent: this })</span></span><span class="note">Agent 接口已迁到 types.ts</span></span>
+<span class="code-line"><span class="ln">106</span>    <span class="tok-k">this</span>.inbox = <span class="tok-k">new</span> <span class="tok-t">ReactLoopInbox</span>(<span class="tok-k">this</span>.ctx.sessionProjections, session, <span class="tok-k">this</span>.dispatch)</span>
+<span class="code-line"><span class="ln">108</span>    <span class="tok-k">const</span> lastTurn = <span class="tok-k">this</span>.loopCtx.sessionProjections.<span class="tok-f">stateOf</span>(session, <span class="tok-s">'turnBoundary'</span>)?.lastTurn ?? 0</span>
+<span class="code-line"><span class="ln">109</span>    <span class="tok-k">this</span>.phase = { kind: <span class="tok-s">'idle'</span>, lastTurn }</span>
+<span class="code-line"><span class="ln">110</span>    <span class="tok-k">this</span>.runtimeContext = <span class="tok-k">new</span> <span class="tok-t">RuntimeContextProjection</span>(<span class="tok-k">this</span>.ctx, session)</span>
+<span class="code-line hl"><span class="ln">111</span>    <span class="tok-k">this</span>.systemPrompt = <span class="tok-k">new</span> <span class="tok-t">SystemPromptProjection</span>(session)</span><span class="note">0.1.5 新增</span></span>
+<span class="code-line"><span class="ln">112</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">71-73</span><p>ReactLoopAgent <strong>实现 Agent 接口</strong>。它持有三个关键对象：inbox（输入队列投影，0.1.3-alpha.2 起类型是 driver 自己的 <code>ReactLoopInbox</code>）、phase（状态机真相）、session（持久日志）。</p></div>
-    <div class="lr"><span class="ln-ref">92</span><p><code>frozenMessages</code>（0.1.3-alpha.2 新增）：本 loop 冻结过的消息身份集合——buildRequest 只对没冻结过的消息做深冻结，避免每步重复遍历整段历史。</p></div>
-    <div class="lr"><span class="ln-ref">100-103</span><p><strong>构造顺序变了</strong>：先建 dispatch → scope → ctx，然后才建 inbox——因为 <code>ReactLoopInbox</code> 需要 <code>this.ctx.sessionProjections</code>（投影注册表）才能注册自己的投影（07 页）。</p></div>
-    <div class="lr"><span class="ln-ref">105-106</span><p><strong>从投影恢复位置</strong>：<code>sessionProjections.stateOf(session, 'turnBoundary')</code> 拿 lastTurn——loop 自己注册该单元，所以键恒在。resume 的 agent 仍从持久状态续上编号。</p></div>
-    <div class="lr"><span class="ln-ref">107</span><p><code>RuntimeContextProjection</code>（<code class="path">runtime-context.ts</code>，76 行）：把动态运行时上下文投影成候选 user/message 的持久化快照（08 页 preStep 的第三步用到）。</p></div>
+    <div class="lr"><span class="ln-ref">72-74</span><p>ReactLoopAgent <strong>实现 Agent 接口</strong>。三个关键对象：inbox（输入队列投影，类型是 driver 自己的 <code>ReactLoopInbox</code>）、phase（状态机真相）、session（持久日志）。</p></div>
+    <div class="lr"><span class="ln-ref">87</span><p><strong>0.1.5 改</strong>：<code>requestSurfaceGeneration</code> 从「<code>undefined</code> 起步、首次 buildRequest 时判空赋值」改为<strong>构造时就快照当前 generation</strong>。原因是它的用途扩大了——现在同时服务 system prompt 的「是否开启新系列」判定（<code>agent.ts:367</code>）。</p></div>
+    <div class="lr"><span class="ln-ref">92</span><p><strong>0.1.5 新增</strong>：<code>systemPrompt: SystemPromptProjection</code>（<code class="path">runtime-context.ts:60</code>）。system prompt 不再塞进 <code>request/header</code>，而是作为 <code>system/message</code> 事件进入 surface——由这个投影器决定「哪一次进入、进入几条」。</p></div>
+    <div class="lr"><span class="ln-ref">94</span><p><code>frozenMessages</code>：本 loop 冻结过的消息<strong>身份</strong>集合（WeakSet 不阻止已替换的历史被 GC）。buildRequest 只对未冻结的消息做深冻结，避免每步重复遍历整段历史。</p></div>
+    <div class="lr"><span class="ln-ref">102</span><p>构造第一件事：快照 surface 的 replaceGeneration。</p></div>
+    <div class="lr"><span class="ln-ref">105</span><p><strong>0.1.5 简化</strong>：改成 <code>this.ctx = this.scope.ctx</code>。旧版这里要 <code>extend({ agent: this })</code> 才能让子插件拿到 <code>ctx.agent</code>；现在 <code>Agent</code> 接口定义迁进 <code class="path">types.ts</code>，靠 declaration merging 挂到 <code>Context</code> 上，省掉一次 ctx 派生。</p></div>
+    <div class="lr"><span class="ln-ref">106</span><p>建 inbox 需要 <code>ctx.sessionProjections</code>（投影注册表）——inbox 本身就是一个 session projection（07 页）。</p></div>
+    <div class="lr"><span class="ln-ref">108-109</span><p><strong>从投影恢复位置</strong>：<code>stateOf(session, 'turnBoundary')</code> 拿 lastTurn——loop 自己注册该单元，所以键恒在（108 行的 <code>v8 ignore</code> 注释就是这个断言）。resume 的 agent 仍从持久状态续编号。</p></div>
+    <div class="lr"><span class="ln-ref">110-111</span><p>两个投影器：<code>RuntimeContextProjection</code>（动态上下文 → 候选 user/message，08 页第三步用）与 <code>SystemPromptProjection</code>（rendered prompt → system/message 提交，11 页 364-372 行用）。</p></div>
   </div>
 </section>
 
@@ -175,28 +185,33 @@
   <h2><span class="sec-num">§2</span>三态 Phase 与 setPhase</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>Phase 类型与状态转换</span><span class="ln-range">40-48, 110-122</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">40</span><span class="tok-k">type</span> Phase =</span>
-<span class="code-line"><span class="ln">41</span>  | { kind: <span class="tok-s">'idle'</span>; lastTurn: number }</span>
-<span class="code-line"><span class="ln">42</span>  | { kind: <span class="tok-s">'maintenance'</span>; abort: AbortController; lastTurn: number; wakeRequested: boolean }</span>
-<span class="code-line"><span class="ln">48</span>  | { kind: <span class="tok-s">'running'</span>; abort: AbortController; turn: number; step: number; wakeRequested: boolean }</span>
-<span class="code-line"><span class="ln">110</span>  <span class="tok-k">get</span> <span class="tok-f">status</span>(): AgentStatus {</span>
-<span class="code-line"><span class="ln">111</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.phase.kind === <span class="tok-s">'idle'</span> || <span class="tok-k">this</span>.phase.kind === <span class="tok-s">'maintenance'</span> ? <span class="tok-s">'idle'</span> : <span class="tok-s">'running'</span></span>
-<span class="code-line"><span class="ln">112</span>  }</span>
-<span class="code-line"><span class="ln">115</span>  <span class="tok-k">private</span> <span class="tok-f">setPhase</span>(next: Phase): <span class="tok-k">void</span> {</span>
-<span class="code-line"><span class="ln">116</span>    <span class="tok-k">const</span> previousStatus = <span class="tok-k">this</span>.status</span>
-<span class="code-line"><span class="ln">117</span>    <span class="tok-k">this</span>.phase = next</span>
-<span class="code-line"><span class="ln">118</span>    <span class="tok-k">const</span> status = <span class="tok-k">this</span>.status</span>
-<span class="code-line"><span class="ln">119</span>    <span class="tok-k">if</span> (status !== previousStatus) {</span>
-<span class="code-line"><span class="ln">120</span>      <span class="tok-k">this</span>.dispatch.<span class="tok-f">emit</span>(<span class="tok-s">'agent/status'</span>, { status })</span>
-<span class="code-line"><span class="ln">121</span>    }</span>
-<span class="code-line"><span class="ln">122</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>Phase 类型与状态转换</span><span class="ln-range">41-49, 114-126</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">41</span><span class="tok-k">type</span> Phase =</span>
+<span class="code-line"><span class="ln">42</span>  | { kind: <span class="tok-s">'idle'</span>; lastTurn: number }</span>
+<span class="code-line"><span class="ln">43</span>  | {</span>
+<span class="code-line"><span class="ln">44</span>    kind: <span class="tok-s">'maintenance'</span></span>
+<span class="code-line"><span class="ln">45</span>    abort: AbortController</span>
+<span class="code-line"><span class="ln">46</span>    lastTurn: number</span>
+<span class="code-line"><span class="ln">47</span>    wakeRequested: boolean</span>
+<span class="code-line"><span class="ln">48</span>  }</span>
+<span class="code-line"><span class="ln">49</span>  | { kind: <span class="tok-s">'running'</span>; abort: AbortController; turn: number; step: number; wakeRequested: boolean }</span>
+<span class="code-line"><span class="ln">114</span>  <span class="tok-k">get</span> <span class="tok-f">status</span>(): AgentStatus {</span>
+<span class="code-line"><span class="ln">115</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.phase.kind === <span class="tok-s">'idle'</span> || <span class="tok-k">this</span>.phase.kind === <span class="tok-s">'maintenance'</span> ? <span class="tok-s">'idle'</span> : <span class="tok-s">'running'</span></span>
+<span class="code-line"><span class="ln">116</span>  }</span>
+<span class="code-line"><span class="ln">119</span>  <span class="tok-k">private</span> <span class="tok-f">setPhase</span>(next: Phase): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">120</span>    <span class="tok-k">const</span> previousStatus = <span class="tok-k">this</span>.status</span>
+<span class="code-line"><span class="ln">121</span>    <span class="tok-k">this</span>.phase = next</span>
+<span class="code-line"><span class="ln">122</span>    <span class="tok-k">const</span> status = <span class="tok-k">this</span>.status</span>
+<span class="code-line"><span class="ln">123</span>    <span class="tok-k">if</span> (status !== previousStatus) {</span>
+<span class="code-line"><span class="ln">124</span>      <span class="tok-k">this</span>.dispatch.<span class="tok-f">emit</span>(<span class="tok-s">'agent/status'</span>, { status })</span>
+<span class="code-line"><span class="ln">125</span>    }</span>
+<span class="code-line"><span class="ln">126</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">40-48</span><p>三态各有自己的载荷：<code>running</code> 和 <code>maintenance</code> 都带 <code>abort</code>（可取消）和 <code>wakeRequested</code>（挂起的唤醒请求）；<code>running</code> 还带当前 turn/step 编号。idle 只记住 lastTurn——下个 turn 从它 +1。</p></div>
-    <div class="lr"><span class="ln-ref">110-112</span><p><strong>status 是 phase 的派生投影</strong>：maintenance 对外报 idle（维护任务不是「在跑 turn」）。</p></div>
-    <div class="lr"><span class="ln-ref">115-122</span><p><code>setPhase</code> 是 phase 的唯一写入口（private）。只在 status <strong>实际变化</strong>时发 <code>agent/status</code>——invariant.ts 断言「无 no-op 重复迁移」的依据。</p></div>
+    <div class="lr"><span class="ln-ref">41-49</span><p>三态各有自己的载荷：<code>running</code> 和 <code>maintenance</code> 都带 <code>abort</code>（可取消边界）和 <code>wakeRequested</code>（挂起的唤醒请求）；<code>running</code> 额外带当前 turn/step 编号。idle 只记住 lastTurn——下个 turn 从它 +1。</p></div>
+    <div class="lr"><span class="ln-ref">114-116</span><p><strong>status 是 phase 的派生投影</strong>：maintenance 对外报 idle——维护任务不是「在跑 turn」，但它同样独占 agent（157 行的守卫会拒绝并发维护）。</p></div>
+    <div class="lr"><span class="ln-ref">119-126</span><p><code>setPhase</code> 是 phase 的唯一写入口（private）。只在 status <strong>实际变化</strong>时发 <code>agent/status</code>——invariant 断言的「无 no-op 重复迁移」就靠这个 if。</p></div>
   </div>
 
   <figure class="fig">
@@ -214,9 +229,9 @@
   <text class="th" x="770" y="210" text-anchor="middle">maintenance（status: idle）</text>
   <text class="ts" x="770" y="232" text-anchor="middle">abort · lastTurn · wakeRequested</text>
   <line class="a" x1="440" y1="110" x2="260" y2="176" marker-end="url(#arw)"/>
-  <text class="acc" x="270" y="140">wakeDriver（203 行）</text>
+  <text class="acc" x="270" y="140">wakeDriver（187 行）</text>
   <line class="a" x1="540" y1="110" x2="720" y2="176" marker-end="url(#arw)"/>
-  <text class="acc" x="680" y="140">runMaintenance（162 行）</text>
+  <text class="acc" x="680" y="140">runMaintenance（157 行）</text>
   <line class="a" x1="330" y1="200" x2="382" y2="200" marker-end="url(#arw)"/>
   <line class="a" x1="490" y1="75" x2="420" y2="75" marker-end="url(#arw)"/>
   <path class="a" d="M 900 200 L 950 200 L 950 75 L 600 75" marker-end="url(#arw)"/>
@@ -230,26 +245,26 @@
   <h2><span class="sec-num">§3</span>kick：最外层循环</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>kick</span><span class="ln-range">221-234</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">221</span>  <span class="tok-k">private async</span> <span class="tok-f">kick</span>(): Promise&lt;<span class="tok-k">void</span>&gt; {</span>
-<span class="code-line"><span class="ln">222</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">223</span>      <span class="tok-k">while</span> (<span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">turn</span>()) {}</span>
-<span class="code-line"><span class="ln">224</span>    } <span class="tok-k">catch</span> (_error) {</span>
-<span class="code-line"><span class="ln">225</span>      <span class="tok-c">// Reported failures and cancellation are contained at the driver boundary.</span></span>
-<span class="code-line"><span class="ln">226</span>    } <span class="tok-k">finally</span> {</span>
-<span class="code-line"><span class="ln">228</span>      <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind === <span class="tok-s">'running'</span>) {</span>
-<span class="code-line"><span class="ln">229</span>        <span class="tok-k">const</span> { turn, wakeRequested } = <span class="tok-k">this</span>.phase</span>
-<span class="code-line"><span class="ln">230</span>        <span class="tok-k">this</span>.<span class="tok-f">setPhase</span>({ kind: <span class="tok-s">'idle'</span>, lastTurn: turn })</span>
-<span class="code-line"><span class="ln">231</span>        <span class="tok-k">if</span> (wakeRequested &amp;&amp; <span class="tok-k">this</span>.inbox.hasPending) <span class="tok-k">this</span>.<span class="tok-f">wakeDriver</span>()</span>
-<span class="code-line"><span class="ln">232</span>      }</span>
-<span class="code-line"><span class="ln">233</span>    }</span>
-<span class="code-line"><span class="ln">234</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>kick</span><span class="ln-range">225-238</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">225</span>  <span class="tok-k">private async</span> <span class="tok-f">kick</span>(): Promise&lt;<span class="tok-k">void</span>&gt; {</span>
+<span class="code-line"><span class="ln">226</span>    <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">227</span>      <span class="tok-k">while</span> (<span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">turn</span>()) {}</span>
+<span class="code-line"><span class="ln">228</span>    } <span class="tok-k">catch</span> (_error) {</span>
+<span class="code-line"><span class="ln">229</span>      <span class="tok-c">// Reported failures and cancellation are contained at the driver boundary.</span></span>
+<span class="code-line"><span class="ln">230</span>    } <span class="tok-k">finally</span> {</span>
+<span class="code-line"><span class="ln">232</span>      <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind === <span class="tok-s">'running'</span>) {</span>
+<span class="code-line"><span class="ln">233</span>        <span class="tok-k">const</span> { turn, wakeRequested } = <span class="tok-k">this</span>.phase</span>
+<span class="code-line"><span class="ln">234</span>        <span class="tok-k">this</span>.<span class="tok-f">setPhase</span>({ kind: <span class="tok-s">'idle'</span>, lastTurn: turn })</span>
+<span class="code-line"><span class="ln">235</span>        <span class="tok-k">if</span> (wakeRequested &amp;&amp; <span class="tok-k">this</span>.inbox.hasPending) <span class="tok-k">this</span>.<span class="tok-f">wakeDriver</span>()</span>
+<span class="code-line"><span class="ln">236</span>      }</span>
+<span class="code-line"><span class="ln">237</span>    }</span>
+<span class="code-line"><span class="ln">238</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">221-223</span><p><strong>三层循环的最外层</strong>：只要 <code>turn()</code> 返回 true 就再来一轮。turn() 返回 false 表示「欠账清了」，返回 true 表示「还有活」。</p></div>
-    <div class="lr"><span class="ln-ref">224-225</span><p><strong>driver 边界吞掉一切错误</strong>——但注意注释：「已报告的失败和取消在这里被包含」。错误不是被静默吞掉：turn() 里已经通过 <code>throwError</code> 发过 <code>agent/error</code>（§4 会看到），这里的 catch 只是让 driver 能正常收敛。</p></div>
-    <div class="lr"><span class="ln-ref">226-232</span><p><strong>收敛逻辑</strong>：如果 phase 还在 running（说明 turn 循环因异常跳出），把它收成 idle；若期间有人挂起了唤醒请求且 inbox 有货，重新拉起 driver——这就是 §5 wakeDriver 里 latch 的重放点。</p></div>
+    <div class="lr"><span class="ln-ref">225-227</span><p><strong>三层循环的最外层</strong>：只要 <code>turn()</code> 返回 true 就再来一轮。false 表示「欠账清了」；true 表示「还有活」。</p></div>
+    <div class="lr"><span class="ln-ref">228-229</span><p><strong>driver 边界吞掉一切错误</strong>——但注释写明了：已报告的失败和取消在这里被<em>包含</em>。错误不是被静默丢弃：turn() 内部已通过 <code>throwError</code> 发出 <code>agent/error</code>（§4），这里只是让 driver 能正常收敛、不把 rejection 泄漏到 207 行的 <code>driver.reject</code>。</p></div>
+    <div class="lr"><span class="ln-ref">232-236</span><p><strong>收敛逻辑</strong>：phase 还在 running（说明 turn 循环因异常跳出，正常路径 344-349 行已自己归位），把它收成 idle；若期间有人挂起了唤醒请求且 inbox 有货，重新拉起 driver——这正是 §5 里 latch 的重放点。</p></div>
   </div>
 </section>
 
@@ -257,85 +272,98 @@
   <h2><span class="sec-num">§4</span>turn：开一轮，跑 step，关一轮</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>turn（节选）</span><span class="ln-range">258-342</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">258</span>  <span class="tok-k">private async</span> <span class="tok-f">turn</span>(): Promise&lt;boolean&gt; {</span>
-<span class="code-line"><span class="ln">265</span>    <span class="tok-k">const</span> turn = phase.turn + 1</span>
-<span class="code-line"><span class="ln">266</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">267</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'turn/start'</span>, { turn })</span>
-<span class="code-line"><span class="ln">268</span>    } <span class="tok-k">catch</span> (error) {</span>
-<span class="code-line"><span class="ln">269</span>      <span class="tok-k">this</span>.<span class="tok-f">throwError</span>(error)</span>
-<span class="code-line"><span class="ln">270</span>    }</span>
-<span class="code-line"><span class="ln">271</span>    phase.turn = turn</span>
-<span class="code-line"><span class="ln">272</span>    <span class="tok-k">let</span> turnEnds: TurnEndReason | <span class="tok-k">null</span> = <span class="tok-k">null</span></span>
-<span class="code-line"><span class="ln">273</span>    <span class="tok-k">let</span> target: InboxTarget = <span class="tok-s">'next-turn'</span></span>
-<span class="code-line"><span class="ln">274</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">275</span>      <span class="tok-k">while</span> (<span class="tok-n">true</span>) {</span>
-<span class="code-line"><span class="ln">276</span>        signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">277</span>        <span class="tok-k">const</span> step = phase.step + 1</span>
-<span class="code-line"><span class="ln">278</span>        <span class="tok-k">const</span> decision = <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">preStep</span>(target, { turn, step })</span>
-<span class="code-line"><span class="ln">279</span>        <span class="tok-k">if</span> (decision.kind === <span class="tok-s">'reject'</span>) { turnEnds = { kind: <span class="tok-s">'blocked'</span> }; <span class="tok-k">return</span> <span class="tok-n">false</span> }</span>
-<span class="code-line"><span class="ln">286</span>        <span class="tok-k">if</span> (phase.step === 0 &amp;&amp; decision.messages.length === 0) {</span>
-<span class="code-line"><span class="ln">287</span>          turnEnds = { kind: <span class="tok-s">'completed'</span> }</span>
-<span class="code-line"><span class="ln">288</span>          <span class="tok-k">return</span> <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">289</span>        }</span>
-<span class="code-line"><span class="ln">291</span>        <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'step/start'</span>, { turn, step })</span>
-<span class="code-line"><span class="ln">292</span>        phase.step = step</span>
-<span class="code-line"><span class="ln">293</span>        <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">294</span>          <span class="tok-k">for</span> (<span class="tok-k">const</span> message <span class="tok-k">of</span> decision.messages) {</span>
-<span class="code-line"><span class="ln">295</span>            <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'user/message'</span>, message, { surfaceOp: <span class="tok-s">'append'</span> })</span>
-<span class="code-line"><span class="ln">296</span>          }</span>
-<span class="code-line"><span class="ln">299</span>          <span class="tok-k">const</span> stepEnd = <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">step</span>(decision.assembly, decision.startsRequestSeries === <span class="tok-n">true</span>)</span>
-<span class="code-line"><span class="ln">302</span>          <span class="tok-k">if</span> (turnEnds === <span class="tok-k">null</span> || turnEnds.kind !== <span class="tok-s">'max-tokens'</span>) turnEnds = stepEnd</span>
-<span class="code-line"><span class="ln">303</span>        } <span class="tok-k">finally</span> {</span>
-<span class="code-line"><span class="ln">304</span>          <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'step/end'</span>, { turn, step })</span>
-<span class="code-line"><span class="ln">305</span>        }</span>
-<span class="code-line"><span class="ln">306</span>        signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">307</span>        <span class="tok-k">if</span> (turnEnds &amp;&amp; <span class="tok-k">this</span>.inbox.nextStep.length === 0) {</span>
-<span class="code-line"><span class="ln">308</span>          <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">serial</span>(<span class="tok-s">'agent/turn-stopping'</span>, { turn, signal })</span>
-<span class="code-line"><span class="ln">309</span>          signal.<span class="tok-f">throwIfAborted</span>()</span>
-<span class="code-line"><span class="ln">310</span>        }</span>
-<span class="code-line"><span class="ln">311</span>        <span class="tok-k">if</span> (turnEnds &amp;&amp; <span class="tok-k">this</span>.inbox.nextStep.length === 0) <span class="tok-k">break</span></span>
-<span class="code-line"><span class="ln">312</span>        target = <span class="tok-s">'next-step'</span></span>
-<span class="code-line"><span class="ln">313</span>      }</span>
-<span class="code-line"><span class="ln">314</span>    } <span class="tok-k">catch</span> (error) {</span>
-<span class="code-line"><span class="ln">315</span>      <span class="tok-k">if</span> (signal.aborted) {</span>
-<span class="code-line"><span class="ln">316</span>        turnEnds = { kind: <span class="tok-s">'aborted'</span>, reason: signal.reason <span class="tok-k">as</span> AgentCancelCause }</span>
-<span class="code-line"><span class="ln">317</span>        <span class="tok-k">throw</span> error</span>
-<span class="code-line"><span class="ln">318</span>      }</span>
-<span class="code-line"><span class="ln">321</span>      turnEnds = {</span>
-<span class="code-line"><span class="ln">322</span>        kind: <span class="tok-s">'error'</span>,</span>
-<span class="code-line"><span class="ln">323</span>        error: error <span class="tok-k">instanceof</span> LlmError</span>
-<span class="code-line"><span class="ln">324</span>          ? error.failure</span>
-<span class="code-line"><span class="ln">325</span>          : { message: <span class="tok-f">errorChain</span>(error), code: <span class="tok-s">'UNKNOWN'</span> },</span>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>turn（节选）</span><span class="ln-range">269-350</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">269</span>  <span class="tok-k">private async</span> <span class="tok-f">turn</span>(): Promise&lt;<span class="tok-k">boolean</span>&gt; {</span>
+<span class="code-line"><span class="ln">270</span>    <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind !== <span class="tok-s">'running'</span>) {</span>
+<span class="code-line"><span class="ln">271</span>      <span class="tok-k">this</span>.<span class="tok-f">throwError</span>(<span class="tok-k">new</span> <span class="tok-t">Error</span>(<span class="tok-s">`agent "${this.id}": turn without driver reservation`</span>))</span>
+<span class="code-line"><span class="ln">272</span>    }</span>
+<span class="code-line"><span class="ln">273</span>    <span class="tok-k">const</span> phase = <span class="tok-k">this</span>.phase</span>
+<span class="code-line"><span class="ln">274</span>    <span class="tok-k">const</span> { signal } = phase.abort</span>
+<span class="code-line"><span class="ln">275</span>    signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">276</span>    <span class="tok-k">const</span> turn = phase.turn + 1</span>
+<span class="code-line"><span class="ln">277</span>    <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">278</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'turn/start'</span>, { turn })</span>
+<span class="code-line"><span class="ln">279</span>    } <span class="tok-k">catch</span> (error: <span class="tok-k">unknown</span>) {</span>
+<span class="code-line"><span class="ln">280</span>      <span class="tok-k">this</span>.<span class="tok-f">throwError</span>(error)</span>
+<span class="code-line"><span class="ln">281</span>    }</span>
+<span class="code-line"><span class="ln">282</span>    phase.turn = turn</span>
+<span class="code-line"><span class="ln">283</span>    <span class="tok-k">let</span> turnEnds: TurnEndReason | <span class="tok-k">null</span> = <span class="tok-k">null</span></span>
+<span class="code-line"><span class="ln">284</span>    <span class="tok-k">let</span> target: InboxTarget = <span class="tok-s">'next-turn'</span></span>
+<span class="code-line"><span class="ln">285</span>    <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">286</span>      <span class="tok-k">while</span> (<span class="tok-n">true</span>) {</span>
+<span class="code-line"><span class="ln">287</span>        signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">288</span>        <span class="tok-k">const</span> step = phase.step + 1</span>
+<span class="code-line"><span class="ln">289</span>        <span class="tok-k">const</span> decision = <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">preStep</span>(target, { turn, step })</span>
+<span class="code-line"><span class="ln">290</span>        <span class="tok-k">if</span> (decision.kind === <span class="tok-s">'reject'</span>) {</span>
+<span class="code-line"><span class="ln">291</span>          turnEnds = { kind: <span class="tok-s">'blocked'</span> }</span>
+<span class="code-line"><span class="ln">292</span>          <span class="tok-k">return</span> <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">293</span>        }</span>
+<span class="code-line hl"><span class="ln">294</span>        <span class="tok-k">if</span> (turnEnds &amp;&amp; decision.messages.length === 0) <span class="tok-k">break</span></span><span class="note">0.1.5 新增：终局已定且无新输入 → 收</span></span>
+<span class="code-line"><span class="ln">297</span>        <span class="tok-k">if</span> (phase.step === 0 &amp;&amp; decision.messages.length === 0) {</span>
+<span class="code-line"><span class="ln">298</span>          turnEnds = { kind: <span class="tok-s">'completed'</span> }</span>
+<span class="code-line"><span class="ln">299</span>          <span class="tok-k">return</span> <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">300</span>        }</span>
+<span class="code-line"><span class="ln">301</span>        signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">302</span>        <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'step/start'</span>, { turn, step })</span>
+<span class="code-line"><span class="ln">303</span>        phase.step = step</span>
+<span class="code-line"><span class="ln">304</span>        <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">307</span>          <span class="tok-k">const</span> stepEnd = <span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">step</span>(decision)</span>
+<span class="code-line"><span class="ln">310</span>          <span class="tok-k">if</span> (turnEnds === <span class="tok-k">null</span> || turnEnds.kind !== <span class="tok-s">'max-tokens'</span>) turnEnds = stepEnd</span>
+<span class="code-line"><span class="ln">311</span>        } <span class="tok-k">finally</span> {</span>
+<span class="code-line"><span class="ln">312</span>          <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'step/end'</span>, { turn, step })</span>
+<span class="code-line"><span class="ln">313</span>        }</span>
+<span class="code-line"><span class="ln">314</span>        signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">315</span>        <span class="tok-k">if</span> (turnEnds &amp;&amp; <span class="tok-k">this</span>.inbox.nextStep.length === 0) {</span>
+<span class="code-line"><span class="ln">316</span>          <span class="tok-k">await</span> <span class="tok-k">this</span>.dispatch.<span class="tok-f">serial</span>(<span class="tok-s">'agent/turn-stopping'</span>, { turn, signal })</span>
+<span class="code-line"><span class="ln">317</span>          signal.<span class="tok-f">throwIfAborted</span>()</span>
+<span class="code-line"><span class="ln">318</span>        }</span>
+<span class="code-line"><span class="ln">319</span>        <span class="tok-k">if</span> (turnEnds &amp;&amp; <span class="tok-k">this</span>.inbox.nextStep.length === 0) <span class="tok-k">break</span></span>
+<span class="code-line"><span class="ln">320</span>        target = <span class="tok-s">'next-step'</span></span>
+<span class="code-line"><span class="ln">321</span>      }</span>
+<span class="code-line"><span class="ln">322</span>    } <span class="tok-k">catch</span> (error: <span class="tok-k">unknown</span>) {</span>
+<span class="code-line"><span class="ln">323</span>      <span class="tok-k">if</span> (signal.aborted) {</span>
+<span class="code-line"><span class="ln">324</span>        turnEnds = { kind: <span class="tok-s">'aborted'</span>, reason: signal.reason <span class="tok-k">as</span> AgentCancelCause }</span>
+<span class="code-line"><span class="ln">325</span>        <span class="tok-k">throw</span> error</span>
 <span class="code-line"><span class="ln">326</span>      }</span>
-<span class="code-line"><span class="ln">327</span>      <span class="tok-k">this</span>.<span class="tok-f">throwError</span>(error)</span>
-<span class="code-line"><span class="ln">328</span>    } <span class="tok-k">finally</span> {</span>
-<span class="code-line"><span class="ln">331</span>      <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'turn/end'</span>, { turn, reason: turnEnds! })</span>
-<span class="code-line"><span class="ln">335</span>    }</span>
-<span class="code-line"><span class="ln">336</span>    <span class="tok-k">if</span> (!<span class="tok-k">this</span>.inbox.hasPending) <span class="tok-k">return</span> <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">337</span>    phase.abort = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
-<span class="code-line"><span class="ln">339</span>    phase.wakeRequested = <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">340</span>    phase.step = 0</span>
-<span class="code-line"><span class="ln">341</span>    <span class="tok-k">return</span> <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">342</span>  }</span></code></pre>
+<span class="code-line"><span class="ln">329</span>      turnEnds = {</span>
+<span class="code-line"><span class="ln">330</span>        kind: <span class="tok-s">'error'</span>,</span>
+<span class="code-line"><span class="ln">331</span>        error: error <span class="tok-k">instanceof</span> LlmError</span>
+<span class="code-line"><span class="ln">332</span>          ? error.failure</span>
+<span class="code-line"><span class="ln">333</span>          : { message: <span class="tok-f">errorChain</span>(error), code: <span class="tok-s">'UNKNOWN'</span> },</span>
+<span class="code-line"><span class="ln">334</span>      }</span>
+<span class="code-line"><span class="ln">335</span>      <span class="tok-k">this</span>.<span class="tok-f">throwError</span>(error)</span>
+<span class="code-line"><span class="ln">336</span>    } <span class="tok-k">finally</span> {</span>
+<span class="code-line"><span class="ln">337</span>      <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">339</span>        <span class="tok-k">this</span>.session.<span class="tok-f">append</span>(<span class="tok-s">'turn/end'</span>, { turn, reason: turnEnds! })</span>
+<span class="code-line"><span class="ln">340</span>      } <span class="tok-k">catch</span> (error: <span class="tok-k">unknown</span>) {</span>
+<span class="code-line"><span class="ln">341</span>        <span class="tok-k">this</span>.<span class="tok-f">throwError</span>(error)</span>
+<span class="code-line"><span class="ln">342</span>      }</span>
+<span class="code-line"><span class="ln">343</span>    }</span>
+<span class="code-line"><span class="ln">344</span>    <span class="tok-k">if</span> (!<span class="tok-k">this</span>.inbox.hasPending) <span class="tok-k">return</span> <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">345</span>    phase.abort = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
+<span class="code-line"><span class="ln">347</span>    phase.wakeRequested = <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">348</span>    phase.step = 0</span>
+<span class="code-line"><span class="ln">349</span>    <span class="tok-k">return</span> <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">350</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">267, 271</span><p><strong>先落盘，再改内存</strong>：turn/start 先 append 进日志，然后才更新 phase.turn。边界一旦开了就永远在日志里——即使下一秒 abort。</p></div>
-    <div class="lr"><span class="ln-ref">272-273</span><p>两个循环变量：<code>turnEnds</code>（turn 的结局，null = 尚无结局）和 <code>target</code>（首个 step 从 next-turn 队列 claim）。</p></div>
-    <div class="lr"><span class="ln-ref">276</span><p>每轮循环开头都 <code>throwIfAborted()</code>——abort 信号在每步边界检查（后续 294、297 也是）。这是取消语义的落点：取消不打断正在执行的代码，只在边界生效。</p></div>
-    <div class="lr"><span class="ln-ref">278-279</span><p>调 <code>preStep</code>（08 页详述）拿 decision。reject → turn 以 blocked 关闭，返回 false 结束 kick 循环。注意：<strong>即使 pre-step 被拒，claim 过的消息也已经离开 inbox</strong>（08 页会看到 claim 在 preStep 内部）。</p></div>
-    <div class="lr"><span class="ln-ref">286-289</span><p><strong>空首步仍关 turn</strong>：被移除的唤醒消息或 enter 被改写为空，仍然拥有 turn 边界（turn/start 已落盘），只是不花模型调用、也不产生 step 事件。日志诚实记录「有过这次尝试」。</p></div>
-    <div class="lr"><span class="ln-ref">291-292</span><p>step/start 先落盘，phase.step 后更新——与 turn/start 同一纪律。</p></div>
-    <div class="lr"><span class="ln-ref">294-296</span><p>逐条 append user/message，带 <code>surfaceOp: 'append'</code>——这是消息进入「模型可见投影」（surface）的方式（06 页详述）。</p></div>
-    <div class="lr"><span class="ln-ref">302</span><p>跑真正的 <code>step()</code>（11 页详述）——一次模型调用 + 工具执行。</p></div>
-    <div class="lr"><span class="ln-ref">302</span><p><strong>max-tokens 是 sticky 的</strong>：一旦某步触顶，后续正常完成的 step 不能把 turn 结局降级成 completed。条件 <code>turnEnds === null || turnEnds.kind !== 'max-tokens'</code> 精确表达这一点。</p></div>
-    <div class="lr"><span class="ln-ref">303-304</span><p>finally 里无条件 append step/end——即使 step() 抛出，step 边界也闭合。</p></div>
-    <div class="lr"><span class="ln-ref">307-310</span><p><strong><code>agent/turn-stopping</code> 是 serial 事件</strong>（没有 next()）：给策略一次「拦截 turn 关闭」的机会——反对者在这个监听器里 <code>agent.steer(...)</code>，机器随后重读 inbox。看 311：如果 steer 加了货，nextStep 非空，就不 break——<strong>数据决定，监听顺序改不了结果</strong>。</p></div>
-    <div class="lr"><span class="ln-ref">312</span><p>下一轮 target 改为 next-step——后续 step 优先消费转向/注入队列。</p></div>
-    <div class="lr"><span class="ln-ref">314-327</span><p>错误路径两分支：abort → turnEnds=aborted 且 rethrow（让 kick 的 catch 收尾）；其他错误 → <strong>结构化失败</strong>：LlmError 保留事实，其余压平为 <code>errorChain</code> 文本 + UNKNOWN 码。随后 <code>throwError</code>（203-208 行）先发 <code>agent/error</code> 再 throw——错误通知与传播分离。</p></div>
-    <div class="lr"><span class="ln-ref">328-335</span><p>finally 无条件 append turn/end 带 reason。六种 reason：completed / max-tokens / blocked / error / aborted / interrupted（interrupted 是持久化后端专用的 crash 恢复标记，loop 不发出）。</p></div>
-    <div class="lr"><span class="ln-ref">336-341</span><p><strong>返回值的语义</strong>：inbox 还有货 → 换新 AbortController（旧 latch 作废——活 driver 自己 claim 队列）、清 wakeRequested、step 归零，返回 true 再来一轮；没货 → false，kick 收敛。</p></div>
+    <div class="lr"><span class="ln-ref">270-272</span><p><strong>前置守卫</strong>：turn 只能被 driver 内部调用（phase 必须是 running）——违反就是编程错误，立刻 <code>throwError</code>。</p></div>
+    <div class="lr"><span class="ln-ref">278, 282</span><p><strong>先落盘，再改内存</strong>：turn/start 先 append 进日志，成功后才更新 phase.turn。边界一旦开了就永远在日志里——即使下一秒 abort。</p></div>
+    <div class="lr"><span class="ln-ref">283-284</span><p>两个循环变量：<code>turnEnds</code>（turn 的结局，null = 尚无结局）和 <code>target</code>（首个 step 从 next-turn 队列 claim）。</p></div>
+    <div class="lr"><span class="ln-ref">287, 301, 314</span><p>abort 信号在<strong>每个边界</strong>检查。这是取消语义的落点：取消不打断正在执行的代码，只在边界生效。</p></div>
+    <div class="lr"><span class="ln-ref">289-293</span><p>调 <code>preStep</code>（08 页详述）拿 decision。reject → turn 以 blocked 关闭，返回 false 结束 kick 循环。注意：<strong>即使被拒，claim 过的消息也已离开 inbox</strong>（claim 在 preStep 内部）。</p></div>
+    <div class="lr"><span class="ln-ref">294</span><p><strong>0.1.5 新增的提前收敛</strong>：结局已定（turnEnds 非空）且这一步没带来新输入 → 直接 break，不再空跑一次 step。这是「终局后不再消费队列」的廉价短路。</p></div>
+    <div class="lr"><span class="ln-ref">297-300</span><p><strong>空首步仍关 turn</strong>：被移除的唤醒消息、或 enter 被改写为空，仍然拥有 turn 边界（turn/start 已落盘），只是不花模型调用、也不产生 step 事件。日志诚实记录「有过这次尝试」。</p></div>
+    <div class="lr"><span class="ln-ref">302-303</span><p>step/start 先落盘，phase.step 后更新——与 turn/start 同一纪律。</p></div>
+    <div class="lr"><span class="ln-ref">307</span><p>跑真正的 <code>step()</code>（11 页详述）——一次模型调用 + 工具执行。注意 0.1.5 起 <strong>user/message 的 append 搬进了 step 内部</strong>（<code>agent.ts:373-377</code>），因为要在 system/message 之后、且只在首次尝试时写一次。</p></div>
+    <div class="lr"><span class="ln-ref">310</span><p><strong>max-tokens 是 sticky 的</strong>：一旦某步触顶，后续正常完成的 step 不能把结局降级成 completed。条件 <code>turnEnds === null || turnEnds.kind !== 'max-tokens'</code> 精确表达这一点。</p></div>
+    <div class="lr"><span class="ln-ref">311-312</span><p>finally 里无条件 append step/end——即使 step() 抛出，step 边界也闭合。</p></div>
+    <div class="lr"><span class="ln-ref">315-319</span><p><strong><code>agent/turn-stopping</code> 是 serial 事件</strong>（没有 next()）：给策略一次「拦截 turn 关闭」的机会——监听器在这时 <code>agent.steer(...)</code>，机器随后重读 inbox。看 319：若 steer 加了货，nextStep 非空，就不 break——<strong>数据决定，监听顺序改不了结果</strong>。</p></div>
+    <div class="lr"><span class="ln-ref">320</span><p>下一轮 target 改为 next-step——后续 step 优先消费转向/注入队列。</p></div>
+    <div class="lr"><span class="ln-ref">322-335</span><p>错误路径两分支：abort → turnEnds=aborted 且 rethrow（交给 kick 的 catch 收尾）；其他错误 → <strong>结构化失败</strong>：LlmError 保留其 failure 事实，其余压平为 <code>errorChain</code> 文本 + UNKNOWN 码。随后 <code>throwError</code>（218-223 行）先发 <code>agent/error</code> 再 throw——错误通知与错误传播分离。</p></div>
+    <div class="lr"><span class="ln-ref">336-343</span><p>finally 无条件 append turn/end 带 reason。六种 reason：completed / max-tokens / blocked / error / aborted / interrupted（interrupted 是持久化后端专用的 crash 恢复标记，loop 自己不发）。注意 337 又包了一层 try——<strong>连「写 turn/end 失败」也要走 throwError 上报</strong>，不静默。</p></div>
+    <div class="lr"><span class="ln-ref">344-349</span><p><strong>返回值的语义</strong>：inbox 还有货 → 换新 AbortController（旧 latch 随之作废——活 driver 自己 claim 队列，346 行注释即此意）、清 wakeRequested、step 归零，返回 true 再来一轮；没货 → false，kick 收敛。</p></div>
   </div>
 </section>
 
@@ -343,31 +371,33 @@
   <h2><span class="sec-num">§5</span>wakeDriver：谁把 agent 拉起来</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>wakeDriver</span><span class="ln-range">176-205</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">176</span>  <span class="tok-c">/** Start one driver, or latch its wake behind maintenance or an aborted activity. */</span></span>
-<span class="code-line"><span class="ln">184</span>  <span class="tok-k">private</span> <span class="tok-f">wakeDriver</span>(wakeAfterAbort = <span class="tok-n">false</span>): <span class="tok-k">void</span> {</span>
-<span class="code-line"><span class="ln">185</span>    <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind !== <span class="tok-s">'idle'</span>) {</span>
-<span class="code-line"><span class="ln">189</span>      <span class="tok-k">const</span> reason = <span class="tok-k">this</span>.phase.abort.signal.reason <span class="tok-k">as</span> AgentCancelCause | <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">190</span>      <span class="tok-k">if</span> (reason?.kind !== <span class="tok-s">'disposed'</span> &amp;&amp; (<span class="tok-k">this</span>.phase.kind === <span class="tok-s">'maintenance'</span> || wakeAfterAbort)) {</span>
-<span class="code-line"><span class="ln">191</span>        <span class="tok-k">this</span>.phase.wakeRequested = <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">192</span>      }</span>
-<span class="code-line"><span class="ln">193</span>      <span class="tok-k">return</span></span>
-<span class="code-line"><span class="ln">194</span>    }</span>
-<span class="code-line"><span class="ln">195</span>    <span class="tok-k">const</span> driver = Promise.<span class="tok-f">withResolvers</span>()</span>
-<span class="code-line"><span class="ln">196</span>    <span class="tok-k">this</span>.activityDone = driver.promise</span>
-<span class="code-line"><span class="ln">197</span>    <span class="tok-k">this</span>.<span class="tok-f">setPhase</span>({</span>
-<span class="code-line"><span class="ln">198</span>      kind: <span class="tok-s">'running'</span>, abort: <span class="tok-k">new</span> <span class="tok-t">AbortController</span>(),</span>
-<span class="code-line"><span class="ln">199</span>      turn: <span class="tok-k">this</span>.phase.lastTurn, step: 0, wakeRequested: <span class="tok-n">false</span>,</span>
-<span class="code-line"><span class="ln">200</span>    })</span>
-<span class="code-line"><span class="ln">204</span>    <span class="tok-k">this</span>.loopCtx.agents.<span class="tok-f">withInitiator</span>(<span class="tok-k">this</span>, () =&gt; <span class="tok-k">this</span>.<span class="tok-f">kick</span>())</span>
-<span class="code-line"><span class="ln">205</span>      .then(driver.resolve, driver.reject)</span></code></pre>
+  <figcaption><span class="fname">packages/core/agent-loop/src/agent.ts</span><span>wakeDriver</span><span class="ln-range">187-208</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">187</span>  <span class="tok-k">private</span> <span class="tok-f">wakeDriver</span>(wakeAfterAbort = <span class="tok-n">false</span>): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">188</span>    <span class="tok-k">if</span> (<span class="tok-k">this</span>.phase.kind !== <span class="tok-s">'idle'</span>) {</span>
+<span class="code-line"><span class="ln">192</span>      <span class="tok-k">const</span> reason = <span class="tok-k">this</span>.phase.abort.signal.reason <span class="tok-k">as</span> AgentCancelCause | <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">193</span>      <span class="tok-k">if</span> (reason?.kind !== <span class="tok-s">'disposed'</span> &amp;&amp; (<span class="tok-k">this</span>.phase.kind === <span class="tok-s">'maintenance'</span> || wakeAfterAbort)) {</span>
+<span class="code-line"><span class="ln">194</span>        <span class="tok-k">this</span>.phase.wakeRequested = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">195</span>      }</span>
+<span class="code-line"><span class="ln">196</span>      <span class="tok-k">return</span></span>
+<span class="code-line"><span class="ln">197</span>    }</span>
+<span class="code-line"><span class="ln">198</span>    <span class="tok-k">const</span> driver = Promise.<span class="tok-f">withResolvers</span>&lt;<span class="tok-k">void</span>&gt;()</span>
+<span class="code-line"><span class="ln">199</span>    <span class="tok-k">this</span>.activityDone = driver.promise</span>
+<span class="code-line"><span class="ln">200</span>    <span class="tok-k">this</span>.<span class="tok-f">setPhase</span>({</span>
+<span class="code-line"><span class="ln">201</span>      kind: <span class="tok-s">'running'</span>,</span>
+<span class="code-line"><span class="ln">202</span>      abort: <span class="tok-k">new</span> <span class="tok-t">AbortController</span>(),</span>
+<span class="code-line"><span class="ln">203</span>      turn: <span class="tok-k">this</span>.phase.lastTurn,</span>
+<span class="code-line"><span class="ln">204</span>      step: 0,</span>
+<span class="code-line"><span class="ln">205</span>      wakeRequested: <span class="tok-n">false</span>,</span>
+<span class="code-line"><span class="ln">206</span>    })</span>
+<span class="code-line"><span class="ln">207</span>    <span class="tok-k">this</span>.loopCtx.agents.<span class="tok-f">withInitiator</span>(<span class="tok-k">this</span>, () =&gt; <span class="tok-k">this</span>.<span class="tok-f">kick</span>())</span>
+<span class="code-line"><span class="ln">208</span>      .then(driver.resolve, driver.reject)</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">185-193</span><p><strong>非 idle 分支：latch</strong>。不能现在跑，把 wakeRequested 置 true 挂起，等收敛后重放（§3 的 220 行）。两个例外不挂起：<code>disposed</code>（要销毁了，不等人）和「活 driver 自己会 claim 队列」。maintenance 与 aborted 的 driver 无法送达唤醒，必须 latch。</p></div>
-    <div class="lr"><span class="ln-ref">204-205</span><p><code>activityDone</code> 是「整个 agent 活动的静默哨兵」——<code>whenIdle()</code> 就是等它。每次起 driver 都换新的 promise。</p></div>
-    <div class="lr"><span class="ln-ref">197-200</span><p>直接 setPhase 到 running：turn 从 lastTurn 起步（turn() 里 +1），step 归零，新 AbortController——这个 controller 就是本轮可取消的边界。</p></div>
-    <div class="lr"><span class="ln-ref">204-205</span><p><strong><code>withInitiator</code></strong>：AsyncLocalStorage 的进程本地因果归因——「这个 turn 是谁发起的」。它是归因不是授权，跨进程/持久化失效。kick 的完成驱动 driver.resolve，失败驱动 driver.reject。</p></div>
+    <div class="lr"><span class="ln-ref">188-196</span><p><strong>非 idle 分支：latch</strong>。不能现在跑，就把 <code>wakeRequested</code> 置 true 挂起，等收敛后重放（§3 的 235 行）。两个例外不挂起：<code>disposed</code>（要销毁了，不等人）和「活 driver 自己会 claim 队列」。maintenance 与 aborted 的 driver 无法送达唤醒，必须 latch。</p></div>
+    <div class="lr"><span class="ln-ref">198-199</span><p><code>activityDone</code> 是「整个 agent 活动的静默哨兵」——<code>whenIdle()</code>（210 行）就是等它，且用 do-while 重读以防等待期间又起了新活动。每次起 driver 都换新的 promise。</p></div>
+    <div class="lr"><span class="ln-ref">200-206</span><p>直接 setPhase 到 running：turn 从 lastTurn 起步（turn() 里 +1），step 归零，新 AbortController——这个 controller 就是本轮可取消的边界。</p></div>
+    <div class="lr"><span class="ln-ref">207-208</span><p><strong><code>withInitiator</code></strong>：基于 AsyncLocalStorage 的进程本地因果归因——「这个 turn 是谁发起的」。它是归因不是授权，跨进程/持久化即失效。kick 的完成驱动 driver.resolve，失败驱动 driver.reject。</p></div>
   </div>
 </section>
 
