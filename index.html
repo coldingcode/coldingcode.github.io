@@ -60,6 +60,10 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
+  <div class="nav-group">卷三 · 工程实践</div>
+  <ul class="nav-list">
+    <li><a href="35-ai-collab.html"><span class="idx">35</span>AI 协同：仓库如何与 agent 写代码</a></li>
+  </ul>
   <div class="nav-foot">基于 dsh 0.1.6-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
@@ -69,7 +73,7 @@
 <header class="page-head">
   <p class="kicker">DeepSeek Harness · Code-Level Reading</p>
   <h1>全书目录：一条线性阅读路径</h1>
-  <p class="lede">这套页面按<strong>线性顺序</strong>讲完整个项目，并且用<strong>一条真实示例贯穿全书</strong>：官方命令 <code>dsh web</code>（卷零）+ 用户消息「帮我列一下当前目录」（卷一）。每页开头的「示例轨迹」块展示该页代码的真实输入输出：从 <code class="path">apps/cli/src/bin.ts</code> 入口出发，沿启动链走到 agent loop 的心脏（卷零、卷一），再按 <code>cordis.patch.yml</code> 的挂载顺序遍历<strong>每一个能力域</strong>（卷二），最后落笔工程支撑（卷三）。每一页都标注<strong>文件路径与行号</strong>。</p>
+  <p class="lede">这套页面按<strong>线性顺序</strong>讲完整个项目，并且用<strong>一条真实示例贯穿全书</strong>：官方命令 <code>dsh web</code>（卷零）+ 用户消息「帮我列一下当前目录」（卷一）。每页开头的「示例轨迹」块展示该页代码的真实输入输出：从 <code class="path">apps/cli/src/bin.ts</code> 入口出发，沿启动链走到 agent loop 的心脏（卷零、卷一），再按 <code>cordis.patch.yml</code> 的挂载顺序遍历<strong>每一个能力域</strong>（卷二），最后换一个视角看<strong>这个仓库自己是怎么被写出来的</strong>（卷三）——它的 AI 协同基建。每一页都标注<strong>文件路径与行号</strong>。</p>
 </header>
 
 <section id="tree">
@@ -150,6 +154,7 @@
     <tr><td><strong>卷零 · 入口与组装</strong></td><td>00-04</td><td>bin.ts / args.ts / profile.ts / boot() / runProfile——配置树如何变成活插件树</td></tr>
     <tr><td><strong>卷一 · 核心循环</strong></td><td>05-17</td><td>agent.ts 心脏 / session 日志 / inbox / 请求折叠 / llm seam / tools 流水线 / shell 三件套</td></tr>
     <tr><td><strong>卷二 · 能力全景</strong></td><td>20-34</td><td>持久化、压缩、子代理、技能、目标、工作流、文件、终端/LSP、Web、审批沙箱、存储查询、设置凭据、SDK/API、客户端/Python/Native、工程支撑——15 个能力域，覆盖 cordis.patch.yml 全部条目</td></tr>
+    <tr><td><strong>卷三 · 工程实践</strong></td><td>35</td><td>仓库自身如何与 agent 协同：AGENTS.md 分层与符号链接、1028 篇 Agent Notes 决策记录、12 个可复用 skill、55 个把文档规则变成校验门的脚本——以及这套东西如何注入模型上下文形成闭环</td></tr>
   </table></div>
 </section>
 

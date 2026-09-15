@@ -78,6 +78,7 @@
 <nav class="toc">
   <div class="toc-title">本页目录</div>
   <ol>
+    <li><a href="#s-new35">新增卷三：AI 协同（2026-09-15）</a></li>
     <li><a href="#s1">站点当前状态</a></li>
     <li><a href="#s000000">最新：0.1.5-rc.2 → 0.1.6-alpha.1 同步（2026-09-15）</a></li>
     <li><a href="#s00000">0.1.3-alpha.2 → 0.1.5-rc.2 同步（2026-09-11）</a></li>
@@ -93,13 +94,33 @@
   </ol>
 </nav>
 
+<section id="s-new35">
+  <h2><span class="sec-num">§新</span>新增卷三：AI 协同（2026-09-15）</h2>
+  <p>新增一章 <a href="35-ai-collab.html">35 AI 协同：仓库如何与 agent 一起写代码</a>。前 34 章读的是「dsh 是什么」，这一章读的是<strong>这个仓库本身怎么被写出来</strong>——它的 agent 协同基建。</p>
+
+  <h3>覆盖内容（六个小节）</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>节</th><th>主题</th><th>关键事实</th></tr>
+    <tr><td>§1</td><td>分层指令</td><td>22 个 <code>AGENTS.md</code>；<code>CLAUDE.md</code> 是 git 符号链接（mode <code>120000</code>，内容 9 字节 = <code>AGENTS.md</code>）</td></tr>
+    <tr><td>§2</td><td>Agent Notes 决策记录</td><td>1028 篇英文正本（implemented 355 / proposed 27 / rejected 14 / archived 629）；两条轴编码进路径；<code>verify-agent-note-format.ts</code>（94 行）强制段落骨架；<code>## Alternatives considered</code> 必填；归档永久冻结</td></tr>
+    <tr><td>§3</td><td>12 个可复用 skill</td><td><code>.claude/skills</code> 也是符号链接 → <code>../.agents/skills</code>；<code>dsh-translate-docs</code> 是唯一带 <code>disable-model-invocation: true</code> 的</td></tr>
+    <tr><td>§4</td><td>把文档规则变成校验门</td><td>226 个脚本 / 55 个 <code>verify-*</code>；<code>doc-sync</code> 聚合约 35 个 leaf gate；<code>doc-budgets.manifest.json</code> 约束常驻上下文长度</td></tr>
+    <tr><td>§5</td><td>闭环：指令如何进入模型</td><td><code>agent-instructions</code> 读 AGENTS.md/<code>CLAUDE.md</code> → inbox；<code>skill-filesystem:251</code> 扫描 <code>.agents/skills</code> → <code>tool-skill:226</code> 渲染 <code>&lt;available_skills&gt;</code>。<strong>仓库用 dsh 的机制管理 dsh 自己的开发</strong></td></tr>
+    <tr><td>§6</td><td>取舍分析</td><td>六组「得到 / 付出」对照；贯穿原则：把纪律变成可执行的断言</td></tr>
+  </table></div>
+
+  <div class="callout key">
+    <p><strong>与 23 页的分工</strong>：23 页讲 skill 作为<em>产品能力</em>的加载机制；35 页讲这个仓库<em>自己</em>如何用这套机制。两者在 §5 会合——加载 <code>.agents/skills/</code> 的正是 dsh 自己的 <code>skill-filesystem</code> 插件。</p>
+  </div>
+</section>
+
 <section id="s1">
   <h2><span class="sec-num">§1</span>站点当前状态</h2>
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
     <tr><td>站点锚定版本</td><td><strong>0.1.6-alpha.1</strong>（commit <code>0d1f50007f</code> Merge PR #4192）</td></tr>
-    <tr><td>覆盖范围</td><td>35 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ 总览 + 版本更新</td></tr>
+    <tr><td>覆盖范围</td><td>36 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ <strong>卷三（35 AI 协同）</strong>+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>200+ 处文件:行号引用，均经上游源码逐行验证（<code>_verify.py</code> 自动比对，当前 0 差异）</td></tr>
     <tr><td>显示版本</td><td><code>0.1.5-rc.2</code> → <code>0.1.6-alpha.1</code>：23 个页面 + <code>assets/nav.js</code> 的页脚</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>

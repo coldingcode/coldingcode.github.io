@@ -10,6 +10,7 @@ const NAV_ITEMS = {
   '24': '24-goal-plan.html', '25': '25-workflow-jobs.html', '26': '26-fs.html', '27': '27-terminal-lsp.html',
   '28': '28-web.html', '29': '29-approval.html', '30': '30-storage.html', '31': '31-settings.html',
   '32': '32-sdk-api.html', '33': '33-client-python.html', '34': '34-infra.html',
+  '35': '35-ai-collab.html',
 };
 
 const NAV_TITLES = {
@@ -20,6 +21,7 @@ const NAV_TITLES = {
   '20': '持久化与恢复', '21': '压缩与上下文', '22': '子代理', '23': '技能与命令', '24': '目标与计划',
   '25': '工作流与任务', '26': '文件系统', '27': '终端与 LSP', '28': 'Web 能力', '29': '审批、权限与沙箱',
   '30': '存储与会话查询', '31': '设置、凭据与身份', '32': 'SDK 与 API 服务', '33': '客户端、Python 与 Native', '34': '工程基础设施',
+  '35': 'AI 协同：仓库如何与 agent 写代码',
 };
 
 function navLink(id) {
@@ -63,6 +65,10 @@ function renderNav(active) {
   <div class="nav-group">卷二 · 能力全景</div>
   <ul class="nav-list">
     ${['20','21','22','23','24','25','26','27','28','29','30','31','32','33','34'].map(navLink).join('\n    ')}
+  </ul>
+  <div class="nav-group">卷三 · 工程实践</div>
+  <ul class="nav-list">
+    ${navLink('35')}
   </ul>
   <div class="nav-foot">基于 dsh 0.1.6-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>`;

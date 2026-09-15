@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>35 AI 协同：仓库如何与 agent 一起写代码 · DSH 源码精读</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<main>
+<article>
+
+<header class="page-head">
+  <p class="kicker">Volume 3 · Chapter 35</p>
+  <h1>AI 协同：仓库如何与 agent 一起写代码</h1>
+  <p class="lede">前 34 章读的都是「dsh 是什么」。这一章换个方向：<strong>这个仓库本身是怎么被写出来的</strong>。它的 6600+ 文件里有一套完整的 agent 协同基建——分层指令、1028 篇决策记录、12 个可复用工作流、55 个把文档规则变成编译错误的校验门。这套东西不是产品能力，但它解释了为什么一个 agent 深度参与的项目还能保持结构。</p>
+</header>
+
+<div class="chain">
+  <span class="seg">(前情) 23 页：skill 运行时是怎么加载的（产品能力）</span>
+  <span class="arrow">→</span>
+  <span class="here">本章：仓库自己怎么用这套机制（工程实践）</span>
+  <span class="arrow">→</span>
+  <span class="seg">(闭环) AGENTS.md → 模型上下文 → 改代码 → 校验门 → Agent Note</span>
+</div>
+
+<section id="trace">
+  <h2><span class="sec-num">示例</span>本次示例：一次典型的 agent 改动</h2>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 35-1 · 从「改一行代码」到「合入」的完整链路</div>
+    <pre># ① agent 会话开始
+#   agent-instructions 插件向上找 .git 定项目根 → 收集 AGENTS.md 链
+#   → 作为 user/message 注入 inbox（08 页 preStep 的第一步）
+#   根 AGENTS.md 175 行 = 「每次会话都要在上下文里的常备命令」
+#
+# ② agent 读代码 → 改 packages/core/agent-loop/src/agent.ts
+#   packages/AGENTS.md（28 行）补充该子树的额外规则
+#
+# ③ 判定「这次改动是不是 non-trivial」
+#   → 是 → 必须同时写一篇 Agent Note（.agents/notes/README.md 的硬规则）
+#
+# ④ 提交前：dsh-pre-push-checks skill 选最小的检查集
+#   → 不跑全量测试（CI 负责穷尽性）
+#
+# ⑤ 推送 → CI 跑 55 个 verify-* 门
+#   → verify-agent-note-format 检查笔记的段落骨架
+#   → verify-doc-budgets 检查文档有没有超字数
+#   → verify-md-links 检查相对链接
+#
+# ⑥ 合入。决策留在 .agents/notes/implemented/ 里，供后来者查「为什么」</pre>
+    <div class="src">来源：本章 §1-§5；文件路径与行号均来自仓库真实文件</div>
+  </div>
+  <div class="trace">
+    <div class="trace-head">示例轨迹 35-2 · 这套基建的规模（真实统计）</div>
+    <pre># AGENTS.md 层级文件：22 个（根 + 各子树）
+# Agent Notes：1028 篇英文正本
+#   implemented/  355   proposed/ 27   rejected/ 14   archived/ 629
+#   按月份：2026-06 = 68，2026-07 = 385，2026-08 = 372，2026-09 = 159
+# 可复用 skill：12 个（.agents/skills/*/SKILL.md）
+# 校验脚本：226 个（scripts/*.ts），其中 verify-* 门 55 个
+# 文档门聚合（doc-sync）：约 35 个 leaf gate
+#
+# 换算：平均每天新增 ~9 篇决策记录。</pre>
+    <div class="src">来源：本章 §2-§4 的实测统计（find / ls / grep 得到）</div>
+  </div>
+</section>
+
+
+<nav class="toc">
+  <div class="toc-title">本页目录</div>
+  <ol>
+    <li><a href="#s1">分层指令：AGENTS.md 与它的符号链接</a></li>
+    <li><a href="#s2">Agent Notes：决策记录体系</a></li>
+    <li><a href="#s3">Skill：可复用的工作流</a></li>
+    <li><a href="#s4">把文档规则变成校验门</a></li>
+    <li><a href="#s5">闭环：指令如何进入模型</a></li>
+    <li><a href="#s6">这套做法的取舍</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2><span class="sec-num">§1</span>分层指令：AGENTS.md 与它的符号链接</h2>
+  <p>仓库的 agent 指令放在 <code class="path">AGENTS.md</code>，按目录分层，共 22 个。切分依据写在根文件自己的规则里：</p>
+
+  <blockquote>The launcher parses only what it owns… Root <code>AGENTS.md</code> = Standing orders: rules an agent needs in context in every session, one to three lines each, linking its home.</blockquote>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>层级</th><th>文件</th><th>行数</th><th>职责</th></tr>
+    <tr><td>根</td><td><code class="path">AGENTS.md</code></td><td>175</td><td>常备命令：仓库布局、命令、约定、防御模式。每条规则 1-3 行 + 一个指向「家」的链接</td></tr>
+    <tr><td>包树</td><td><code class="path">packages/AGENTS.md</code></td><td>28</td><td>该子树专属：插件导出形态、可选服务、REAL-composition 测试要求、Service Definition 设计规则</td></tr>
+    <tr><td>文档树</td><td><code class="path">docs/AGENTS.md</code></td><td>76</td><td>文档标准：分层分类法、写作规则、字数预算、slop 清单</td></tr>
+    <tr><td>笔记树</td><td><code class="path">.agents/notes/AGENTS.md</code></td><td>7</td><td>新笔记触发 supersession 检查</td></tr>
+    <tr><td>其余</td><td><code class="path">.github/</code> <code class="path">vendor/</code> <code class="path">scripts/</code> <code class="path">snapshots/</code> <code class="path">benchmarks/</code> <code class="path">website/</code></td><td>3-19</td><td>各自子树的补充规则</td></tr>
+  </table></div>
+
+  <div class="callout key">
+    <p><strong>核心设计：一个事实只有一个家。</strong><code>docs/AGENTS.md</code> 的分层表把这条规则写成了表格——每个 tier 明确「该放什么」和 <strong>「不该放什么」</strong>。根 <code>AGENTS.md</code> 不放故事、不放示例、不放情景化流程；这些都属于「→ 链接到它的家」。一个字面意义上的 single source of truth。</p>
+  </div>
+
+  <h3>CLAUDE.md 是符号链接</h3>
+  <p>如果你用 Claude Code 打开这个仓库，它会读 <code>CLAUDE.md</code>——但那个文件只有 9 个字节，内容是 <code>AGENTS.md</code>。git 视角下它是一个符号链接（mode <code>120000</code>）：</p>
+
+  <pre><code>$ git ls-files -s CLAUDE.md packages/CLAUDE.md
+120000 47dc3e3d86... 0	CLAUDE.md
+120000 47dc3e3d86... 0	packages/CLAUDE.md
+
+$ cat CLAUDE.md
+AGENTS.md</code></pre>
+
+  <p>根 AGENTS.md 的第 171 行把这条规则写明了：<em>「<code>CLAUDE.md</code> symlinks <code>AGENTS.md</code> at root and <code>packages/</code>; edit the real file.」</em>——<strong>不要编辑符号链接，编辑真身</strong>。这样同一份指令同时服务 Claude Code（读 CLAUDE.md）和其他遵循 AGENTS.md 约定的 agent，不存在两份需要同步的副本。这是「一个事实一个家」在工具兼容层面的应用。</p>
+</section>
+
+<section id="s2">
+  <h2><span class="sec-num">§2</span>Agent Notes：决策记录体系</h2>
+  <p>这是整个协同基建里最有分量的一块。<strong>1028 篇英文正本</strong>（另有等量的 <code>.zh.md</code> 中文对照与 sidecar），放在 <code class="path">.agents/notes/</code>。</p>
+
+  <h3>两条轴：生命周期 × 类别</h3>
+  <p>规则文件 <code class="path">.agents/notes/README.md</code> 把它们编码进<strong>路径</strong>：<code>{lifecycle}/{class}/yyyy-mm-dd-topic-title.md</code>。</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>生命周期</th><th>含义</th><th>篇数</th></tr>
+    <tr><td><code>proposed/</code></td><td>已评审但尚未实现（或只实现了一部分）的提案</td><td>27</td></tr>
+    <tr><td><code>implemented/</code></td><td>决策已落地。<strong>必须与代码保持同步</strong>——代码移动文件、改名、改变默认值时，笔记在同一次变更里更新事实</td><td>355</td></tr>
+    <tr><td><code>rejected/</code></td><td>考虑过并否决。只在其理由能阻止一个诱人的错误时保留</td><td>14</td></tr>
+    <tr><td><code>archived/</code></td><td>冻结的历史快照。<strong>永不编辑，也永远不作为当前行为的权威</strong></td><td>629</td></tr>
+  </table></div>
+
+  <p>类别是<strong>闭集</strong>，定义在 <code class="path">scripts/agent-note-tree.ts</code>：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">scripts/agent-note-tree.ts</span><span>闭集定义</span><span class="ln-range">11-19</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">11</span><span class="tok-c">/** The closed set of active Agent Note lifecycles (top-level folders under .agents/notes/). */</span></span>
+<span class="code-line"><span class="ln">12</span><span class="tok-k">const</span> AGENT_NOTE_LIFECYCLES = [<span class="tok-s">'proposed'</span>, <span class="tok-s">'implemented'</span>, <span class="tok-s">'rejected'</span>] <span class="tok-k">as const</span></span>
+<span class="code-line"><span class="ln">14</span><span class="tok-c">/**</span></span>
+<span class="code-line"><span class="ln">15</span><span class="tok-c"> * The closed set of Agent Note classes (nested folder under each lifecycle). Adding a</span></span>
+<span class="code-line"><span class="ln">16</span><span class="tok-c"> * class is a deliberate act: extend this list AND the README's Classification</span></span>
+<span class="code-line"><span class="ln">17</span><span class="tok-c"> * section. The gate rejects any folder not listed here.</span></span>
+<span class="code-line"><span class="ln">18</span><span class="tok-c"> */</span></span>
+<span class="code-line hl"><span class="ln">19</span><span class="tok-k">export const</span> AGENT_NOTE_CLASSES = [<span class="tok-s">'feature'</span>, <span class="tok-s">'bug-fix'</span>, <span class="tok-s">'simplification'</span>, <span class="tok-s">'architecture'</span>, <span class="tok-s">'process'</span>, <span class="tok-s">'testing'</span>] <span class="tok-k">as const</span></span><span class="note">六类，加一类需同时改 README</span></span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">19</span><p><strong>「加一类是一个刻意的动作」</strong>：注释明确要求同时改这个常量<em>和</em> README 的分类章节。<code>architecture</code> 与 <code>process</code> 的分界被特别说明——前者关于「我们发布的源码」，后者关于「围绕代码的工具与流程」。<code>refactor</code> 被<strong>刻意排除</strong>：它与 <code>simplification</code> 重叠，而后者的判据「可观测行为变了吗」已经覆盖了它。</p></div>
+  </div>
+
+  <h3>段落骨架是强制的</h3>
+  <p>每篇笔记的骨架由 <code class="path">scripts/verify-agent-note-format.ts</code>（94 行）强制执行。这份门本身就是「把文档规则变成编译错误」的典范：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">scripts/verify-agent-note-format.ts</span><span>格式门</span><span class="ln-range">12-36</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">12</span><span class="tok-c">/** The date these format rules took effect; the grandfather comment is valid only before it. */</span></span>
+<span class="code-line"><span class="ln">13</span><span class="tok-k">const</span> FORMAT_ADOPTED = <span class="tok-s">'2026-07-05'</span></span>
+<span class="code-line"><span class="ln">15</span><span class="tok-c">/** The exact comment a pre-format Agent Note carries in place of `## Alternatives considered`. */</span></span>
+<span class="code-line"><span class="ln">16</span><span class="tok-k">const</span> GRANDFATHER = <span class="tok-s">'&lt;!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) --&gt;'</span></span>
+<span class="code-line"><span class="ln">18</span><span class="tok-c">/** The retired debt marker that flagged pre-format bodies; banned so it cannot creep back. */</span></span>
+<span class="code-line"><span class="ln">19</span><span class="tok-k">const</span> LEGACY_MARKERS = [<span class="tok-s">'XXX: legacy ADR/RFC body format'</span>, ...]</span>
+<span class="code-line"><span class="ln">21</span><span class="tok-c">/** Status-line grammar per lifecycle folder. */</span></span>
+<span class="code-line"><span class="ln">22</span><span class="tok-k">const</span> STATUS: Record&lt;string, RegExp&gt; = {</span>
+<span class="code-line"><span class="ln">23</span>  proposed: <span class="tok-s">/^Status: proposed$/</span>,</span>
+<span class="code-line"><span class="ln">24</span>  implemented: <span class="tok-s">/^Status: implemented$/</span>,</span>
+<span class="code-line"><span class="ln">25</span>  rejected: <span class="tok-s">/^Status: rejected — .+$/</span>,   <span class="tok-c">// 唯一带内容的状态</span></span>
+<span class="code-line"><span class="ln">26</span>}</span>
+<span class="code-line"><span class="ln">28</span><span class="tok-c">/** Required `##` headings per lifecycle, beyond the universal `## Problem` opener. */</span></span>
+<span class="code-line"><span class="ln">29</span><span class="tok-k">const</span> REQUIRED: Record&lt;string, string[]&gt; = {</span>
+<span class="code-line"><span class="ln">30</span>  proposed: [<span class="tok-s">'## Proposal'</span>, <span class="tok-s">'## Acceptance criteria'</span>, <span class="tok-s">'## Risks'</span>],</span>
+<span class="code-line"><span class="ln">31</span>  implemented: [<span class="tok-s">'## Decision'</span>, <span class="tok-s">'## Consequences'</span>],</span>
+<span class="code-line"><span class="ln">32</span>  rejected: [<span class="tok-s">'## Proposal'</span>],</span>
+<span class="code-line"><span class="ln">33</span>}</span>
+<span class="code-line"><span class="ln">35</span><span class="tok-c">/** Headings banned in `implemented/` — proposal-era spec-speak per the slop checklist. */</span></span>
+<span class="code-line hl"><span class="ln">36</span><span class="tok-k">const</span> BANNED_IMPLEMENTED = <span class="tok-s">/^## (?:Proposal\b|Plan\b|Migration plan\b|Acceptance criteria\b)/i</span></span><span class="note">实现后不许再用「计划」语气</span></span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">13</span><p><code>FORMAT_ADOPTED = '2026-07-05'</code>：格式规则生效日。此前的笔记可以携带「豁免注释」，此后的不行（第 82 行断言）。<strong>规则变更自带时间边界</strong>，老笔记不用回填。</p></div>
+    <div class="lr"><span class="ln-ref">22-26</span><p>状态行语法按生命周期分别定义。<code>rejected</code> 是唯一要求带内容的（<code>rejected — &lt;一句话原因&gt;</code>）——因为「为什么否决」正是读者来看的东西。</p></div>
+    <div class="lr"><span class="ln-ref">29-33</span><p><strong>骨架随生命周期不同</strong>：提案有 <code>## Proposal</code>/<code>## Acceptance criteria</code>/<code>## Risks</code>（未来时态合理）；已实现是 <code>## Decision</code>/<code>## Consequences</code>（现在时描述已发布的事实）。</p></div>
+    <div class="lr"><span class="ln-ref">36</span><p><strong>禁止清单</strong>：<code>implemented/</code> 里不许出现 <code>## Proposal</code>、<code>## Plan</code>、<code>## Migration plan</code>、<code>## Acceptance criteria</code>——这些是「规格语言」，决策落地后它们就过时了。门会强制你把内容折进 Decision/Consequences。</p></div>
+  </div>
+
+  <h3>Alternatives considered 是必填的</h3>
+  <div class="callout key">
+    <p>README 里的原话：<em>「A decision recorded without what it beat invites re-litigation — the failure Agent Notes exist to prevent.」</em></p>
+    <p>每一篇笔记都必须有 <code>## Alternatives considered</code> 段。格式门第 78-82 行检查它是否存在——唯一豁免是 2026-07-05 之前的老笔记，且必须携带一个<strong>精确的注释字符串</strong>（不是随便写一句「理由见别处」）。<strong>替代方案只记录，不许发明</strong>。</p>
+  </div>
+
+  <h3>归档是单向的</h3>
+  <p><code>archived/</code> 树（629 篇）被永久冻结：不许编辑、翻译、重排版、更新、移动或删除。<code class="path">scripts/verify-archived-agent-notes.ts</code> 强制一套<strong>追加式的内容清单</strong>（append-only frozen-content manifest）——归档时的哈希被记录下来，之后任何改动都会被发现。</p>
+  <p>归档本身有明确判据（README 的 Archiving 章节）：<em>当已发布的决策已经完成、且其理由不太可能指导未来工作时</em>。反面清单同样明确——如果「替代方案、所有权边界、否定性保证、持久或线上语义、安全规则、重新引入的条件」中任何一项仍然有用，就<strong>保持活跃</strong>。工具是 <code>dsh-archive-agent-notes</code> skill，README 特意强调：<strong>不要用字数、年龄或配额来判据</strong>。</p>
+</section>
+
+<section id="s3">
+  <h2><span class="sec-num">§3</span>Skill：可复用的工作流</h2>
+  <p><code class="path">.agents/skills/</code> 下有 12 个 skill。它们不是产品文档——按 <code>docs/AGENTS.md</code> 的分层表，skill 这个 tier 的职责是<strong>「可复用的工作流与专门的决策标准」</strong>，明确<em>不</em>放产品与运行时契约（那些属于 docs 或源码）。</p>
+
+  <h3>一个 skill 长什么样</h3>
+  <p>每个 skill 是一个目录，核心是 <code>SKILL.md</code>，带 YAML frontmatter。以 <code>dsh-pre-push-checks</code> 为例（136 行）：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">.agents/skills/dsh-pre-push-checks/SKILL.md</span><span>frontmatter + 正文结构</span><span class="ln-range">1-14</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">1</span>---</span>
+<span class="code-line"><span class="ln">2</span>name: dsh-pre-push-checks</span>
+<span class="code-line hl"><span class="ln">3</span>description: Use before pushing, force-pushing, marking ready for review, or claiming checks pass on a deepseek-harness branch, and immediately after gh stack sync publishes rewritten branches, to select the smallest tests and checks that cover the outgoing or just-published diff without reflexively running the full repository suite.</span><span class="note">「何时用」写在 description 里</span></span>
+<span class="code-line"><span class="ln">4</span>---</span>
+<span class="code-line"><span class="ln">6</span># DSH Pre-Push Checks</span>
+<span class="code-line"><span class="ln">10</span>## Inspect the outgoing change</span>
+<span class="code-line"><span class="ln">27</span>## Select relevant evidence</span>
+<span class="code-line"><span class="ln">52</span>### Focus unit coverage on the affected source</span>
+<span class="code-line"><span class="ln">75</span>## Full local rehearsal</span>
+<span class="code-line"><span class="ln">79</span>## Protect history-rewriting pushes</span>
+<span class="code-line"><span class="ln">96</span>## Handle failures</span>
+<span class="code-line"><span class="ln">107</span>## Push procedure</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">2-4</span><p><strong>frontmatter 只有两个字段</strong>（全部 12 个 skill 都是如此，只有一个例外见下）。加载器要求两者都存在，缺失就忽略该文件。</p></div>
+    <div class="lr"><span class="ln-ref">3</span><p><strong><code>description</code> 就是触发器</strong>。注意写法：不是「这个 skill 做什么」，而是「<em>Use before pushing, force-pushing, marking ready for review, or claiming checks pass…</em>」——<strong>从 agent 的决策时机出发描述何时该调用它</strong>。这是 skill 能被正确自动触发的关键。</p></div>
+    <div class="lr"><span class="ln-ref">10-107</span><p>正文是从「检查什么」到「怎么推」的完整流程。结构在所有 skill 里一致：先给判据，再给动作。文档门 <code>verify-skill-invocation-metadata</code> 检查这个元数据格式。</p></div>
+  </div>
+
+  <h3>12 个 skill 的全貌</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>skill</th><th>行数</th><th>用途</th></tr>
+    <tr><td><code>dsh-doc</code></td><td>131</td><td>文档的创建/重构/审查/审计/迁移。<strong>带 5 个 references + 7 个 templates</strong></td></tr>
+    <tr><td><code>dsh-find-simplifications</code></td><td>157</td><td>找非显然的简化候选、移除冗余、合并被取代的 Agent Note</td></tr>
+    <tr><td><code>dsh-pre-push-checks</code></td><td>136</td><td><strong>推送前选最小的检查集</strong>，不反射性地跑全量测试</td></tr>
+    <tr><td><code>dsh-ci-test-reliability</code></td><td>131</td><td>设计/诊断在 CI 上会不确定失败的测试。带 <code>references/</code></td></tr>
+    <tr><td><code>dsh-merging-stacked-prs</code></td><td>127</td><td>把依赖栈（A ← B ← C）落到 master</td></tr>
+    <tr><td><code>dsh-speed-up-perf</code></td><td>92</td><td>性能调查：先建逼真基准，再证明回归，最后删工作</td></tr>
+    <tr><td><code>dsh-prose-standard</code></td><td>81</td><td>编辑判断标准。明确自称「guidance, not a script」。带 <code>references/examples.md</code>（169 行）</td></tr>
+    <tr><td><code>dsh-translate-docs</code></td><td>74</td><td>双语文档工作流。<strong>只能手动触发</strong>（见下）</td></tr>
+    <tr><td><code>dsh-archive-agent-notes</code></td><td>68</td><td>Agent Note 的归档与 supersession 检查（§2 用到）</td></tr>
+    <tr><td><code>dsh-code-review</code></td><td>52</td><td>审查 PR，让审查者熟悉这个代码库特有的标准</td></tr>
+    <tr><td><code>dsh-trim-cot-leakage</code></td><td>45</td><td>猎捕「泄漏的推理记录」。带 2 个 references（275 + 52 行）</td></tr>
+    <tr><td><code>record-browser-gif</code></td><td>172</td><td>把 Web UI 交互录成 GIF。<strong>带可执行脚本</strong> <code>scripts/encode_gif.py</code>（337 行）+ 测试</td></tr>
+  </table></div>
+
+  <p>形态差异值得注意：多数 skill 是纯 Markdown 流程，但 <code>dsh-doc</code> 配了模板库、<code>record-browser-gif</code> 配了 Python 编码脚本。<strong>skill 可以携带任意辅助资源</strong>——加载器只认 <code>SKILL.md</code>，目录里的其他文件由 skill 自己引用。</p>
+
+  <h3>唯一带额外 frontmatter 的 skill</h3>
+  <p><code>dsh-translate-docs</code> 的 frontmatter 是 6 行而不是 4 行：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">.agents/skills/dsh-translate-docs/SKILL.md</span><span>调用策略</span><span class="ln-range">1-6</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">1</span>---</span>
+<span class="code-line"><span class="ln">2</span>name: dsh-translate-docs</span>
+<span class="code-line"><span class="ln">3</span>description: Manually run the extended DeepSeek Harness bilingual-document workflow, ...</span>
+<span class="code-line hl"><span class="ln">4</span>disable-model-invocation: true</span><span class="note">模型不能自己调用它</span></span>
+<span class="code-line hl"><span class="ln">5</span>user-invocable: true</span><span class="note">只有用户能调用</span></span>
+<span class="code-line"><span class="ln">6</span>---</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">4-5</span><p><strong>这两个字段控制「谁能调用」</strong>。加载器把任意 frontmatter 解析成 <code>SkillInvocationPolicy</code>，而 catalog 渲染时用 <code>filter(isModelInvocable)</code> 过滤——<strong>所以 <code>disable-model-invocation: true</code> 的 skill 根本不会出现在模型的 <code>&lt;available_skills&gt;</code> 清单里</strong>。它只能由用户显式调用。</p></div>
+    <div class="lr"><span class="ln-ref">4</span><p>为什么这个 skill 需要这道闸？因为它做的是<strong>大批量双语文件改写</strong>——根 <code>AGENTS.md</code> 明确写着「only explicit user invocation may run <code>dsh-translate-docs</code>」。自动触发会让模型在无关的改动里顺手重写几十个翻译文件。</p></div>
+  </div>
+
+  <h3>.claude/skills 也是符号链接</h3>
+  <p>§1 提到 <code>CLAUDE.md → AGENTS.md</code> 的符号链接。同一招在这里又用了一次：</p>
+
+  <pre><code>$ git ls-files -s .claude/skills
+120000 2b7a412b8f... 0	.claude/skills
+
+$ cat .claude/skills
+../.agents/skills</code></pre>
+
+  <p>Claude Code 从 <code>.claude/skills/</code> 发现 skill，而这个仓库把整个目录链接到 <code>.agents/skills/</code>。<strong>同一份 skill 定义同时服务两个工具，不存在副本。</strong>这是「一个事实一个家」第三次出现（前两次是 CLAUDE.md 和文档分层）。</p>
+
+  <div class="callout info">
+    <p><code class="path">.agents/skills/.gitignore</code> 只有一行：<code>*/agents/openai.yaml</code>——按工具约定忽略其他 agent 的本地元数据，但这恰恰说明<strong>目录本身是共享的</strong>。</p>
+  </div>
+
+  <div class="callout info">
+    <p><strong>本章讲的是仓库<em>自己</em>的 skill；skill 作为<em>产品能力</em>的加载机制在 <a href="23-skill.html">23 页</a>。</strong>两者的连接点很有意思——加载这些 <code>SKILL.md</code> 的正是 dsh 自己的 <code>skill-filesystem</code> 插件。<strong>仓库既是这套机制的使用者，也是它的实现者。</strong>§5 会看完整的加载链路。</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="sec-num">§4</span>把文档规则变成校验门</h2>
+  <p>这是整套基建里最工程化的一环。<code class="path">scripts/</code> 下有 <strong>226 个 TypeScript 脚本</strong>，其中 55 个是 <code>verify-*</code> 门。文档相关的约 35 个聚合在 <code>pnpm run doc-sync</code> 里。</p>
+
+  <h3>文档标准的关键条目</h3>
+  <p><code class="path">docs/AGENTS.md</code>（76 行）定义标准，其中几条被门直接执行：</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>规则</th><th>执行它的门</th></tr>
+    <tr><td>每段必须是<strong>一个物理行</strong>（用编辑器软换行，不要硬折行）</td><td><code>verify-md-wrap</code></td></tr>
+    <tr><td>相对 Markdown 链接必须指向存在的文件</td><td><code>verify-md-links</code></td></tr>
+    <tr><td>正文里不许出现真实 commit id 或不被允许的组织 URL</td><td><code>verify-repository-references</code></td></tr>
+    <tr><td>文档字数不得超过预算清单</td><td><code>verify-doc-budgets</code></td></tr>
+    <tr><td>围栏 <code>ts</code> 代码块必须能编译；粘贴的类型声明要登记防漂移</td><td><code>doc-typecheck</code> / <code>verify-type-equiv</code></td></tr>
+    <tr><td>中英对照必须逐段对齐</td><td><code>verify-translation-pairing</code></td></tr>
+    <tr><td>包 README 必须有 Summary / Model Experience / Known Limitations 段</td><td><code>verify-package-readme-summaries</code> 等三个门</td></tr>
+    <tr><td>Agent Note 的路径、状态行、段落骨架</td><td><code>verify-agent-note-classification</code> / <code>-format</code> / <code>archived-agent-notes</code></td></tr>
+    <tr><td>skill 的调用元数据格式</td><td><code>verify-skill-invocation-metadata</code></td></tr>
+  </table></div>
+
+  <h3>字数预算是硬约束</h3>
+  <p><code class="path">scripts/doc-budgets.manifest.json</code> 是一份很短的清单——它只约束「常备文档」：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">scripts/doc-budgets.manifest.json</span><span>字数上限</span><span class="ln-range">1-9</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">1</span>{</span>
+<span class="code-line"><span class="ln">2</span>  <span class="tok-s">"AGENTS.md"</span>: 1950,</span>
+<span class="code-line"><span class="ln">3</span>  <span class="tok-s">"docs/AGENTS.md"</span>: 1320,</span>
+<span class="code-line"><span class="ln">4</span>  <span class="tok-s">"docs/architecture.md"</span>: 2400,</span>
+<span class="code-line"><span class="ln">5</span>  <span class="tok-s">"docs/cordis-primer.md"</span>: 600,</span>
+<span class="code-line"><span class="ln">6</span>  <span class="tok-s">"docs/defensive-patterns.md"</span>: 550,</span>
+<span class="code-line"><span class="ln">7</span>  <span class="tok-s">"docs/testing.md"</span>: 1350,</span>
+<span class="code-line"><span class="ln">8</span>  <span class="tok-s">"packages/AGENTS.md"</span>: 750,</span>
+<span class="code-line"><span class="ln">9</span>  <span class="tok-s">"packages/README.md"</span>: 994</span>
+<span class="code-line"><span class="ln">10</span>}</span></code></pre>
+</figure>
+
+  <p>门红了怎么办？<code>docs/AGENTS.md</code> 给的是一套<strong>有序</strong>的处置流程（第 52-58 行），顺序本身表达优先级：</p>
+  <ol>
+    <li><strong>Relocate</strong>——内容属于别的 tier，搬过去，必要时留一行链接</li>
+    <li><strong>Condense</strong>——内容确实该在这，但可以更短</li>
+    <li><strong>Raise</strong>——只有文字确实需要空间时才提高上限，且要在 PR 里论证</li>
+  </ol>
+
+  <div class="callout warn">
+    <p><strong>为什么是硬约束而不是「建议」？</strong>因为这些文档是<strong>常驻上下文</strong>——根 <code>AGENTS.md</code> 每次会话都会被注入（§5）。一个无限膨胀的指令文件会挤掉真正的工作内容。上限 1950 词不是审美偏好，是<strong>上下文预算</strong>。文件里还写着：「A too-low ceiling is a budget bug」——上限过低同样是 bug，说明这条预算被当成压缩目标而不是护栏了。</p>
+  </div>
+
+  <h3>slop 清单：可执行的编辑标准</h3>
+  <p><code>docs/AGENTS.md</code> 的第 60-72 行是一份「slop 清单」——不是模糊的「写得好一点」，而是九条可检查的病症：</p>
+  <ul>
+    <li><strong>重复的规则</strong>：搜一个有辨识度的短语；只留一个家，其余改成链接</li>
+    <li><strong>历史出现在不该出现的 tier</strong>：陈述当前事实 + 链接历史所有者</li>
+    <li><strong>实现状态标注</strong>（「implemented!」「future: …」）：状态会腐烂，仓库布局和 manifest 才是权威</li>
+    <li><strong>手工重述的目录</strong>：源码或生成器才是权威</li>
+    <li><strong>推理记录</strong>：逐步实现叙述、显然分支的证明、测试走查、被否决的本地替代方案</li>
+    <li><strong>段落墙</strong>：一段塞了好几条规则和插入语</li>
+    <li><strong>强调膨胀</strong>：处处加粗 = 什么都不突出</li>
+    <li><strong><code>implemented/</code> 笔记里的规格语言</strong>：「should」、迁移计划、验收清单</li>
+  </ul>
+  <p><code>dsh-doc</code> skill 把这份清单当作审计流程来跑。</p>
+</section>
+
+<section id="s5">
+  <h2><span class="sec-num">§5</span>闭环：指令如何进入模型</h2>
+  <p>前面四节讲的是「仓库里有什么」。这一节讲<strong>这些东西怎么真正到达模型</strong>——答案就在 dsh 自己的代码里。有两条独立的注入链路：一条送 <code>AGENTS.md</code>，一条送 skill 目录。</p>
+
+  <h3>链路 A：AGENTS.md → 上下文</h3>
+  <p>负责的插件是 <code class="path">packages/context/agent-instructions</code>（360 行）。模块注释一句话说清职责：</p>
+  <blockquote>Workspace instruction loader for AGENTS.md-compatible files.<br>…tool touches project nested, changed, and removed instructions into the inbox.</blockquote>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/context/agent-instructions/src/config.ts</span><span>文件名候选与根标记</span><span class="ln-range">11-14</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">11</span><span class="tok-k">const</span> DEFAULT_PROJECT_ROOT_MARKERS = [<span class="tok-s">'.git'</span>] <span class="tok-k">as const</span></span>
+<span class="code-line hl"><span class="ln">12</span><span class="tok-k">const</span> DEFAULT_INSTRUCTION_FILE_CANDIDATES = [<span class="tok-s">'AGENTS.md'</span>, <span class="tok-s">'CLAUDE.md'</span>] <span class="tok-k">as const</span></span><span class="note">同一目录里两个都读</span></span>
+<span class="code-line"><span class="ln">13</span><span class="tok-k">const</span> DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES = [<span class="tok-s">'AGENTS.local.md'</span>, <span class="tok-s">'CLAUDE.local.md'</span>] <span class="tok-k">as const</span></span>
+<span class="code-line"><span class="ln">14</span><span class="tok-k">const</span> DEFAULT_MAX_SOURCE_BYTES = 1_048_576</span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">11</span><p><strong>向上找 <code>.git</code> 定项目根</strong>——从会话的 cwd 往上走，遇到 <code>.git</code> 就停下。这是「哪个 AGENTS.md 链适用于我」的判据。</p></div>
+    <div class="lr"><span class="ln-ref">12-13</span><p><code>AGENTS.md</code> 与 <code>CLAUDE.md</code> <strong>并列在候选列表里</strong>，同一目录两个都存在就都读（按目录内 trim 后的内容去重，重复的折叠到靠前的候选）。<code>.local.md</code> 变体作为覆盖层在基础文件之后加载。<strong>这就解释了为什么仓库用符号链接而不是复制——加载器本来就认这两个名字。</strong></p></div>
+  </div>
+
+  <p>它的 README 把完整行为讲清楚了，其中三条对理解协同很关键：</p>
+  <ul>
+    <li><strong>首次请求</strong>时加载适用的链；</li>
+    <li><strong>不持续监听</strong>外部编辑——而是<strong>成功的文件系统操作</strong>（read/write/edit）发现新出现的嵌套文件、或让后续的修改/删除变得可见；session resume 时重新对齐基线；</li>
+    <li><strong>字节预算</strong>限制注入内容：更宽泛的文件先被省略，最具体的文件才会被截断；空链不添加任何东西。</li>
+  </ul>
+
+  <div class="callout key">
+    <p>注意第二条的<strong>词表耦合</strong>：插件监视的工具名是硬编码的——<code>FILE_TOUCH_TOOL_NAMES = new Set(['read', 'write', 'edit'])</code>（<code>index.ts:74</code>）。<strong>仓库里改工具名会让这条链路失效</strong>，而这类耦合不写在文档里，只能从代码读出来。</p>
+  </div>
+
+  <h3>链路 B：skill 目录 → <code>&lt;available_skills&gt;</code></h3>
+  <p>skill 的发现与注入走另一条链，实现也在仓库自己的代码里（这正是 <a href="23-skill.html">23 页</a>的主题）。解析 <code>.agents/skills/</code> 的那一行在：</p>
+
+<figure class="code">
+  <figcaption><span class="fname">packages/skill/skill-filesystem/src/index.ts</span><span>项目 skill 根目录</span><span class="ln-range">250-251</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">250</span>        { path: <span class="tok-f">join</span>(projectRoot, <span class="tok-s">'.dsh/skills'</span>), source: <span class="tok-s">'project-dsh'</span>, rank: PROJECT_DSH_RANK, projectRoot },</span>
+<span class="code-line hl"><span class="ln">251</span>        { path: <span class="tok-f">join</span>(projectRoot, <span class="tok-s">'.agents/skills'</span>), source: <span class="tok-s">'project-agents'</span>, rank: PROJECT_AGENTS_RANK, projectRoot },</span><span class="note">本仓库的 12 个 skill 从这里被发现</span></span></code></pre>
+</figure>
+
+  <div class="le">
+    <div class="lr"><span class="ln-ref">250-251</span><p><code>findProjectRoot</code> 用同一个 <code>.git</code> 判据找项目根，然后拼出两个候选目录。优先级常量定义在同文件 36-40 行：<code>PROJECT_DSH=100 &lt; PROJECT_AGENTS=200 &lt; CUSTOM=300 &lt; USER_DSH=400 &lt; USER_AGENTS=500</code>——<strong>数字小的赢</strong>。所以项目内的 skill 会遮蔽用户级同名的。</p></div>
+  </div>
+
+  <p>发现之后，每个 <code>SKILL.md</code> 被解析（<code>parseSkillFile</code>，<code>index.ts:797</code>）：frontmatter 缺 <code>name</code> 或 <code>description</code> 就<strong>忽略整个文件</strong>，正文作为 <code>content</code>。然后 <code>tool-skill</code> 把它们送进模型：</p>
+
+  <figure class="code">
+    <figcaption><span class="fname">packages/skill/tool-skill/src/index.ts</span><span>注入 <code>&lt;available_skills&gt;</code></span><span class="ln-range">226-227</span></figcaption>
+    <pre><code><span class="code-line hl"><span class="ln">226</span>    <span class="tok-k">const</span> skills = snapshot.skills.<span class="tok-f">filter</span>(isModelInvocable)</span><span class="note">不可模型调用的被滤掉</span></span>
+<span class="code-line"><span class="ln">227</span>    <span class="tok-k">const</span> entries = <span class="tok-f">catalogSourceEntries</span>(skills, catalogDescriptionMaxLength)</span></code></pre>
+  </figure>
+
+  <p>这段跑在 <code>agent/pre-step</code> 监听器里（<code>index.ts:213</code>），产出的是一个 <code>&lt;available_skills&gt;</code> 块作为 user message。<strong>模型看到的是 skill 的名称与 description，不是正文</strong>——它要按 description 匹配，然后显式调用 <code>skill</code> 工具才拿到内容。这正是 <code>description</code> 为什么要写成「何时用」的原因。</p>
+
+  <h3>闭环</h3>
+  <div class="callout key">
+    <p>把两条链连起来：</p>
+    <pre style="margin:8px 0">仓库根 AGENTS.md（175 行常备命令）
+  → agent-instructions 插件首次请求时读入
+  → 作为 user/message 注入 session inbox（08 页 preStep 的 claim）
+  → 进入模型上下文
+
+.agents/skills/*/SKILL.md（12 个）
+  → skill-filesystem 扫描 .agents/skills/（source: 'project-agents'）
+  → tool-skill 在 agent/pre-step 渲染 &lt;available_skills&gt; 块
+  → 模型按 description 匹配 → 调 skill 工具读正文
+
+  → agent 按指令改代码
+  → 推送前跑 dsh-pre-push-checks skill 选检查集
+  → CI 跑 55 个 verify-* 门
+  → non-trivial 改动必须附一篇 Agent Note
+  → 决策沉淀回 .agents/notes/，供下一个 agent 查「为什么」</pre>
+    <p><strong>仓库用 dsh 的机制管理 dsh 自己的开发。</strong>这不是比喻——<code>agent-instructions</code> 与 <code>skill-filesystem</code> 都是随 <code>dsh-base</code> 默认启用的插件。你在读的这套指令注入链路，就是你在用的那套。</p>
+  </div>
+
+  <p>还有个细节值得注意：<code>packages/AGENTS.md</code> 里有一条规则专门管这件事——<strong>「Write model-facing contracts from the model's perspective」</strong>。它要求 prompt、tool schema、结果、诊断里只出现任务相关的概念，不带 UI、传输层或实现词汇。而 <code>agent-instructions</code> 注入的正是「模型可见文本」，所以这套指令文件本身也要遵守那条规则。<strong>规则递归地适用于写规则的文件。</strong></p>
+</section>
+
+<section id="s6">
+  <h2><span class="sec-num">§6</span>这套做法的取舍</h2>
+  <p>把 1028 篇决策记录、12 个 skill、55 个校验门当作一个设计来读，它选择的是什么？</p>
+
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>选择</th><th>得到</th><th>付出</th></tr>
+    <tr><td>决策写进仓库（Agent Notes），不留在 PR 讨论里</td><td>理由可检索、可交叉引用、随代码一起演化；不依赖 GitHub 的可访问性</td><td>每篇都要维护中英对照与 sidecar；实现变更时必须同步更新</td></tr>
+    <tr><td>「替代方案」必填</td><td>阻止重新litigation——后人不必再问「当初为什么不用 X」</td><td>写一篇笔记的成本显著上升</td></tr>
+    <tr><td>归档永久冻结 + 哈希清单</td><td>历史不可篡改，审计可信</td><td>归档判据必须谨慎；错误归档无法挽回</td></tr>
+    <tr><td>文档规则由门执行（而非 review 时人工判断）</td><td>标准一致、不依赖审查者的记忆；agent 能自己发现违规</td><td>226 个脚本本身需要维护；规则改动的成本更高</td></tr>
+    <tr><td>字数预算是硬上限</td><td>常驻上下文不膨胀——这直接决定 agent 每次会话能用多少 token 干活</td><td>内容必须搬家或精简，不能「先加上回头再整理」</td></tr>
+    <tr><td>指令用符号链接而非复制</td><td>一个事实一个家；Claude Code 与其他 agent 共享同一份</td><td>Windows 上符号链接需要额外权限（仓库仍提交为 mode 120000）</td></tr>
+  </table></div>
+
+  <div class="callout key">
+    <p><strong>贯穿始终的一条原则：把「纪律」变成「可执行的断言」。</strong>这与前 34 章反复出现的 fail-loud、模型可见 ⟺ 已记录、invariant 断言是同一种思路——只不过这里被断言的不是运行时行为，而是<strong>协作过程本身</strong>。</p>
+    <p>根 <code>AGENTS.md</code> 第 165 行把这条写成了要求：<em>「Wire mechanically checkable invariants into an executed top-level gate and prove each changed acceptance path rejects an invalid case.」</em>——<strong>凡是能机械检查的不变量，都要接进一个真正会跑的门，并且证明每条改动过的验收路径能拒绝一个非法输入。</strong></p>
+  </div>
+
+  <div class="callout info">
+    <p><strong>给读者的一句话</strong>：如果你在自己的项目里想引入 AI 协同，这套体系里最值得先拿走的不是 1028 篇笔记的规模，而是三个小东西——<strong>① <code>AGENTS.md</code> 分层 + 符号链接共享</strong>（成本最低，收益立刻）；<strong>② <code>## Alternatives considered</code> 必填</strong>（一篇笔记就能看出差别）；<strong>③ 把一条你最常重复的 review 意见写成 <code>verify-*</code> 脚本</strong>（从此不再需要重复它）。</p>
+  </div>
+</section>
+
+<footer class="prevnext">
+  <a href="34-infra.html"><span class="dir">← 34</span><span class="t">工程基础设施</span></a>
+  <a class="next" href="index.html"><span class="dir">回到</span><span class="t">全书目录 →</span></a>
+</footer>
+
+</article>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>renderNav('35')</script>
+<script>
+const links = Array.from(document.querySelectorAll('.toc a'));
+const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+if (secs.length) {
+  const obs = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const link = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-15% 0px -75% 0px' });
+  secs.forEach(s => obs.observe(s));
+}
+</script>
+</body>
+</html>
