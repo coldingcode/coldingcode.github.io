@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.5-rc.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.6-alpha.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,7 +72,7 @@
 <header class="page-head">
   <p class="kicker">Branch · Step 16</p>
   <h1>bash-local：Provider 的职责清单</h1>
-  <p class="lede"><code class="path">packages/shell/bash-local/src/index.ts</code>（342 行）。LocalBashExecutor 是 shell seam 的本地 Provider：<strong>默认值与上限、超时分类、环境合并、把 command 包成 argv 交给下层 subprocess</strong>。它是「resolve 拆分」的完整范本。</p>
+  <p class="lede"><code class="path">packages/shell/bash-local/src/index.ts</code>（370 行）。LocalBashExecutor 是 shell seam 的本地 Provider：<strong>默认值与上限、超时分类、环境合并、把 command 包成 argv 交给下层 subprocess</strong>。它是「resolve 拆分」的完整范本。</p>
 </header>
 
 <div class="chain">
@@ -149,20 +149,25 @@
   <h2><span class="sec-num">§2</span>run：超时分类与 deadline</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>run → runArgv</span><span class="ln-range">213-242</span></figcaption>
+  <figcaption><span class="fname">packages/shell/bash-local/src/index.ts</span><span>run → runArgv</span><span class="ln-range">213-269</span></figcaption>
   <pre><code><span class="code-line"><span class="ln">213</span>  <span class="tok-k">async</span> <span class="tok-f">run</span>(spec: ShellExecSpec): Promise&lt;ShellRunResult&gt; {</span>
-<span class="code-line"><span class="ln">214</span>    <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">runArgv</span>(spec, [<span class="tok-s">'bash'</span>, <span class="tok-s">'-c'</span>, spec.command])</span>
+<span class="code-line"><span class="ln">214</span>    <span class="tok-k">return</span> (<span class="tok-k">await</span> <span class="tok-k">this</span>.<span class="tok-f">runArgv</span>(spec, [<span class="tok-s">'bash'</span>, <span class="tok-s">'-c'</span>, spec.command])).result   <span class="tok-c">// 0.1.6：解包 .result</span></span>
 <span class="code-line"><span class="ln">215</span>  }</span>
-<span class="code-line"><span class="ln">225</span>  <span class="tok-k">protected async</span> <span class="tok-f">runArgv</span>(spec: ShellExecSpec, argv: readonly string[]): Promise&lt;ShellRunResult&gt; {</span>
-<span class="code-line"><span class="ln">227</span>    <span class="tok-k">using</span> d = <span class="tok-f">deadline</span>(spec.signal, spec.timeoutMs, <span class="tok-s">'BASH_TIMEOUT'</span>)   <span class="tok-c">// 一个 deadline 汇合超时与取消</span></span>
-<span class="code-line"><span class="ln">228</span>    <span class="tok-k">const</span> handle = <span class="tok-k">this</span>.ctx.subprocess.<span class="tok-f">spawn</span>(<span class="tok-k">this</span>.<span class="tok-f">spawnSpec</span>(spec, argv, spec.stdoutMaxBytes, d.signal))</span>
-<span class="code-line"><span class="ln">229</span>    <span class="tok-k">const</span> outcome = <span class="tok-k">await</span> handle.done</span>
-<span class="code-line"><span class="ln">230</span>    <span class="tok-k">const</span> collected = LocalBashExecutor.<span class="tok-f">collected</span>(handle)</span>
-<span class="code-line hl"><span class="ln">231</span>    <span class="tok-c">// Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.</span></span><span class="note">两种取消语义分离</span></span>
-<span class="code-line"><span class="ln">232</span>    <span class="tok-k">const</span> timedOut = <span class="tok-f">timeoutOf</span>(d.signal, <span class="tok-s">'BASH_TIMEOUT'</span>) !== <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">233</span>    <span class="tok-k">const</span> aborted = d.signal.aborted &amp;&amp; !timedOut</span>
-<span class="code-line"><span class="ln">234</span>    <span class="tok-k">return</span> { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs, stdout: ..., stderr: ... }</span>
-<span class="code-line"><span class="ln">242</span>  }</span></code></pre>
+<span class="code-line hl"><span class="ln">225</span>  <span class="tok-k">protected async</span> <span class="tok-f">runArgv</span>(</span><span class="note">0.1.6：第二参数可传函数</span></span>
+<span class="code-line"><span class="ln">226</span>    spec: ShellExecSpec,</span>
+<span class="code-line"><span class="ln">227</span>    argvOrPrepare: readonly string[] | ((signal: AbortSignal) =&gt; Promise&lt;readonly string[]&gt;),</span>
+<span class="code-line"><span class="ln">228</span>  ): Promise&lt;{ result: ShellRunResult; spawnRequested: boolean }&gt; {   <span class="tok-c">// 返回值带「是否真的 spawn 过」</span></span>
+<span class="code-line"><span class="ln">229</span>    <span class="tok-k">using</span> d = <span class="tok-f">deadline</span>(spec.signal, spec.timeoutMs, <span class="tok-s">'BASH_TIMEOUT'</span>)</span>
+<span class="code-line"><span class="ln">230-250</span>    <span class="tok-c">// 若传的是函数：与同一个 deadline 赛跑，超时则不 spawn，返回 spawnRequested: false</span></span>
+<span class="code-line"><span class="ln">252</span>    <span class="tok-k">const</span> handle = <span class="tok-k">this</span>.ctx.subprocess.<span class="tok-f">spawn</span>(<span class="tok-k">this</span>.<span class="tok-f">spawnSpec</span>(spec, argv, spec.stdoutMaxBytes, d.signal))</span>
+<span class="code-line"><span class="ln">253</span>    <span class="tok-k">const</span> outcome = <span class="tok-k">await</span> handle.done</span>
+<span class="code-line"><span class="ln">254</span>    <span class="tok-k">const</span> collected = LocalBashExecutor.<span class="tok-f">collected</span>(handle)</span>
+<span class="code-line hl"><span class="ln">255</span>    <span class="tok-c">// Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.</span></span><span class="note">两种取消语义分离</span></span>
+<span class="code-line"><span class="ln">256</span>    <span class="tok-k">const</span> timedOut = <span class="tok-f">timeoutOf</span>(d.signal, <span class="tok-s">'BASH_TIMEOUT'</span>) !== <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">257</span>    <span class="tok-k">const</span> aborted = d.signal.aborted &amp;&amp; !timedOut</span>
+<span class="code-line"><span class="ln">258</span>    <span class="tok-k">return</span> { result: { ...outcome, timedOut, aborted, timeoutMs: spec.timeoutMs,</span>
+<span class="code-line"><span class="ln">265</span>      stdout: <span class="tok-f">finalOutput</span>(collected.stdout), stderr: <span class="tok-f">finalOutput</span>(collected.stderr) }, spawnRequested: <span class="tok-n">true</span> }</span>
+<span class="code-line"><span class="ln">269</span>  }</span></code></pre>
 </figure>
 
   <div class="le">

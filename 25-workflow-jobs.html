@@ -65,12 +65,12 @@
 <section id="s1">
   <h2><span class="sec-num">§1</span>挂载条目</h2>
   <ul>
-    <li><code>workflow-worker-thread → dsh-workflow-worker-thread</code>（1987 行）——worker 线程里的工作流引擎</li>
+    <li><code>workflow-ptc → dsh-workflow-ptc</code>——PTC 运行时里的工作流引擎（0.1.6 起，取代原 worker-thread 实现）</li>
     <li><code>tool-workflow → dsh-tool-workflow</code>——模型发起工作流的工具</li>
-    <li><code>jobs → dsh-jobs-local</code>（567 行）——本地后台作业注册表</li>
+    <li><code>jobs → dsh-jobs-local</code>（534 行）——本地后台作业注册表</li>
     <li><code>tool-jobs → dsh-tool-jobs</code>（432 行）——模型查看/停止后台作业</li>
-    <li><code>tool-todo → dsh-tool-todo</code>（329 行）——todo/write 事件（06 页 SessionEventMap 的 log-only 事件）</li>
-    <li><code>schedule → dsh-schedule</code>（2003 行，可选挂载）——定时任务</li>
+    <li><code>tool-todo → dsh-tool-todo</code>（384 行）——todo/write 事件（06 页 SessionEventMap 的 log-only 事件）</li>
+    <li><code>schedule → dsh-schedule</code>（2140 行，可选挂载）——定时任务</li>
   </ul>
 </section>
 
@@ -79,18 +79,18 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>包</th><th>规模</th><th>角色</th></tr>
     <tr><td><code class="path">packages/workflow/workflow/</code></td><td>4 文件 / 519 行</td><td><strong>Service Definition</strong>：<code>WorkflowEngine extends Service</code>（src/index.ts:157）——脚本引擎契约</td></tr>
-    <tr><td><code class="path">packages/workflow/workflow-worker-thread/</code></td><td>10 文件 / 1987 行</td><td><strong>Provider</strong>：<code>static inject = ['subagents']</code>（src/index.ts:113）——在 worker 线程里跑脚本、经 subagent（22 页）派生代理</td></tr>
+    <tr><td><code class="path">packages/workflow/workflow-ptc/</code></td><td>9 文件 / 1321 行</td><td><strong>Provider</strong>：<code>static inject = ['subagents', 'ptcRuntime', 'sandboxPolicy']</code>（src/index.ts:103）——<strong>0.1.6 起在沙箱化的 PTC 运行时里执行编排脚本</strong>（原本是 worker 线程），经 subagent（22 页）派生代理</td></tr>
     <tr><td><code class="path">packages/workflow/tool-workflow/</code></td><td>—</td><td><strong>Consumer</strong>：<code>inject = ['tools', 'workflowEngine', 'systemPrompt']</code>（src/index.ts:30）</td></tr>
-    <tr><td><code class="path">packages/jobs/jobs-local/</code></td><td>2 文件 / 567 行</td><td>后台作业的本地实现</td></tr>
-    <tr><td><code class="path">packages/todo/tool-todo/</code></td><td>4 文件 / 329 行</td><td>todo/write 的写入工具（全量快照、last-write-wins）</td></tr>
+    <tr><td><code class="path">packages/jobs/jobs-local/</code></td><td>1 文件 / 534 行</td><td>后台作业的本地实现</td></tr>
+    <tr><td><code class="path">packages/todo/tool-todo/</code></td><td>4 文件 / 384 行</td><td>todo/write 的写入工具（全量快照、last-write-wins）</td></tr>
   </table></div>
 </section>
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>机制：脚本编排 vs 后台作业</h2>
   <ol>
-    <li><strong>workflow = 确定性编排</strong>：脚本（fan-out/pipeline/loop）决定哪些 agent 何时跑——这与主循环的「模型决策」正交。引擎在 worker 线程执行，底层代理来自 subagent seam（22 页的复用）。</li>
-    <li><strong>jobs = 后台作业</strong>：tool-bash 的 <code>start</code>（17 页 370 行）把 ShellProcess 适配成 jobs 任务（<code>processOutcome</code>）——模型随时用 tool-jobs 查看/停止。</li>
+    <li><strong>workflow = 确定性编排</strong>：脚本（fan-out/pipeline/loop）决定哪些 agent 何时跑——这与主循环的「模型决策」正交。引擎在 <strong>PTC 运行时</strong>（沙箱化的脚本执行环境）里执行，底层代理来自 subagent seam（22 页的复用）。</li>
+    <li><strong>jobs = 后台作业</strong>：tool-bash 的 <code>start</code> 把 ShellProcess 适配成 jobs 任务（<code>processOutcome</code>，0.1.6 起拆到 <code class="path">tool-bash/src/background.ts</code>）——模型随时用 tool-jobs 查看/停止。</li>
     <li><strong>todo = 模型自己的待办</strong>：<code>todo/write</code> 是<strong>全量快照、最新写入胜出</strong>的 log-only 事件（06 页 types.ts 的 JSDoc 原话）——不进派生历史，仅 UI 使用。</li>
   </ol>
 </section>
@@ -104,20 +104,21 @@
 </figure>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/workflow/workflow-worker-thread/src/index.ts</span><span>worker 实现依赖 subagents</span><span class="ln-range">113</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">113</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'subagents'</span>]</span></code></pre>
+  <figcaption><span class="fname">packages/workflow/workflow-ptc/src/index.ts</span><span>PTC 工作流引擎的注入</span><span class="ln-range">102-103</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">102</span><span class="tok-k">class</span> <span class="tok-t">PtcWorkflowEngine</span> <span class="tok-k">extends</span> WorkflowEngine {</span>
+<span class="code-line hl"><span class="ln">103</span>  <span class="tok-k">static</span> inject = [<span class="tok-s">'subagents'</span>, <span class="tok-s">'ptcRuntime'</span>, <span class="tok-s">'sandboxPolicy'</span>]</span><span class="note">0.1.6：多了运行时与沙箱策略</span></span></code></pre>
 </figure>
 
   <div class="le">
     <div class="lr"><span class="ln-ref">157</span><p>workflow 的 Definition 与 compaction/subagent 同构——但它的「能力」是编排脚本，不是模型能力。</p></div>
-    <div class="lr"><span class="ln-ref">113</span><p><strong>依赖 subagents 是关键</strong>：工作流不自己造 agent，它编排 22 页 seam 提供的 agent——seam 复用链：workflow → subagents → agents（05 页）。</p></div>
+    <div class="lr"><span class="ln-ref">102-103</span><p><strong>依赖 subagents 是关键</strong>：工作流不自己造 agent，它编排 22 页 seam 提供的 agent——seam 复用链：workflow → subagents → agents（05 页）。0.1.6 起又多两个依赖：<code>ptcRuntime</code>（脚本在哪跑）与 <code>sandboxPolicy</code>（以什么权限跑）。<strong>编排脚本从「worker 线程」搬进了「沙箱化的 PTC 运行时」</strong>——脚本是模型写的，它该和工具执行受同一套沙箱约束。</p></div>
   </div>
 </section>
 
 <section id="s5">
   <h2><span class="sec-num">§5</span>易错点</h2>
   <div class="callout warn">
-    <p><strong>todo/write 是 log-only</strong>（06 页 SurfaceEventType 只有三个类型，todo 不在其中）——它永不下发模型，只是 UI 状态。若误以为模型能看到 todo，会写出模型从不知情的工具。</p>
+    <p><strong>todo/write 是 log-only</strong>（06 页 SurfaceEventType 只有四个消息生产类型，todo 不在其中）——它永不下发模型，只是 UI 状态。若误以为模型能看到 todo，会写出模型从不知情的工具。</p>
   </div>
   <div class="callout info">
     <p><strong>jobs 的存活边界在 17 页提过</strong>：后台进程的 teardown 归 subprocess disposal——jobs 只是「查看/停止」的窗口，不拥有进程。</p>
