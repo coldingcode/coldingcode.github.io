@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -80,7 +80,8 @@
   <ol>
     <li><a href="#s-new35">新增卷三：AI 协同（2026-09-15）</a></li>
     <li><a href="#s1">站点当前状态</a></li>
-    <li><a href="#s000000">最新：0.1.5-rc.2 → 0.1.6-alpha.1 同步（2026-09-15）</a></li>
+    <li><a href="#s0000000">最新：0.1.6-alpha.1 → 0.1.6-alpha.2 同步（2026-09-16）</a></li>
+    <li><a href="#s000000">0.1.5-rc.2 → 0.1.6-alpha.1 同步（2026-09-15）</a></li>
     <li><a href="#s00000">0.1.3-alpha.2 → 0.1.5-rc.2 同步（2026-09-11）</a></li>
     <li><a href="#s0000">0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</a></li>
     <li><a href="#s000">0.1.2-rc.1 → 0.1.3-alpha.1 同步（2026-09-05）</a></li>
@@ -119,16 +120,62 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
-    <tr><td>站点锚定版本</td><td><strong>0.1.6-alpha.1</strong>（commit <code>0d1f50007f</code> Merge PR #4192）</td></tr>
+    <tr><td>站点锚定版本</td><td><strong>0.1.6-alpha.2</strong>（commit <code>ddefc45fbc</code> Merge PR #4469）</td></tr>
     <tr><td>覆盖范围</td><td>36 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ <strong>卷三（35 AI 协同）</strong>+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>200+ 处文件:行号引用，均经上游源码逐行验证（<code>_verify.py</code> 自动比对，当前 0 差异）</td></tr>
-    <tr><td>显示版本</td><td><code>0.1.5-rc.2</code> → <code>0.1.6-alpha.1</code>：23 个页面 + <code>assets/nav.js</code> 的页脚</td></tr>
+    <tr><td>显示版本</td><td><code>0.1.6-alpha.1</code> → <code>0.1.6-alpha.2</code>：23 个页面 + <code>assets/nav.js</code> 的页脚</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
 </section>
 
+<section id="s0000000">
+  <h2><span class="sec-num">§0000000</span>最新：0.1.6-alpha.1 → 0.1.6-alpha.2 同步（2026-09-16）</h2>
+  <p>本轮 pull 的变更量：<strong>882 个提交</strong>、2548 个文件。核心是一次<strong>启动链的多重重构</strong>——热重载独立成包、CLI 参数模型更换、启动失败有了诊断落盘。站点 11 个页面受影响，66 处锚点漂移。</p>
+
+  <h3>① 热重载独立成包：<code>packages/boot/hmr/</code>—— 04 页 §3 重写</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/boot/hmr/</code>（<strong>3 个新文件 / 723 行</strong>）</td><td><strong>全新包</strong>。热重载从 launcher 里的一段胶水升级为 Cordis 服务：<code>class Hmr extends Service</code>（<code>src/index.ts:88</code>，<code>super(ctx, 'hmr')</code>）。<code>watch-config.ts</code>（92 行）从 app-boot 搬来，<code>error.ts</code>（41 行）新写</td></tr>
+    <tr><td><code class="path">apps/cli/src/profile-boot.ts</code>（413→<strong>337 行</strong>）</td><td><strong>整块 HMR 生命周期被删除</strong>：<code>composeLive</code>、<code>watchUserPatches</code>、<code>suppressShutdownError</code>、<code>allPatches</code>、<code>cordis-plugin-timer</code>/<code>hmr</code> 的按需挂载、<code>patchReload === 'live'</code> 判定——<strong>这些符号现在在整个仓库都不存在</strong>。取而代之：新增 <code>profileContext</code> 对象并在 prepare 回调里 <code>provide</code> 进树（308 行），HMR 服务自己去读</td></tr>
+    <tr><td><code class="path">packages/boot/app-boot/src/index.ts</code>（945→1011 行）</td><td>新增 <code>reconcileProfilePatches</code>（251 行）——热重载时应用整代补丁的入口。<code>watch-config.ts</code>（89 行）被删除</td></tr>
+  </table></div>
+
+  <h3>② CLI 参数模型：<code>web</code> 子命令 → 通用前缀展开—— 00/01 页更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">apps/cli/src/args.ts</code>（211→<strong>196 行</strong>）</td><td><strong><code>.command('web')</code> 与 <code>rejectParentOptions</code> 双双删除</strong>。改为通用展开（186-188 行）：第一个 token 不是选项也不是 <code>plugin</code> 时，前置 <code>--profile</code>。于是 <code>dsh web</code>、<code>dsh tui</code>、<code>dsh rescue</code> 全部等价于 <code>dsh --profile &lt;name&gt;</code>——<strong>零边际成本</strong>。新增 <code>selectProfile</code> 校验器（29-32 行）拒绝重复的 <code>--profile</code>、<code>.helpCommand(false)</code>（148 行）、<code>.usage()</code>（140 行）</td></tr>
+    <tr><td><code class="path">apps/cli/src/bin.ts</code>（66→<strong>75 行</strong>）</td><td>新增启动失败诊断捕获（45-49 行）；<code>runPlugin</code> 调用变 <code>await</code>（54 行）；<code>version</code> 提升为局部变量（31 行）</td></tr>
+  </table></div>
+
+  <h3>③ 启动失败诊断—— 00 页新增 §5，03 页 §4 更新</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">apps/cli/src/startup-diagnostics.ts</code>（<strong>新文件 68 行</strong>）</td><td>把完整诊断写进 <code>$DSH_HOME/logs/</code> 下的唯一命名文件，终端只留摘要。<strong>刻意不收集环境变量值与插件配置</strong>（报告可能被贴进 issue）；写失败时把完整报告也打到 stderr，不谎称「已保存」</td></tr>
+    <tr><td><code class="path">packages/boot/app-boot/src/index.ts</code></td><td><code>boot</code> 新增启动日志收集器（925-934 行）——一个独立 <code>Context</code> 挂 logger exporter，只收 warn/error，<strong>必须活得比 root disposal 长</strong>（在 finally 里才 dispose）；新增 <code>internal/update</code> 拦截（943-945 行）接住 Cordis 丢弃的 restart promise。<code>StartupError</code> 类（746 行）携带结构化 <code>entries</code>，<code>boot</code> 把 <code>startup</code> 日志挂上去（964-967 行）</td></tr>
+    <tr><td><code>auditStartupEntries</code>（818→<strong>870 行</strong>）</td><td>改为抛 <code>StartupError</code> 而非普通 Error；用单个 <code>required</code> Set 取代两个数组分拣；白名单从 9 项减到 <strong>7 项</strong></td></tr>
+  </table></div>
+
+  <h3>④ 其他机制变更（站点已同步）</h3>
+  <ul>
+    <li><strong>Inbox 投影注册移交</strong>（07 页）：<code>ReactLoopInbox</code> 的构造器现在是空的 <code>) {}</code>——注册职责移到 <code>AgentLoop</code>（<code>agent-loop/src/index.ts:416-417</code>，与 <code>turnBoundary</code> 一起注册）。<code>inbox.ts</code> 247→244 行。</li>
+    <li><strong><code>Profile.patchReload</code> 字段删除</strong>（02 页）：profile 不再声明热重载策略——HMR 服务读 <code>profileContext</code> 就知道该观察什么。相关校验代码整段消失，<code>PROFILE_TEMPLATES</code> 条目从两行压成一行。</li>
+    <li><strong><code>resolvedProfile</code> / <code>packageManager</code></strong>（04 页）：<code>RunProfileOptions</code> 新增两个字段，让<strong>打包应用</strong>（Electron desktop）交来自己已加载的 profile，绕过 <code>$DSH_HOME</code> 命名查找。</li>
+    <li><strong>分辨率模式默认值翻转</strong>：<code>resolutionMode</code> 的默认从 <code>'link'</code> 改为 <strong><code>'runtime'</code></strong>——内存路由表成为常规路径，symlink 物化退化为可选。</li>
+    <li><strong>app-boot 三个新模块</strong>：<code>profile-context.ts</code>（75 行，<code>readProfilePatches</code> 接手五层组装 + 遥测 patch）、<code>profile-plugins.ts</code>（127 行，插件清单读写）、<code>profile-sanitize.ts</code>（34 行，文件系统恢复）——内容分别从 <code>profile-boot.ts</code> 与 <code>apps/cli/src/plugin.ts</code> 搬出。</li>
+    <li><strong><code>initProfile</code> 签名简化</strong>：<code>(dir, bundles, patchReload)</code> → <code>(dir, bundles)</code>。</li>
+    <li><strong>新增 <code>skill-office</code> 包</strong>：内置 Word/PPT/Excel 工作流（3 个 <code>SKILL.md</code> + Python 结构检查脚本）。注意这是<strong>产品包</strong>（<code>packages/skill/</code>），与仓库自己的 <code>.agents/skills/</code> 不同层。</li>
+    <li><strong>llm 微调</strong>：<code>discoverModels</code> 透出 <code>inputModalities</code>（<code>llm/src/index.ts:617</code>）——模型发现时一并报告模态能力。</li>
+  </ul>
+
+  <h3>⑤ 卷三的数据刷新</h3>
+  <p>本轮同步顺带更新了 <a href="35-ai-collab.html">35 页</a>的统计：Agent Notes <strong>1028 → 1105 篇</strong>（implemented 355→424、archived 629→635），<code>scripts/*.ts</code> <strong>226 → 230 个</strong>。这本身就说明这套协同基建在持续运转——每轮同步看到的数字都在长。</p>
+
+  <h3>⑥ 本轮同步的锚点工作</h3>
+  <p>11 个页面、66 处锚点漂移。位移主要来自 <code>app-boot/index.ts</code> +66（新增日志收集与 StartupError）、<code>profile-boot.ts</code> −76（热重载迁出）、<code>args.ts</code> −15、<code>inbox.ts</code> −3、<code>llm/index.ts</code> +1。<code>_verify.py</code> 全程用于定位与复验，最终 <strong>0 差异</strong>；结构检查（内部链接、锚点、标签平衡、页脚版本）同样 0 问题。</p>
+</section>
+
 <section id="s000000">
-  <h2><span class="sec-num">§000000</span>最新：0.1.5-rc.2 → 0.1.6-alpha.1 同步（2026-09-15）</h2>
+  <h2><span class="sec-num">§000000</span>0.1.5-rc.2 → 0.1.6-alpha.1 同步（2026-09-15）</h2>
   <p>本轮 pull 的变更量：<strong>666 个提交</strong>、3123 个文件。核心语义变更三个主题，另有一次破坏性重命名。</p>
 
   <h3>① 插件消息投影：surface 的第三种变换—— 06 页更新</h3>

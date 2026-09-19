@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.1<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -248,51 +248,51 @@
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>prepareCall：一次性派发 + 代际绑定</h2>
-  <p><code>prepareCall</code> 在 <code class="path">packages/llm/llm/src/index.ts:916</code>（10 页会看到 LlmRuntime 全貌）。这里看它的全文（<code>llm/src/index.ts:919-963</code>）——尤其 <code>systemPromptUpdate</code>（945 行，0.1.5 新增）与 stream 闭包的两道守卫：</p>
+  <p><code>prepareCall</code> 在 <code class="path">packages/llm/llm/src/index.ts:920</code>（10 页会看到 LlmRuntime 全貌）。这里看它的全文（<code>llm/src/index.ts:920-964</code>）——尤其 <code>systemPromptUpdate</code>（946 行，0.1.5 新增）与 stream 闭包的两道守卫：</p>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>prepareCall 与 stream 闭包</span><span class="ln-range">919-965</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">919</span>  <span class="tok-k">async</span> <span class="tok-f">prepareCall</span>(config: LlmCallConfig, signal?: AbortSignal): Promise&lt;PreparedLlmCall&gt; {</span>
-<span class="code-line"><span class="ln">920</span>    <span class="tok-k">const</span> registration = <span class="tok-k">this</span>.<span class="tok-f">registration</span>(config.provider)</span>
-<span class="code-line"><span class="ln">921</span>    <span class="tok-k">const</span> adapterCall = <span class="tok-k">await</span> registration.adapter.<span class="tok-f">prepareCall</span>(config.provider, config.model, signal)</span>
-<span class="code-line"><span class="ln">922</span>    <span class="tok-k">const</span> modelInfo = <span class="tok-k">this</span>.<span class="tok-f">normalizeModelInfo</span>(registration, config.model, adapterCall.model)</span>
-<span class="code-line"><span class="ln">923</span>    <span class="tok-k">const</span> resolved = <span class="tok-k">this</span>.<span class="tok-f">resolveCallWithInfo</span>(config, modelInfo)</span>
-<span class="code-line"><span class="ln">924</span>    <span class="tok-k">const</span> resolvedConfig = <span class="tok-f">deepFreeze</span>(<span class="tok-f">structuredClone</span>(resolved.config))</span>
-<span class="code-line"><span class="ln">925</span>    <span class="tok-k">const</span> context = resolved.context === <span class="tok-k">undefined</span> ? <span class="tok-k">undefined</span> : <span class="tok-f">deepFreeze</span>(<span class="tok-f">structuredClone</span>(resolved.context))</span>
-<span class="code-line hl"><span class="ln">928</span>    <span class="tok-k">const</span> adapterDefaults = <span class="tok-f">deepFreeze</span>&lt;LlmCallConfigAdapterDefaults&gt;({</span><span class="note">标注哪些是 adapter 补的</span></span>
-<span class="code-line"><span class="ln">929</span>      ...config.reasoningEffort === <span class="tok-k">undefined</span> &amp;&amp; resolvedConfig.reasoningEffort !== <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">930</span>        ? { reasoningEffort: <span class="tok-n">true</span> } : {},</span>
-<span class="code-line"><span class="ln">932</span>      ...config.maxTokens === <span class="tok-k">undefined</span> &amp;&amp; resolvedConfig.maxTokens !== <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">933</span>        ? { maxTokens: <span class="tok-n">true</span> } : {},</span>
-<span class="code-line"><span class="ln">934</span>    })</span>
-<span class="code-line"><span class="ln">936</span>    <span class="tok-k">let</span> dispatched = <span class="tok-n">false</span></span>
-<span class="code-line"><span class="ln">937</span>    <span class="tok-k">return</span> Object.<span class="tok-f">freeze</span>({</span>
-<span class="code-line"><span class="ln">938</span>      config: resolvedConfig,</span>
-<span class="code-line"><span class="ln">939</span>      retryPolicy: registration.retryPolicy,</span>
-<span class="code-line"><span class="ln">940</span>      adapterDefaults,</span>
-<span class="code-line"><span class="ln">941</span>      ...context === <span class="tok-k">undefined</span> ? {} : { context },</span>
-<span class="code-line"><span class="ln">942</span>      ...modelInfo.inputModalities === <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">943</span>        ? {}</span>
-<span class="code-line"><span class="ln">944</span>        : { inputModalities: Object.<span class="tok-f">freeze</span>([...modelInfo.inputModalities]) },</span>
-<span class="code-line hl"><span class="ln">945</span>      ...modelInfo.systemPromptUpdate === <span class="tok-k">undefined</span> ? {} : { systemPromptUpdate: ... },</span><span class="note">0.1.5 新增能力位</span></span>
-<span class="code-line"><span class="ln">946</span>      stream: (options: GenerateOptions): AsyncIterable&lt;StreamChunk&gt; =&gt; {</span>
-<span class="code-line"><span class="ln">947</span>        <span class="tok-k">if</span> (dispatched) {</span>
-<span class="code-line"><span class="ln">948</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(<span class="tok-s">'a prepared LLM call can only be dispatched once'</span>, <span class="tok-s">'INVALID_PREPARED_CALL'</span>)</span>
-<span class="code-line"><span class="ln">949</span>        }</span>
-<span class="code-line"><span class="ln">950</span>        <span class="tok-k">if</span> (!<span class="tok-f">callConfigEquals</span>(options, resolvedConfig)) {</span>
-<span class="code-line"><span class="ln">951</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(</span>
-<span class="code-line"><span class="ln">952</span>            <span class="tok-s">'prepared LLM call config changed before adapter dispatch'</span>,</span>
-<span class="code-line"><span class="ln">953</span>            <span class="tok-s">'INVALID_PREPARED_CALL'</span>,</span>
-<span class="code-line"><span class="ln">954</span>          )</span>
-<span class="code-line"><span class="ln">955</span>        }</span>
-<span class="code-line"><span class="ln">956</span>        dispatched = <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">957</span>        <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">streamWithRegistration</span>(options, {</span>
-<span class="code-line"><span class="ln">958</span>          registration, config: resolvedConfig, modelInfo,</span>
-<span class="code-line"><span class="ln">959</span>          dispatch: options =&gt; adapterCall.<span class="tok-f">stream</span>(options),</span>
-<span class="code-line"><span class="ln">960</span>        })</span>
-<span class="code-line"><span class="ln">961</span>      },</span>
-<span class="code-line"><span class="ln">962</span>    })</span>
-<span class="code-line"><span class="ln">963</span>  }</span></code></pre>
+  <figcaption><span class="fname">packages/llm/llm/src/index.ts</span><span>prepareCall 与 stream 闭包</span><span class="ln-range">920-966</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">920</span>  <span class="tok-k">async</span> <span class="tok-f">prepareCall</span>(config: LlmCallConfig, signal?: AbortSignal): Promise&lt;PreparedLlmCall&gt; {</span>
+<span class="code-line"><span class="ln">921</span>    <span class="tok-k">const</span> registration = <span class="tok-k">this</span>.<span class="tok-f">registration</span>(config.provider)</span>
+<span class="code-line"><span class="ln">922</span>    <span class="tok-k">const</span> adapterCall = <span class="tok-k">await</span> registration.adapter.<span class="tok-f">prepareCall</span>(config.provider, config.model, signal)</span>
+<span class="code-line"><span class="ln">923</span>    <span class="tok-k">const</span> modelInfo = <span class="tok-k">this</span>.<span class="tok-f">normalizeModelInfo</span>(registration, config.model, adapterCall.model)</span>
+<span class="code-line"><span class="ln">924</span>    <span class="tok-k">const</span> resolved = <span class="tok-k">this</span>.<span class="tok-f">resolveCallWithInfo</span>(config, modelInfo)</span>
+<span class="code-line"><span class="ln">925</span>    <span class="tok-k">const</span> resolvedConfig = <span class="tok-f">deepFreeze</span>(<span class="tok-f">structuredClone</span>(resolved.config))</span>
+<span class="code-line"><span class="ln">926</span>    <span class="tok-k">const</span> context = resolved.context === <span class="tok-k">undefined</span> ? <span class="tok-k">undefined</span> : <span class="tok-f">deepFreeze</span>(<span class="tok-f">structuredClone</span>(resolved.context))</span>
+<span class="code-line hl"><span class="ln">929</span>    <span class="tok-k">const</span> adapterDefaults = <span class="tok-f">deepFreeze</span>&lt;LlmCallConfigAdapterDefaults&gt;({</span><span class="note">标注哪些是 adapter 补的</span></span>
+<span class="code-line"><span class="ln">930</span>      ...config.reasoningEffort === <span class="tok-k">undefined</span> &amp;&amp; resolvedConfig.reasoningEffort !== <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">931</span>        ? { reasoningEffort: <span class="tok-n">true</span> } : {},</span>
+<span class="code-line"><span class="ln">933</span>      ...config.maxTokens === <span class="tok-k">undefined</span> &amp;&amp; resolvedConfig.maxTokens !== <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">934</span>        ? { maxTokens: <span class="tok-n">true</span> } : {},</span>
+<span class="code-line"><span class="ln">935</span>    })</span>
+<span class="code-line"><span class="ln">937</span>    <span class="tok-k">let</span> dispatched = <span class="tok-n">false</span></span>
+<span class="code-line"><span class="ln">938</span>    <span class="tok-k">return</span> Object.<span class="tok-f">freeze</span>({</span>
+<span class="code-line"><span class="ln">939</span>      config: resolvedConfig,</span>
+<span class="code-line"><span class="ln">940</span>      retryPolicy: registration.retryPolicy,</span>
+<span class="code-line"><span class="ln">941</span>      adapterDefaults,</span>
+<span class="code-line"><span class="ln">942</span>      ...context === <span class="tok-k">undefined</span> ? {} : { context },</span>
+<span class="code-line"><span class="ln">943</span>      ...modelInfo.inputModalities === <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">944</span>        ? {}</span>
+<span class="code-line"><span class="ln">945</span>        : { inputModalities: Object.<span class="tok-f">freeze</span>([...modelInfo.inputModalities]) },</span>
+<span class="code-line hl"><span class="ln">946</span>      ...modelInfo.systemPromptUpdate === <span class="tok-k">undefined</span> ? {} : { systemPromptUpdate: ... },</span><span class="note">0.1.5 新增能力位</span></span>
+<span class="code-line"><span class="ln">947</span>      stream: (options: GenerateOptions): AsyncIterable&lt;StreamChunk&gt; =&gt; {</span>
+<span class="code-line"><span class="ln">948</span>        <span class="tok-k">if</span> (dispatched) {</span>
+<span class="code-line"><span class="ln">949</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(<span class="tok-s">'a prepared LLM call can only be dispatched once'</span>, <span class="tok-s">'INVALID_PREPARED_CALL'</span>)</span>
+<span class="code-line"><span class="ln">950</span>        }</span>
+<span class="code-line"><span class="ln">951</span>        <span class="tok-k">if</span> (!<span class="tok-f">callConfigEquals</span>(options, resolvedConfig)) {</span>
+<span class="code-line"><span class="ln">952</span>          <span class="tok-k">throw new</span> <span class="tok-t">LlmError</span>(</span>
+<span class="code-line"><span class="ln">953</span>            <span class="tok-s">'prepared LLM call config changed before adapter dispatch'</span>,</span>
+<span class="code-line"><span class="ln">954</span>            <span class="tok-s">'INVALID_PREPARED_CALL'</span>,</span>
+<span class="code-line"><span class="ln">955</span>          )</span>
+<span class="code-line"><span class="ln">956</span>        }</span>
+<span class="code-line"><span class="ln">957</span>        dispatched = <span class="tok-n">true</span></span>
+<span class="code-line"><span class="ln">958</span>        <span class="tok-k">return</span> <span class="tok-k">this</span>.<span class="tok-f">streamWithRegistration</span>(options, {</span>
+<span class="code-line"><span class="ln">959</span>          registration, config: resolvedConfig, modelInfo,</span>
+<span class="code-line"><span class="ln">960</span>          dispatch: options =&gt; adapterCall.<span class="tok-f">stream</span>(options),</span>
+<span class="code-line"><span class="ln">961</span>        })</span>
+<span class="code-line"><span class="ln">962</span>      },</span>
+<span class="code-line"><span class="ln">963</span>    })</span>
+<span class="code-line"><span class="ln">964</span>  }</span></code></pre>
 </figure>
 
   <div class="le">
