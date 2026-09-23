@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.7-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -80,7 +80,8 @@
   <ol>
     <li><a href="#s-new35">新增卷三：AI 协同（2026-09-15）</a></li>
     <li><a href="#s1">站点当前状态</a></li>
-    <li><a href="#s0000000">最新：0.1.6-alpha.1 → 0.1.6-alpha.2 同步（2026-09-16）</a></li>
+    <li><a href="#s00000000">最新：0.1.6-alpha.2 → 0.1.7-rc.1 同步（2026-09-23）</a></li>
+    <li><a href="#s0000000">0.1.6-alpha.1 → 0.1.6-alpha.2 同步（2026-09-16）</a></li>
     <li><a href="#s000000">0.1.5-rc.2 → 0.1.6-alpha.1 同步（2026-09-15）</a></li>
     <li><a href="#s00000">0.1.3-alpha.2 → 0.1.5-rc.2 同步（2026-09-11）</a></li>
     <li><a href="#s0000">0.1.3-alpha.1 → 0.1.3-alpha.2 同步（2026-09-08）</a></li>
@@ -120,16 +121,68 @@
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>项</th><th>值</th></tr>
     <tr><td>上游仓库</td><td><code>D:\dev\sourcecode\deepseek-harness</code>（master）</td></tr>
-    <tr><td>站点锚定版本</td><td><strong>0.1.6-alpha.2</strong>（commit <code>ddefc45fbc</code> Merge PR #4469）</td></tr>
+    <tr><td>站点锚定版本</td><td><strong>0.1.7-rc.1</strong>（commit <code>46a7f68b09</code> Merge PR #5073）</td></tr>
     <tr><td>覆盖范围</td><td>36 页：卷零（00-04 入口与组装）+ 卷一（05-17 核心循环深读）+ 卷二（20-34 能力全景 15 章）+ <strong>卷三（35 AI 协同）</strong>+ 总览 + 版本更新</td></tr>
     <tr><td>锚点数量</td><td>200+ 处文件:行号引用，均经上游源码逐行验证（<code>_verify.py</code> 自动比对，当前 0 差异）</td></tr>
-    <tr><td>显示版本</td><td><code>0.1.6-alpha.1</code> → <code>0.1.6-alpha.2</code>：23 个页面 + <code>assets/nav.js</code> 的页脚</td></tr>
+    <tr><td>显示版本</td><td><code>0.1.6-alpha.2</code> → <code>0.1.7-rc.1</code>：23 个页面 + <code>assets/nav.js</code> 的页脚</td></tr>
     <tr><td>站点仓库</td><td><code>D:\dev\sourcecode\dsh-reading</code>（独立 git，推送到 <code>coldingcode.github.io</code>）</td></tr>
   </table></div>
 </section>
 
+<section id="s00000000">
+  <h2><span class="sec-num">§00000000</span>最新：0.1.6-alpha.2 → 0.1.7-rc.1 同步（2026-09-23）</h2>
+  <p>本轮 pull 的变更量：<strong>1617 个提交</strong>、5142 个文件。这是站点历次同步里跨度最大的一次——<strong>四处破坏性 API 变更</strong>，15 个页面、159 处锚点漂移。</p>
+
+  <h3>① 会话格式升到 V4：<code>developer/message</code> 与 <code>forked</code>—— 06 页新增 §1d</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/core/session/src/types.ts</code>（500→523 行）</td><td><strong><code>SESSION_FORMAT_VERSION</code> 3 → 4</strong>（89 行）。<code>SurfaceEventType</code> 从 4 个成员扩到 <strong>5 个</strong>——新增 <code>'developer/message'</code>（441 行）。该事件携带 <code>headerSeq?: SessionSeq</code>（316 行）：有工具新增时<strong>必须</strong>指向定义它的 <code>request/header</code>，工具定义不在消息里重复。<code>TurnEndReasonMap</code> 新增 <code>forked</code> 变体（228 行）——fork 落在 open turn 内不再被拒绝，改由 <code>buildForkSeed</code> 合成 closers</td></tr>
+    <tr><td><code class="path">packages/core/session/src/surface.ts</code>（662→718 行）</td><td>新增 <code>assertDeveloperHeader()</code>（373-401 行）——校验 developer 消息的 tool 增删能解析回既有 header。新增 <code>validateSessionEventData</code> 的 developer 分支（177-205 行）</td></tr>
+    <tr><td><code class="path">packages/session/session-format-v3-to-v4/</code></td><td><strong>第三个迁移包</strong>（前两个是 v0→v1、v1→v2、v2→v3）</td></tr>
+    <tr><td><code class="path">packages/core/session/src/index.ts</code>（1317→1310 行）</td><td>新增 <code>firstLifecycleSeq</code> 字段（492 行）区分「继承前缀」与「本生命周期」；<code>MESSAGE_ROLE_BY_TYPE['tool/result']</code> 从 <code>'user'</code> 改为 <code>'tool'</code>（行为性变更）；<code>SessionForkErrorCode</code> 删除 <code>OPEN_TURN</code></td></tr>
+  </table></div>
+
+  <h3>② Shell 契约合并：<code>run</code> + <code>start</code> → <code>execute</code>—— 15/16/17 页</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/shell/shell/src/index.ts</code>（104→<strong>96 行</strong>）</td><td><strong>破坏性</strong>：两个抽象方法合并为一个——<code>abstract execute(spec): Promise&lt;ShellExecution&gt;</code>（93 行）。前景还是背景由「await 什么」决定。<code>SHELL_SETTINGS_NAMESPACE</code> 删除（设置改由 schemastery <code>.volatile()</code> 承载）</td></tr>
+    <tr><td><code class="path">packages/shell/bash-local/src/index.ts</code>（370→<strong>404 行</strong>）</td><td><code>run</code>/<code>runArgv</code>/<code>start</code>/<code>startArgv</code> → <code>execute</code>（187 行）/ <code>executeArgv</code>（201 行）。新增 <code>onExpiry</code> 语义（<code>'none'</code> 不设截止 / <code>'kill'</code> 到期杀）、<code>classify</code> 首因分类闭包（218-221 行）、<code>onStarted</code> 钩子（204 行）、准备阶段也可超时（230 行）</td></tr>
+    <tr><td><code class="path">packages/shell/tool-bash/src/index.ts</code>（389→<strong>576 行</strong>）</td><td><strong>新增「前台超时转后台」</strong>：配置项 <code>promoteOnTimeout</code>（236 行，默认 true）——超时不再 kill，而是转为后台 job 并返回 jobId 与已产出输出。新增输出联合 <code>kind: 'promoted'</code>、<code>ctx.tools.register</code> 双形态注册（有 <code>ctx.jobs</code> 时替换）、<code>startJob()</code>/<code>waitOnJob()</code>/<code>toolAborted()</code> 三个 helper</td></tr>
+  </table></div>
+
+  <h3>③ 分辨率子系统收敛为单一路径—— 02/04 页</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">packages/boot/app-boot/src/profile.ts</code>（951→<strong>724 行</strong>，−227）</td><td><strong>整套 symlink/ESM-proxy 物化机制被删除</strong>（约 −420 行）：<code>healProfilesModuleFallback</code>、<code>healIsolatedProfileModuleFallback</code>、<code>createProfileResolutionGeneration</code>、<code>ProfileResolutionMode</code>（三态 <code>'link'|'dual'|'runtime'</code>）、<code>ProfileResolutionEntry</code>/<code>Generation</code> <strong>全部不存在</strong>。取而代之：<code>createRuntimeResolution()</code>（406 行）+ <code>RuntimeResolution</code>（129）/ <code>RuntimeResolutionEntry</code>（104）/ <code>LinkedRoot</code>（121）。<code>ProfileLayer.patchPath</code> 改名 <code>patchPaths</code>（84 行）；<code>normalizeShippedProfile</code> 去掉 export（566 行）</td></tr>
+    <tr><td><code class="path">apps/cli/src/profile-boot.ts</code>（337→324 行）</td><td><code>composeProfile</code> 里的 <code>resolutionMode</code> 三态判断删除——<code>createRuntimeResolution</code> 无条件执行（204 行）。<code>runProfile</code> 里的打包探测与 <code>resolutionMode</code> 计算也一并删除</td></tr>
+  </table></div>
+
+  <h3>④ CLI 新增 <code>--dump-config-schema</code>—— 00/01 页</h3>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>文件</th><th>变更</th></tr>
+    <tr><td><code class="path">apps/cli/src/args.ts</code>（196→<strong>211 行</strong>）</td><td>新增第四个 invocation 类型 <code>DumpConfigSchemaInvocation</code>（44-50 行），<code>DshInvocation</code> 联合扩到 4 个成员（61 行）。新 flag 打印「声明的插件 JSON Schema，不挂载 profile」（171 行）。dump 互斥判断改为三选一数组（115-121 行），报错文案随之更新</td></tr>
+    <tr><td><code class="path">apps/cli/src/bin.ts</code>（75→<strong>68 行</strong>）</td><td><strong>本地 <code>readVersion()</code> 删除</strong>——版本改由 <code>getDshRuntimeVersion()</code>（从 <code>dsh-app-boot</code> 导入）提供（19 行）。新增 <code>case 'dump-config-schema'</code>（55 行）</td></tr>
+  </table></div>
+
+  <h3>⑤ 其他机制变更（站点已同步）</h3>
+  <ul>
+    <li><strong><code>abortedCancelCause()</code></strong>（05 页新增 §6，<code>agent.ts:79-94</code>）：取代裸的 <code>signal.reason as AgentCancelCause</code> 断言。<strong>重建一个干净的 <code>{ kind }</code> 对象</strong>，丢掉 Node 附加的 <code>stack</code>——否则 <code>Session.append</code> 要么把它写进日志、要么因非 JSON 序列化而拒绝。这是 <code>agent.ts</code> 620→647 行的全部来源。</li>
+    <li><strong>新增 <code>packages/boot/plugin-manager/</code></strong>（2227 行，12 文件）：插件安装/卸载的完整生命周期，含 build-approval、install-spec、run-tree、registry。<code>apps/cli/src/plugin.ts</code> 因此大幅瘦身。</li>
+    <li><strong>新增 <code>packages/boot/config-editor/</code></strong>；<code>packages/boot/</code> 现为 5 个子包（app-boot / cmdline / config-editor / hmr / plugin-manager）。</li>
+    <li><strong>新增顶层分组</strong>：<code>packages/code-runtime/</code>、<code>packages/e2b/</code>、<code>packages/examples/</code>、<code>packages/deliverables/</code>、<code>packages/document/</code>。</li>
+    <li><strong>配置系统迁到 schemastery <code>.volatile()</code></strong>：<code>bash-local</code> 的 <code>graceMs</code> 等改为 <code>this.config.graceMs.get()</code> 访问器；<code>agent-loop</code> 的 <code>maxParallelToolCalls</code> 同理（<code>tool-calls.ts:132</code>）。</li>
+    <li><strong>app-boot 新增模块</strong>：<code>compatibility-preflight.ts</code>、<code>config-schema/</code>（7 文件）、<code>package-meta.ts</code>、<code>plugin-compatibility.ts</code>、<code>profile-compatibility.ts</code>——profile.ts 的旧职责拆出。</li>
+    <li><strong>tool 新增 <code>projectContent</code> 钩子</strong>（<code>tools/src/index.ts:245</code>）：在 <code>tools/post-execute</code> 策略之前安装执行预备内容。</li>
+    <li><strong><code>runtime-context</code> 成为一等消息来源</strong>：新增 <code>MessageSourceMap</code> 增强声明，<code>SOURCE</code> 从 <code>'@deepseek-ai/dsh-system-prompt'</code> 改为 <code>'runtime-context'</code>。</li>
+    <li><strong>session-persistence-jsonl</strong>（1647→1725 行）：历史会话的 subagent 子会话目录迁移、corpus revision、<code>listGenerations()</code> 与 <code>listArtifacts()</code> 拆分。</li>
+  </ul>
+
+  <h3>⑥ 本轮同步的锚点工作</h3>
+  <p>15 个页面、159 处锚点漂移。位移与语义变更交织：<code>agent.ts</code> +27、<code>surface.ts</code> +56、<code>types.ts</code> +23、<code>app-boot/index.ts</code> +53、<code>profile.ts</code> −227、<code>args.ts</code> +15、<code>bin.ts</code> −7、<code>tool-bash</code> +187、<code>bash-local</code> +34、<code>shell/index.ts</code> −8。<code>_verify.py</code> 全程用于定位与复验，最终 <strong>0 差异</strong>；结构检查同样 0 问题。</p>
+</section>
+
 <section id="s0000000">
-  <h2><span class="sec-num">§0000000</span>最新：0.1.6-alpha.1 → 0.1.6-alpha.2 同步（2026-09-16）</h2>
+  <h2><span class="sec-num">§0000000</span>0.1.6-alpha.1 → 0.1.6-alpha.2 同步（2026-09-16）</h2>
   <p>本轮 pull 的变更量：<strong>882 个提交</strong>、2548 个文件。核心是一次<strong>启动链的多重重构</strong>——热重载独立成包、CLI 参数模型更换、启动失败有了诊断落盘。站点 11 个页面受影响，66 处锚点漂移。</p>
 
   <h3>① 热重载独立成包：<code>packages/boot/hmr/</code>—— 04 页 §3 重写</h3>

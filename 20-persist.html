@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.7-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -164,21 +164,21 @@
   <h2><span class="sec-num">§4</span>关键代码</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/session/session-persistence-jsonl/src/index.ts</span><span>后端注册与格式版本守卫</span><span class="ln-range">235-242, 260-268</span></figcaption>
-  <pre><code><span class="code-line hl"><span class="ln">235</span><span class="tok-k">class</span> <span class="tok-t">JsonlSessionPersistence</span> <span class="tok-k">extends</span> SessionPersistence {</span><span class="note">没有 static inject —— 靠基类注册</span></span>
-<span class="code-line"><span class="ln">236</span>  <span class="tok-k">static</span> Config: z&lt;Config&gt; = z.<span class="tok-f">object</span>({</span>
-<span class="code-line"><span class="ln">237</span>    root: z.string().<span class="tok-f">required</span>(),</span>
-<span class="code-line"><span class="ln">238</span>    compression: JsonlCompressionSchema,</span>
-<span class="code-line"><span class="ln">239</span>  })</span>
-<span class="code-line"><span class="ln">242</span>  <span class="tok-k">override readonly</span> name = <span class="tok-s">'session-persistence-jsonl'</span></span>
-<span class="code-line"><span class="ln">260</span>  <span class="tok-f">constructor</span>(ctx: Context, <span class="tok-k">public</span> config: Config) {</span>
-<span class="code-line"><span class="ln">261</span>    <span class="tok-k">super</span>(ctx)   <span class="tok-c">// 基类构造器里 super(ctx, 'sessionPersistence') 才是注册点</span></span>
-<span class="code-line hl"><span class="ln">263</span>    <span class="tok-k">if</span> (sessionFormatCatalog.currentVersion !== SESSION_FORMAT_VERSION) {</span><span class="note">0.1.5：SESSION_FORMAT_VERSION = 3</span></span>
-<span class="code-line"><span class="ln">264</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
-<span class="code-line"><span class="ln">265</span>        `session-persistence-jsonl: format catalog v${sessionFormatCatalog.currentVersion} `</span>
-<span class="code-line"><span class="ln">266</span>        + `does not match Session v${SESSION_FORMAT_VERSION}`,</span>
-<span class="code-line"><span class="ln">267</span>      )</span>
-<span class="code-line"><span class="ln">268</span>    }</span></code></pre>
+  <figcaption><span class="fname">packages/session/session-persistence-jsonl/src/index.ts</span><span>后端注册与格式版本守卫</span><span class="ln-range">245-252, 270-278</span></figcaption>
+  <pre><code><span class="code-line hl"><span class="ln">245</span><span class="tok-k">class</span> <span class="tok-t">JsonlSessionPersistence</span> <span class="tok-k">extends</span> SessionPersistence {</span><span class="note">没有 static inject —— 靠基类注册</span></span>
+<span class="code-line"><span class="ln">246</span>  <span class="tok-k">static</span> Config: z&lt;Config&gt; = z.<span class="tok-f">object</span>({</span>
+<span class="code-line"><span class="ln">247</span>    root: z.string().<span class="tok-f">required</span>(),</span>
+<span class="code-line"><span class="ln">248</span>    compression: JsonlCompressionSchema,</span>
+<span class="code-line"><span class="ln">249</span>  })</span>
+<span class="code-line"><span class="ln">252</span>  <span class="tok-k">override readonly</span> name = <span class="tok-s">'session-persistence-jsonl'</span></span>
+<span class="code-line"><span class="ln">270</span>  <span class="tok-f">constructor</span>(ctx: Context, <span class="tok-k">public</span> config: Config) {</span>
+<span class="code-line"><span class="ln">271</span>    <span class="tok-k">super</span>(ctx)   <span class="tok-c">// 基类构造器里 super(ctx, 'sessionPersistence') 才是注册点</span></span>
+<span class="code-line hl"><span class="ln">273</span>    <span class="tok-k">if</span> (sessionFormatCatalog.currentVersion !== SESSION_FORMAT_VERSION) {</span><span class="note">0.1.5：SESSION_FORMAT_VERSION = 3</span></span>
+<span class="code-line"><span class="ln">274</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">275</span>        `session-persistence-jsonl: format catalog v${sessionFormatCatalog.currentVersion} `</span>
+<span class="code-line"><span class="ln">276</span>        + `does not match Session v${SESSION_FORMAT_VERSION}`,</span>
+<span class="code-line"><span class="ln">277</span>      )</span>
+<span class="code-line"><span class="ln">278</span>    }</span></code></pre>
 </figure>
 
 <figure class="code">
@@ -191,8 +191,8 @@
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">235, 261</span><p><strong>jsonl 后端不写 <code>static inject</code></strong>——它靠<strong>基类注册</strong>：<code>SessionPersistence</code> 的构造器里做 <code>super(ctx, 'sessionPersistence')</code>，子类只 <code>super(ctx)</code>。它通过 <code>session/event</code> 事件与 <code>session/flush</code> 工作，不需要知道 loop 的存在。换后端 = 换这个 provider（sqlite 只读查询引擎走另一条路，见 §5）。</p></div>
-    <div class="lr"><span class="ln-ref">263-268</span><p><strong>格式版本守卫</strong>：后端启动时先比对「格式目录的当前版本」与 Session 包声明的 <code>SESSION_FORMAT_VERSION</code>（0.1.5 起 = 3）。两者不等就直接拒绝启动——<strong>宁可起不来，也不写出一个自己读不回的日志</strong>。这是「恢复必须走同一条校验链」原则在二进制层面的延伸。</p></div>
+    <div class="lr"><span class="ln-ref">245, 271</span><p><strong>jsonl 后端不写 <code>static inject</code></strong>——它靠<strong>基类注册</strong>：<code>SessionPersistence</code> 的构造器里做 <code>super(ctx, 'sessionPersistence')</code>，子类只 <code>super(ctx)</code>。它通过 <code>session/event</code> 事件与 <code>session/flush</code> 工作，不需要知道 loop 的存在。换后端 = 换这个 provider（sqlite 只读查询引擎走另一条路，见 §5）。</p></div>
+    <div class="lr"><span class="ln-ref">273-278</span><p><strong>格式版本守卫</strong>：后端启动时先比对「格式目录的当前版本」与 Session 包声明的 <code>SESSION_FORMAT_VERSION</code>（0.1.5 起 = 3）。两者不等就直接拒绝启动——<strong>宁可起不来，也不写出一个自己读不回的日志</strong>。这是「恢复必须走同一条校验链」原则在二进制层面的延伸。</p></div>
     <div class="lr"><span class="ln-ref">135-191</span><p>抽象契约在 session-persistence 包：create / open / flush / stat。这是 seam 的 Service Definition——jsonl 是 Provider 之一。</p></div>
   </div>
 </section>

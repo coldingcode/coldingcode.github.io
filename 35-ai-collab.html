@@ -15,7 +15,7 @@
 <header class="page-head">
   <p class="kicker">Volume 3 · Chapter 35</p>
   <h1>AI 协同：仓库如何与 agent 一起写代码</h1>
-  <p class="lede">前 34 章读的都是「dsh 是什么」。这一章换个方向：<strong>这个仓库本身是怎么被写出来的</strong>。它的 6600+ 文件里有一套完整的 agent 协同基建——分层指令、1105 篇决策记录、12 个可复用工作流、55 个把文档规则变成编译错误的校验门。这套东西不是产品能力，但它解释了为什么一个 agent 深度参与的项目还能保持结构。</p>
+  <p class="lede">前 34 章读的都是「dsh 是什么」。这一章换个方向：<strong>这个仓库本身是怎么被写出来的</strong>。它的 6600+ 文件里有一套完整的 agent 协同基建——分层指令、1182 篇决策记录、14 个可复用工作流、55 个把文档规则变成编译错误的校验门。这套东西不是产品能力，但它解释了为什么一个 agent 深度参与的项目还能保持结构。</p>
 </header>
 
 <div class="chain">
@@ -55,11 +55,11 @@
   <div class="trace">
     <div class="trace-head">示例轨迹 35-2 · 这套基建的规模（真实统计）</div>
     <pre># AGENTS.md 层级文件：22 个（根 + 各子树）
-# Agent Notes：1105 篇英文正本
-#   implemented/  424   proposed/ 30   rejected/ 14   archived/ 635
+# Agent Notes：1182 篇英文正本
+#   implemented/  487   proposed/ 39   rejected/ 14   archived/ 640
 #   按月份：2026-06 = 68，2026-07 = 385，2026-08 = 372，2026-09 = 159
-# 可复用 skill：12 个（.agents/skills/*/SKILL.md）
-# 校验脚本：230 个（scripts/*.ts），其中 verify-* 门 55 个
+# 可复用 skill：14 个（.agents/skills/*/SKILL.md）
+# 校验脚本：257 个（scripts/*.ts），其中 verify-* 门 55 个
 # 文档门聚合（doc-sync）：约 35 个 leaf gate
 #
 # 换算：平均每天新增 ~10 篇决策记录。</pre>
@@ -114,17 +114,17 @@ AGENTS.md</code></pre>
 
 <section id="s2">
   <h2><span class="sec-num">§2</span>Agent Notes：决策记录体系</h2>
-  <p>这是整个协同基建里最有分量的一块。<strong>1105 篇英文正本</strong>（另有等量的 <code>.zh.md</code> 中文对照与 sidecar），放在 <code class="path">.agents/notes/</code>。</p>
+  <p>这是整个协同基建里最有分量的一块。<strong>1182 篇英文正本</strong>（另有等量的 <code>.zh.md</code> 中文对照与 sidecar），放在 <code class="path">.agents/notes/</code>。</p>
 
   <h3>两条轴：生命周期 × 类别</h3>
   <p>规则文件 <code class="path">.agents/notes/README.md</code> 把它们编码进<strong>路径</strong>：<code>{lifecycle}/{class}/yyyy-mm-dd-topic-title.md</code>。</p>
 
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>生命周期</th><th>含义</th><th>篇数</th></tr>
-    <tr><td><code>proposed/</code></td><td>已评审但尚未实现（或只实现了一部分）的提案</td><td>30</td></tr>
-    <tr><td><code>implemented/</code></td><td>决策已落地。<strong>必须与代码保持同步</strong>——代码移动文件、改名、改变默认值时，笔记在同一次变更里更新事实</td><td>424</td></tr>
+    <tr><td><code>proposed/</code></td><td>已评审但尚未实现（或只实现了一部分）的提案</td><td>39</td></tr>
+    <tr><td><code>implemented/</code></td><td>决策已落地。<strong>必须与代码保持同步</strong>——代码移动文件、改名、改变默认值时，笔记在同一次变更里更新事实</td><td>487</td></tr>
     <tr><td><code>rejected/</code></td><td>考虑过并否决。只在其理由能阻止一个诱人的错误时保留</td><td>14</td></tr>
-    <tr><td><code>archived/</code></td><td>冻结的历史快照。<strong>永不编辑，也永远不作为当前行为的权威</strong></td><td>635</td></tr>
+    <tr><td><code>archived/</code></td><td>冻结的历史快照。<strong>永不编辑，也永远不作为当前行为的权威</strong></td><td>640</td></tr>
   </table></div>
 
   <p>类别是<strong>闭集</strong>，定义在 <code class="path">scripts/agent-note-tree.ts</code>：</p>
@@ -186,13 +186,13 @@ AGENTS.md</code></pre>
   </div>
 
   <h3>归档是单向的</h3>
-  <p><code>archived/</code> 树（635 篇）被永久冻结：不许编辑、翻译、重排版、更新、移动或删除。<code class="path">scripts/verify-archived-agent-notes.ts</code> 强制一套<strong>追加式的内容清单</strong>（append-only frozen-content manifest）——归档时的哈希被记录下来，之后任何改动都会被发现。</p>
+  <p><code>archived/</code> 树（640 篇）被永久冻结：不许编辑、翻译、重排版、更新、移动或删除。<code class="path">scripts/verify-archived-agent-notes.ts</code> 强制一套<strong>追加式的内容清单</strong>（append-only frozen-content manifest）——归档时的哈希被记录下来，之后任何改动都会被发现。</p>
   <p>归档本身有明确判据（README 的 Archiving 章节）：<em>当已发布的决策已经完成、且其理由不太可能指导未来工作时</em>。反面清单同样明确——如果「替代方案、所有权边界、否定性保证、持久或线上语义、安全规则、重新引入的条件」中任何一项仍然有用，就<strong>保持活跃</strong>。工具是 <code>dsh-archive-agent-notes</code> skill，README 特意强调：<strong>不要用字数、年龄或配额来判据</strong>。</p>
 </section>
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>Skill：可复用的工作流</h2>
-  <p><code class="path">.agents/skills/</code> 下有 12 个 skill。它们不是产品文档——按 <code>docs/AGENTS.md</code> 的分层表，skill 这个 tier 的职责是<strong>「可复用的工作流与专门的决策标准」</strong>，明确<em>不</em>放产品与运行时契约（那些属于 docs 或源码）。</p>
+  <p><code class="path">.agents/skills/</code> 下有 14 个 skill。它们不是产品文档——按 <code>docs/AGENTS.md</code> 的分层表，skill 这个 tier 的职责是<strong>「可复用的工作流与专门的决策标准」</strong>，明确<em>不</em>放产品与运行时契约（那些属于 docs 或源码）。</p>
 
   <h3>一个 skill 长什么样</h3>
   <p>每个 skill 是一个目录，核心是 <code>SKILL.md</code>，带 YAML frontmatter。以 <code>dsh-pre-push-checks</code> 为例（136 行）：</p>
@@ -214,12 +214,12 @@ AGENTS.md</code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">2-4</span><p><strong>frontmatter 只有两个字段</strong>（全部 12 个 skill 都是如此，只有一个例外见下）。加载器要求两者都存在，缺失就忽略该文件。</p></div>
+    <div class="lr"><span class="ln-ref">2-4</span><p><strong>frontmatter 只有两个字段</strong>（全部 14 个 skill 都是如此，只有一个例外见下）。加载器要求两者都存在，缺失就忽略该文件。</p></div>
     <div class="lr"><span class="ln-ref">3</span><p><strong><code>description</code> 就是触发器</strong>。注意写法：不是「这个 skill 做什么」，而是「<em>Use before pushing, force-pushing, marking ready for review, or claiming checks pass…</em>」——<strong>从 agent 的决策时机出发描述何时该调用它</strong>。这是 skill 能被正确自动触发的关键。</p></div>
     <div class="lr"><span class="ln-ref">10-107</span><p>正文是从「检查什么」到「怎么推」的完整流程。结构在所有 skill 里一致：先给判据，再给动作。文档门 <code>verify-skill-invocation-metadata</code> 检查这个元数据格式。</p></div>
   </div>
 
-  <h3>12 个 skill 的全貌</h3>
+  <h3>14 个 skill 的全貌</h3>
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>skill</th><th>行数</th><th>用途</th></tr>
     <tr><td><code>dsh-doc</code></td><td>131</td><td>文档的创建/重构/审查/审计/迁移。<strong>带 5 个 references + 7 个 templates</strong></td></tr>
@@ -233,6 +233,8 @@ AGENTS.md</code></pre>
     <tr><td><code>dsh-archive-agent-notes</code></td><td>68</td><td>Agent Note 的归档与 supersession 检查（§2 用到）</td></tr>
     <tr><td><code>dsh-code-review</code></td><td>52</td><td>审查 PR，让审查者熟悉这个代码库特有的标准</td></tr>
     <tr><td><code>dsh-trim-cot-leakage</code></td><td>45</td><td>猎捕「泄漏的推理记录」。带 2 个 references（275 + 52 行）</td></tr>
+    <tr><td><code>agent-experience</code></td><td>13</td><td><strong>0.1.7 新增</strong>：设计 agent 工具、skill、上下文加载与多步工作流时，让信息可被发现、让上下文用得省</td></tr>
+    <tr><td><code>dsh-client-ui-ux</code></td><td>62</td><td><strong>0.1.7 新增</strong>：客户端 UI 改动的设计与审查——视觉 token 纪律、先复用再加新、反馈面（toast vs 就地提示）的选择</td></tr>
     <tr><td><code>record-browser-gif</code></td><td>172</td><td>把 Web UI 交互录成 GIF。<strong>带可执行脚本</strong> <code>scripts/encode_gif.py</code>（337 行）+ 测试</td></tr>
   </table></div>
 
@@ -282,7 +284,7 @@ $ cat .claude/skills
 
 <section id="s4">
   <h2><span class="sec-num">§4</span>把文档规则变成校验门</h2>
-  <p>这是整套基建里最工程化的一环。<code class="path">scripts/</code> 下有 <strong>230 个 TypeScript 脚本</strong>，其中 55 个是 <code>verify-*</code> 门。文档相关的约 35 个聚合在 <code>pnpm run doc-sync</code> 里。</p>
+  <p>这是整套基建里最工程化的一环。<code class="path">scripts/</code> 下有 <strong>257 个 TypeScript 脚本</strong>，其中 55 个是 <code>verify-*</code> 门。文档相关的约 35 个聚合在 <code>pnpm run doc-sync</code> 里。</p>
 
   <h3>文档标准的关键条目</h3>
   <p><code class="path">docs/AGENTS.md</code>（76 行）定义标准，其中几条被门直接执行：</p>
@@ -431,7 +433,7 @@ $ cat .claude/skills
     <tr><td>决策写进仓库（Agent Notes），不留在 PR 讨论里</td><td>理由可检索、可交叉引用、随代码一起演化；不依赖 GitHub 的可访问性</td><td>每篇都要维护中英对照与 sidecar；实现变更时必须同步更新</td></tr>
     <tr><td>「替代方案」必填</td><td>阻止重新litigation——后人不必再问「当初为什么不用 X」</td><td>写一篇笔记的成本显著上升</td></tr>
     <tr><td>归档永久冻结 + 哈希清单</td><td>历史不可篡改，审计可信</td><td>归档判据必须谨慎；错误归档无法挽回</td></tr>
-    <tr><td>文档规则由门执行（而非 review 时人工判断）</td><td>标准一致、不依赖审查者的记忆；agent 能自己发现违规</td><td>230 个脚本本身需要维护；规则改动的成本更高</td></tr>
+    <tr><td>文档规则由门执行（而非 review 时人工判断）</td><td>标准一致、不依赖审查者的记忆；agent 能自己发现违规</td><td>257 个脚本本身需要维护；规则改动的成本更高</td></tr>
     <tr><td>字数预算是硬上限</td><td>常驻上下文不膨胀——这直接决定 agent 每次会话能用多少 token 干活</td><td>内容必须搬家或精简，不能「先加上回头再整理」</td></tr>
     <tr><td>指令用符号链接而非复制</td><td>一个事实一个家；Claude Code 与其他 agent 共享同一份</td><td>Windows 上符号链接需要额外权限（仓库仍提交为 mode 120000）</td></tr>
   </table></div>

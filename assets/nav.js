@@ -70,6 +70,6 @@ function renderNav(active) {
   <ul class="nav-list">
     ${navLink('35')}
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.7-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>`;
 }

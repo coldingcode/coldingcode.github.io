@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.7-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,15 +72,15 @@
 <header class="page-head">
   <p class="kicker">Main Chain A · Step 04</p>
   <h1>runProfile：五层拼齐 + 热更新 + 信号</h1>
-  <p class="lede"><code class="path">apps/cli/src/profile-boot.ts</code>（337 行）是启动链的最后一站，也是 00 页 <code>bin.ts</code> 直接调用的那个函数。它把五层补丁拼齐、调 <code>boot()</code>、再给树挂上「改配置即热重组」的 watch。</p>
+  <p class="lede"><code class="path">apps/cli/src/profile-boot.ts</code>（324 行）是启动链的最后一站，也是 00 页 <code>bin.ts</code> 直接调用的那个函数。它把五层补丁拼齐、调 <code>boot()</code>、再给树挂上「改配置即热重组」的 watch。</p>
 </header>
 
 <div class="chain">
   <span class="seg">bin.ts:34 runProfile({...})</span>
   <span class="arrow">→</span>
-  <span class="here">profile-boot.ts:252 runProfile</span>
+  <span class="here">profile-boot.ts:242 runProfile</span>
   <span class="arrow">→</span>
-  <span class="seg">(内部) prepareProfile:169 · composeProfile:199 · readProfilePatches:45 · boot:306</span>
+  <span class="seg">(内部) prepareProfile:166 · composeProfile:195 · readProfilePatches:45 · boot:294</span>
   <span class="arrow">→</span>
   <span class="seg">(终点) 活插件树 → 05 脊柱</span>
 </div>
@@ -89,7 +89,7 @@
   <h2><span class="sec-num">示例</span>本次示例：dsh web 的五层拼齐 + 热更新</h2>
   <div class="trace">
     <div class="trace-head">示例轨迹 04-1 · 本次 dsh web 的五层补丁实际内容</div>
-    <pre># composeProfile('web', [], 'link') 的真实结果（对照 04 页 232-254 行）：
+    <pre># composeProfile('web', []) 的真实结果（对照 04 页 195-207 行）：
 # ① bundle 层：dsh-base 的 78 行 + dsh-web-app 的行（02 页示例轨迹 02-2 的 patches）
 # ② profile 用户层：~/.dsh/profiles/web/cordis.patch.yml → 真实内容是空数组 []
 # ③ home 用户层：~/.dsh/cordis.patch.yml → 不存在 → loadOptionalPatches 返回 []
@@ -120,7 +120,7 @@
   <ol>
     <li><a href="#s1">composeProfile：五层拼齐</a></li>
     <li><a href="#s1b">initializeProfileFromDefault：模板初始化</a></li>
-    <li><a href="#s1c">0.1.6：profile 分辨率子系统</a></li>
+    <li><a href="#s1c">0.1.6–0.1.7：profile 分辨率子系统</a></li>
     <li><a href="#s2">runProfile：boot + 信号</a></li>
     <li><a href="#s3">热重载去哪了：新包 boot/hmr</a></li>
     <li><a href="#s4">启动链完成：你拥有了一棵树</a></li>
@@ -131,105 +131,101 @@
   <h2><span class="sec-num">§1</span>composeProfile：五层拼齐</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>composeProfile（0.1.6-alpha.2 已瘦身）</span><span class="ln-range">199-215</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">199</span><span class="tok-k">async function</span> <span class="tok-f">composeProfile</span>(</span>
-<span class="code-line"><span class="ln">200</span>  name: string,</span>
-<span class="code-line"><span class="ln">201</span>  patchFiles: readonly string[],</span>
-<span class="code-line"><span class="ln">202</span>  resolutionMode: ProfileResolutionMode,</span>
-<span class="code-line"><span class="ln">203</span>  fromDefaultProfile?: string,</span>
-<span class="code-line hl"><span class="ln">204</span>  resolvedProfile?: ResolvedProfileRuntime,   <span class="tok-c">// 0.1.6-alpha.2 新增</span></span><span class="note">应用自带的 profile</span></span>
-<span class="code-line"><span class="ln">205</span>): Promise&lt;ComposedProfile&gt; {</span>
-<span class="code-line hl"><span class="ln">206</span>  <span class="tok-k">const</span> profile = resolvedProfile?.profile ?? <span class="tok-f">prepareProfile</span>(name, <span class="tok-n">true</span>, fromDefaultProfile)</span><span class="note">有就用，没有才按名加载</span></span>
-<span class="code-line"><span class="ln">207</span>  <span class="tok-k">if</span> (resolvedProfile !== <span class="tok-k">undefined</span>) <span class="tok-f">writeFileSync</span>(<span class="tok-f">join</span>(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)</span>
-<span class="code-line"><span class="ln">208</span>  <span class="tok-k">const</span> resolutionOptions = { installAnchor: resolvedProfile?.installAnchor ?? INSTALL_ANCHOR, profile }</span>
-<span class="code-line hl"><span class="ln">209</span>  <span class="tok-k">if</span> (resolvedProfile !== <span class="tok-k">undefined</span> &amp;&amp; resolutionMode !== <span class="tok-s">'runtime'</span>) <span class="tok-f">healIsolatedProfileModuleFallback</span>(resolvedProfile)</span><span class="note">0.1.6-alpha.2 新增</span></span>
-<span class="code-line"><span class="ln">210</span>  <span class="tok-k">const</span> resolution = resolutionMode === <span class="tok-s">'runtime'</span> || resolvedProfile !== <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">211</span>    ? <span class="tok-k">await</span> <span class="tok-f">createProfileResolutionGeneration</span>(resolutionOptions)</span>
-<span class="code-line"><span class="ln">212</span>    : <span class="tok-k">await</span> <span class="tok-f">healProfilesModuleFallback</span>(resolutionOptions)</span>
-<span class="code-line"><span class="ln">213</span>  <span class="tok-k">const</span> overlays = patchFiles.<span class="tok-f">flatMap</span>(file =&gt; <span class="tok-f">loadOverlayPatches</span>(NAME, <span class="tok-f">resolve</span>(file)))</span>
-<span class="code-line"><span class="ln">214</span>  <span class="tok-k">return</span> { profile, resolution, overlays }</span>
-<span class="code-line"><span class="ln">215</span>}</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>composeProfile（0.1.7 已大幅瘦身）</span><span class="ln-range">195-207</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">195</span><span class="tok-k">async function</span> <span class="tok-f">composeProfile</span>(</span>
+<span class="code-line"><span class="ln">196</span>  name: string,</span>
+<span class="code-line"><span class="ln">197</span>  patchFiles: readonly string[],</span>
+<span class="code-line"><span class="ln">198</span>  fromDefaultProfile?: string,</span>
+<span class="code-line hl"><span class="ln">199</span>  resolvedProfile?: ResolvedProfileRuntime,   <span class="tok-c">// 0.1.6-alpha.2 新增</span></span><span class="note">应用自带的 profile</span></span>
+<span class="code-line"><span class="ln">200</span>): Promise&lt;ComposedProfile&gt; {</span>
+<span class="code-line"><span class="ln">201</span>  <span class="tok-k">const</span> profile = resolvedProfile?.profile ?? <span class="tok-f">prepareProfile</span>(name, <span class="tok-n">true</span>, fromDefaultProfile)</span>
+<span class="code-line"><span class="ln">202</span>  <span class="tok-k">if</span> (resolvedProfile !== <span class="tok-k">undefined</span>) <span class="tok-f">writeFileSync</span>(<span class="tok-f">join</span>(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)</span>
+<span class="code-line"><span class="ln">203</span>  <span class="tok-k">const</span> resolutionOptions = { installAnchor: resolvedProfile?.installAnchor ?? INSTALL_ANCHOR, profile }</span>
+<span class="code-line hl"><span class="ln">204</span>  <span class="tok-k">const</span> resolution = <span class="tok-k">await</span> <span class="tok-f">createRuntimeResolution</span>(resolutionOptions)   <span class="tok-c">// 0.1.7：唯一路径</span></span><span class="note">不再有三态模式</span></span>
+<span class="code-line"><span class="ln">205</span>  <span class="tok-k">const</span> overlays = patchFiles.<span class="tok-f">flatMap</span>(file =&gt; <span class="tok-f">loadOverlayPatches</span>(NAME, <span class="tok-f">resolve</span>(file)))</span>
+<span class="code-line"><span class="ln">206</span>  <span class="tok-k">return</span> { profile, resolution, overlays }</span>
+<span class="code-line"><span class="ln">207</span>}</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">204-206</span><p><strong>0.1.6-alpha.2 新增 <code>resolvedProfile</code></strong>：<code>runProfile</code> 的调用方可以直接交来一个<strong>已加载好的 profile</strong>（连同它自己的 <code>installAnchor</code>），跳过「按名字在 <code>$DSH_HOME/profiles</code> 里找」这一步。这是给<strong>打包应用</strong>（Electron desktop）用的——它们的 profile 在自己包里，不属于用户的 Harness home。</p></div>
-    <div class="lr"><span class="ln-ref">208-212</span><p>分辨率路径的选择（§1c）。注意 210 行的条件——<strong>只要有 <code>resolvedProfile</code> 就强制走内存路由</strong>：应用自带的 profile 目录不是 <code>$DSH_HOME/profiles</code> 下那个受管目录，symlink 物化那套前提不成立。</p></div>
-    <div class="lr"><span class="ln-ref">213-214</span><p><strong>这个函数现在只做三件事</strong>：拿到 profile、算分辨率、加载 <code>--patch</code> overlay。旧的五层组装 + 遥测 patch + <code>composeEntries</code> 试算<strong>全部搬走了</strong>——新家是 <code class="path">app-boot/src/profile-context.ts</code> 的 <code>readProfilePatches</code>（§2）。</p></div>
+    <div class="lr"><span class="ln-ref">199-201</span><p><strong><code>resolvedProfile</code></strong>（0.1.6-alpha.2 新增）：调用方可以直接交来一个<strong>已加载好的 profile</strong>（连同它自己的 <code>installAnchor</code>），跳过「按名字在 <code>$DSH_HOME/profiles</code> 里找」这一步。这是给<strong>打包应用</strong>（Electron desktop）用的——它们的 profile 在自己包里，不属于用户的 Harness home。</p></div>
+    <div class="lr"><span class="ln-ref">203-204</span><p><strong>0.1.7：分辨率只剩一条路径</strong>。<code>createRuntimeResolution</code> 无条件是唯一的实现——0.1.6-alpha.2 时这里还有个 <code>resolutionMode</code> 三态判断（<code>'link'</code> / <code>'dual'</code> / <code>'runtime'</code>），现在<strong>整个概念连同它的三个符号一起消失了</strong>。§1c 讲这个演变。</p></div>
+    <div class="lr"><span class="ln-ref">205-206</span><p><strong>这个函数现在只做三件事</strong>：拿到 profile、算分辨率、加载 <code>--patch</code> overlay。五层组装 + 遥测 patch 在 <code class="path">app-boot/src/profile-context.ts</code> 的 <code>readProfilePatches</code>（§2）。</p></div>
   </div>
 </section>
 
 
 <section id="s1b">
   <h2><span class="sec-num">§1b</span>initializeProfileFromDefault：0.1.5 的模板初始化</h2>
-  <p>0.1.5 之前，「用出厂模板创建一个新 profile」只有一条隐式路径：profile 目录不存在且名字恰好有模板时，<code>loadProfile</code> 自动初始化（02 页 912-920 行）。这带来一个尴尬——<strong>想以 <code>web</code> 为底稿建一个自己的 <code>rescue</code> profile 做不到</strong>，因为 <code>rescue</code> 没有模板，loadProfile 只会报错让你用 <code>dsh plugin</code> 从零建。</p>
+  <p>0.1.5 之前，「用出厂模板创建一个新 profile」只有一条隐式路径：profile 目录不存在且名字恰好有模板时，<code>loadProfile</code> 自动初始化（02 页 <code>loadProfile:690-707</code>）。这带来一个尴尬——<strong>想以 <code>web</code> 为底稿建一个自己的 <code>rescue</code> profile 做不到</strong>，因为 <code>rescue</code> 没有模板，loadProfile 只会报错让你用 <code>dsh plugin</code> 从零建。</p>
   <p>0.1.5 的 <code>--from-default-profile &lt;name&gt;</code> 补上了这条路径：<code>dsh --profile rescue --from-default-profile web</code>。</p>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>initializeProfileFromDefault（0.1.5 新增）</span><span class="ln-range">103-153</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">103</span><span class="tok-k">export function</span> <span class="tok-f">initializeProfileFromDefault</span>(</span>
-<span class="code-line"><span class="ln">104</span>  name: string,</span>
-<span class="code-line"><span class="ln">105</span>  fromDefaultProfile: string,</span>
-<span class="code-line"><span class="ln">106</span>  home: string = <span class="tok-f">resolveDshHome</span>(),</span>
-<span class="code-line"><span class="ln">107</span>): <span class="tok-k">void</span> {</span>
-<span class="code-line"><span class="ln">108</span>  <span class="tok-k">const</span> dir = <span class="tok-f">resolveProfileDir</span>(name, home)</span>
-<span class="code-line"><span class="ln">109</span>  <span class="tok-k">const</span> template = Object.<span class="tok-f">hasOwn</span>(PROFILE_TEMPLATES, fromDefaultProfile)</span>
-<span class="code-line"><span class="ln">110</span>    ? PROFILE_TEMPLATES[fromDefaultProfile]</span>
-<span class="code-line"><span class="ln">111</span>    : <span class="tok-k">undefined</span></span>
-<span class="code-line"><span class="ln">112</span>  <span class="tok-k">if</span> (template === <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">113</span>    <span class="tok-k">const</span> expected = Object.<span class="tok-f">keys</span>(PROFILE_TEMPLATES).<span class="tok-f">sort</span>().<span class="tok-f">map</span>(value =&gt; JSON.<span class="tok-f">stringify</span>(value)).<span class="tok-f">join</span>(<span class="tok-s">', '</span>)</span>
-<span class="code-line"><span class="ln">114</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
-<span class="code-line"><span class="ln">115</span>      `${NAME}: unknown default profile ${JSON.<span class="tok-f">stringify</span>(fromDefaultProfile)}; expected one of ${expected}`,</span>
-<span class="code-line"><span class="ln">116</span>    )</span>
-<span class="code-line"><span class="ln">117</span>  }</span>
-<span class="code-line hl"><span class="ln">118</span>  <span class="tok-k">if</span> (Object.<span class="tok-f">hasOwn</span>(PROFILE_TEMPLATES, name)) {</span><span class="note">出货名保留</span></span>
-<span class="code-line"><span class="ln">119</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
-<span class="code-line"><span class="ln">120</span>      `${NAME}: profile ${JSON.<span class="tok-f">stringify</span>(name)} is shipped and cannot be a custom profile target; `</span>
-<span class="code-line"><span class="ln">121</span>      + <span class="tok-s">'omit --from-default-profile to use it'</span>,</span>
-<span class="code-line"><span class="ln">122</span>    )</span>
-<span class="code-line"><span class="ln">123</span>  }</span>
-<span class="code-line"><span class="ln">124</span>  <span class="tok-f">mkdirSync</span>(<span class="tok-f">dirname</span>(dir), { recursive: <span class="tok-n">true</span> })</span>
-<span class="code-line"><span class="ln">125</span>  <span class="tok-k">try</span> {</span>
-<span class="code-line hl"><span class="ln">126</span>    <span class="tok-f">mkdirSync</span>(dir)   <span class="tok-c">// 独占创建：不用 recursive，目录已存在即 EEXIST</span></span><span class="note">并发安全</span></span>
-<span class="code-line"><span class="ln">127</span>  } <span class="tok-k">catch</span> (error) {</span>
-<span class="code-line"><span class="ln">128</span>    <span class="tok-k">if</span> ((error <span class="tok-k">as</span> NodeJS.ErrnoException).code !== <span class="tok-s">'EEXIST'</span>) <span class="tok-k">throw</span> error</span>
-<span class="code-line"><span class="ln">129</span>    <span class="tok-k">const</span> manifestPath = <span class="tok-f">join</span>(dir, <span class="tok-s">'package.json'</span>)</span>
-<span class="code-line"><span class="ln">130</span>    <span class="tok-k">if</span> (<span class="tok-f">existsSync</span>(manifestPath)) {</span>
-<span class="code-line"><span class="ln">131</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
-<span class="code-line"><span class="ln">132</span>        `${NAME}: profile ${JSON.<span class="tok-f">stringify</span>(name)} already exists at ${manifestPath}; `</span>
-<span class="code-line"><span class="ln">133</span>        + <span class="tok-s">'omit --from-default-profile to use it'</span>,</span>
-<span class="code-line"><span class="ln">134</span>      )</span>
-<span class="code-line"><span class="ln">135</span>    }</span>
-<span class="code-line"><span class="ln">136</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
-<span class="code-line"><span class="ln">137</span>      `${NAME}: profile directory ${dir} already exists; choose an unused profile name`,</span>
-<span class="code-line"><span class="ln">138</span>    )</span>
-<span class="code-line"><span class="ln">139</span>  }</span>
-<span class="code-line"><span class="ln">140</span>  <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">136</span>    <span class="tok-f">initProfile</span>(dir, template.bundles)   <span class="tok-c">// 0.1.6-alpha.2：patchReload 参数已移除</span></span>
-<span class="code-line"><span class="ln">142</span>  } <span class="tok-k">catch</span> (error) {</span>
-<span class="code-line"><span class="ln">143</span>    <span class="tok-k">try</span> {</span>
-<span class="code-line hl"><span class="ln">144</span>      <span class="tok-f">rmSync</span>(dir, { recursive: <span class="tok-n">true</span>, force: <span class="tok-n">true</span> })   <span class="tok-c">// 失败即回滚，不留半成品</span></span><span class="note">原子性</span></span>
-<span class="code-line"><span class="ln">145</span>    } <span class="tok-k">catch</span> (cleanupError) {</span>
-<span class="code-line"><span class="ln">146</span>      <span class="tok-k">throw new</span> <span class="tok-t">AggregateError</span>(</span>
-<span class="code-line"><span class="ln">147</span>        [error, cleanupError],</span>
-<span class="code-line"><span class="ln">148</span>        `${NAME}: profile initialization failed and ${dir} could not be removed`,</span>
-<span class="code-line"><span class="ln">149</span>      )</span>
-<span class="code-line"><span class="ln">150</span>    }</span>
-<span class="code-line"><span class="ln">151</span>    <span class="tok-k">throw</span> error</span>
-<span class="code-line"><span class="ln">152</span>  }</span>
-<span class="code-line"><span class="ln">153</span>}</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>initializeProfileFromDefault（0.1.5 新增）</span><span class="ln-range">100-150</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">100</span><span class="tok-k">export function</span> <span class="tok-f">initializeProfileFromDefault</span>(</span>
+<span class="code-line"><span class="ln">101</span>  name: string,</span>
+<span class="code-line"><span class="ln">102</span>  fromDefaultProfile: string,</span>
+<span class="code-line"><span class="ln">103</span>  home: string = <span class="tok-f">resolveDshHome</span>(),</span>
+<span class="code-line"><span class="ln">104</span>): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">105</span>  <span class="tok-k">const</span> dir = <span class="tok-f">resolveProfileDir</span>(name, home)</span>
+<span class="code-line"><span class="ln">106</span>  <span class="tok-k">const</span> template = Object.<span class="tok-f">hasOwn</span>(PROFILE_TEMPLATES, fromDefaultProfile)</span>
+<span class="code-line"><span class="ln">107</span>    ? PROFILE_TEMPLATES[fromDefaultProfile]</span>
+<span class="code-line"><span class="ln">108</span>    : <span class="tok-k">undefined</span></span>
+<span class="code-line"><span class="ln">109</span>  <span class="tok-k">if</span> (template === <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">110</span>    <span class="tok-k">const</span> expected = Object.<span class="tok-f">keys</span>(PROFILE_TEMPLATES).<span class="tok-f">sort</span>().<span class="tok-f">map</span>(value =&gt; JSON.<span class="tok-f">stringify</span>(value)).<span class="tok-f">join</span>(<span class="tok-s">', '</span>)</span>
+<span class="code-line"><span class="ln">111</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">112</span>      `${NAME}: unknown default profile ${JSON.<span class="tok-f">stringify</span>(fromDefaultProfile)}; expected one of ${expected}`,</span>
+<span class="code-line"><span class="ln">113</span>    )</span>
+<span class="code-line"><span class="ln">114</span>  }</span>
+<span class="code-line hl"><span class="ln">115</span>  <span class="tok-k">if</span> (Object.<span class="tok-f">hasOwn</span>(PROFILE_TEMPLATES, name)) {</span><span class="note">出货名保留</span></span>
+<span class="code-line"><span class="ln">116</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">117</span>      `${NAME}: profile ${JSON.<span class="tok-f">stringify</span>(name)} is shipped and cannot be a custom profile target; `</span>
+<span class="code-line"><span class="ln">118</span>      + <span class="tok-s">'omit --from-default-profile to use it'</span>,</span>
+<span class="code-line"><span class="ln">119</span>    )</span>
+<span class="code-line"><span class="ln">120</span>  }</span>
+<span class="code-line"><span class="ln">121</span>  <span class="tok-f">mkdirSync</span>(<span class="tok-f">dirname</span>(dir), { recursive: <span class="tok-n">true</span> })</span>
+<span class="code-line"><span class="ln">122</span>  <span class="tok-k">try</span> {</span>
+<span class="code-line hl"><span class="ln">123</span>    <span class="tok-f">mkdirSync</span>(dir)   <span class="tok-c">// 独占创建：不用 recursive，目录已存在即 EEXIST</span></span><span class="note">并发安全</span></span>
+<span class="code-line"><span class="ln">124</span>  } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">125</span>    <span class="tok-k">if</span> ((error <span class="tok-k">as</span> NodeJS.ErrnoException).code !== <span class="tok-s">'EEXIST'</span>) <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">126</span>    <span class="tok-k">const</span> manifestPath = <span class="tok-f">join</span>(dir, <span class="tok-s">'package.json'</span>)</span>
+<span class="code-line"><span class="ln">127</span>    <span class="tok-k">if</span> (<span class="tok-f">existsSync</span>(manifestPath)) {</span>
+<span class="code-line"><span class="ln">128</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">129</span>        `${NAME}: profile ${JSON.<span class="tok-f">stringify</span>(name)} already exists at ${manifestPath}; `</span>
+<span class="code-line"><span class="ln">130</span>        + <span class="tok-s">'omit --from-default-profile to use it'</span>,</span>
+<span class="code-line"><span class="ln">131</span>      )</span>
+<span class="code-line"><span class="ln">132</span>    }</span>
+<span class="code-line"><span class="ln">133</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
+<span class="code-line"><span class="ln">134</span>      `${NAME}: profile directory ${dir} already exists; choose an unused profile name`,</span>
+<span class="code-line"><span class="ln">135</span>    )</span>
+<span class="code-line"><span class="ln">136</span>  }</span>
+<span class="code-line"><span class="ln">137</span>  <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">133</span>    <span class="tok-f">initProfile</span>(dir, template.bundles)   <span class="tok-c">// 0.1.6-alpha.2：patchReload 参数已移除</span></span>
+<span class="code-line"><span class="ln">139</span>  } <span class="tok-k">catch</span> (error) {</span>
+<span class="code-line"><span class="ln">140</span>    <span class="tok-k">try</span> {</span>
+<span class="code-line hl"><span class="ln">141</span>      <span class="tok-f">rmSync</span>(dir, { recursive: <span class="tok-n">true</span>, force: <span class="tok-n">true</span> })   <span class="tok-c">// 失败即回滚，不留半成品</span></span><span class="note">原子性</span></span>
+<span class="code-line"><span class="ln">142</span>    } <span class="tok-k">catch</span> (cleanupError) {</span>
+<span class="code-line"><span class="ln">143</span>      <span class="tok-k">throw new</span> <span class="tok-t">AggregateError</span>(</span>
+<span class="code-line"><span class="ln">144</span>        [error, cleanupError],</span>
+<span class="code-line"><span class="ln">145</span>        `${NAME}: profile initialization failed and ${dir} could not be removed`,</span>
+<span class="code-line"><span class="ln">146</span>      )</span>
+<span class="code-line"><span class="ln">147</span>    }</span>
+<span class="code-line"><span class="ln">148</span>    <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">149</span>  }</span>
+<span class="code-line"><span class="ln">150</span>}</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">103-117</span><p><strong>只复制模板的 bundle 列表与 reload 策略</strong>（92-102 行的 JSDoc 原文）：不读同名出厂 profile 的任何本地状态，也不持久化任何继承元数据。所以「从 web 派生」得到的是一份<strong>快照</strong>，不是一条持续跟随 web 变化的链接——后续 web 模板升级不会影响已建好的 profile（除了 <code>normalizeShippedProfile</code> 覆盖的历史元组规范化，见 02 页）。</p></div>
-    <div class="lr"><span class="ln-ref">118-123</span><p><strong>出货名保留</strong>：<code>--profile web --from-default-profile acp</code> 被拒。理由很清楚——<code>web</code> 是出厂模板名，它的内容由安装方定义；让你用别的模板把它覆盖掉，等于让安装方的 profile 名不再可靠。想自定义就换个名字。</p></div>
-    <div class="lr"><span class="ln-ref">124-139</span><p><strong>独占创建</strong>：<code>mkdirSync(dir)</code> 故意不加 <code>recursive</code>——目录已存在就抛 <code>EEXIST</code>。<code>recursive: true</code> 会静默成功，那样两个并发的 <code>dsh --from-default-profile</code> 就可能都以为自己是创建者。抛错后分两种情况报出不同的提示：已有 package.json（是个真 profile，别覆盖）vs 只有一个空目录（名字被别人占了）。</p></div>
-    <div class="lr"><span class="ln-ref">140-152</span><p><strong>失败即回滚</strong>：<code>initProfile</code> 写文件到一半失败时，<code>rmSync</code> 把整个目录删掉——绝不留一个「有目录但没 package.json」的半成品（那会让下次 loadProfile 走进 02 页的自动初始化分支，行为难以预测）。连清理都失败时用 <code>AggregateError</code> 把两个错误一起抛出。</p></div>
+    <div class="lr"><span class="ln-ref">100-114</span><p><strong>只复制模板的 bundle 列表与 reload 策略</strong>（89-99 行的 JSDoc 原文）：不读同名出厂 profile 的任何本地状态，也不持久化任何继承元数据。所以「从 web 派生」得到的是一份<strong>快照</strong>，不是一条持续跟随 web 变化的链接——后续 web 模板升级不会影响已建好的 profile（除了 <code>normalizeShippedProfile</code> 覆盖的历史元组规范化，见 02 页）。</p></div>
+    <div class="lr"><span class="ln-ref">115-120</span><p><strong>出货名保留</strong>：<code>--profile web --from-default-profile acp</code> 被拒。理由很清楚——<code>web</code> 是出厂模板名，它的内容由安装方定义；让你用别的模板把它覆盖掉，等于让安装方的 profile 名不再可靠。想自定义就换个名字。</p></div>
+    <div class="lr"><span class="ln-ref">121-137</span><p><strong>独占创建</strong>：<code>mkdirSync(dir)</code> 故意不加 <code>recursive</code>——目录已存在就抛 <code>EEXIST</code>。<code>recursive: true</code> 会静默成功，那样两个并发的 <code>dsh --from-default-profile</code> 就可能都以为自己是创建者。抛错后分两种情况报出不同的提示：已有 package.json（是个真 profile，别覆盖）vs 只有一个空目录（名字被别人占了）。</p></div>
+    <div class="lr"><span class="ln-ref">138-149</span><p><strong>失败即回滚</strong>：<code>initProfile</code> 写文件到一半失败时，<code>rmSync</code> 把整个目录删掉——绝不留一个「有目录但没 package.json」的半成品（那会让下次 loadProfile 走进 02 页的自动初始化分支，行为难以预测）。连清理都失败时用 <code>AggregateError</code> 把两个错误一起抛出。</p></div>
   </div>
 
   <div class="callout key">
     <p><strong>三条初始化路径的分工（0.1.5 起）</strong>：</p>
     <ul>
-      <li><strong>隐式</strong>——<code>loadProfile</code>（02 页 912-920 行）：名字有出厂模板 → 自动建。这是 <code>dsh web</code> 第一次跑就能用的原因。</li>
+      <li><strong>隐式</strong>——<code>loadProfile</code>（02 页 <code>loadProfile:690-707</code>）：名字有出厂模板 → 自动建。这是 <code>dsh web</code> 第一次跑就能用的原因。</li>
       <li><strong>显式</strong>——<code>initializeProfileFromDefault</code>（本页）：用 <strong>任意</strong>出厂模板建一个<strong>自定义名字</strong>的 profile。这是新增能力。</li>
       <li><strong>手动</strong>——<code>dsh plugin --profile &lt;name&gt; add &lt;package&gt;</code>：从零建，bundle 列表自己攒。</li>
     </ul>
@@ -239,41 +235,44 @@
 
 
 <section id="s1c">
-  <h2><span class="sec-num">§1c</span>0.1.6 新增：profile 分辨率子系统</h2>
-  <p>插件 specifier 怎么解析成磁盘上的包？在 0.1.6 之前，答案只有一种：<strong>物化 symlink</strong>——<code>healProfilesModuleFallback</code> 在 <code>$DSH_HOME/profiles/node_modules</code> 里为依赖闭包的每个包建链接，然后交给 Node 默认的解析器。0.1.6 加了第二种：<strong>内存路由表</strong>。</p>
+  <h2><span class="sec-num">§1c</span>0.1.6–0.1.7：profile 分辨率子系统</h2>
+  <p>插件 specifier 怎么解析成磁盘上的包？在 0.1.6 之前答案只有一种：<strong>物化 symlink</strong>——在 <code>$DSH_HOME/profiles/node_modules</code> 里为依赖闭包的每个包建链接，然后交给 Node 默认的解析器。0.1.6 加了第二种（内存路由表），0.1.7 则<strong>把第一种整个删掉了</strong>。</p>
 
   <div class="tbl-wrap"><table class="tbl">
-    <tr><th>模式</th><th>做什么</th><th>何时用</th></tr>
-    <tr><td><code>'link'</code></td><td>物化 symlink（老机制）</td><td>默认。开发机上的普通启动——磁盘可写、链接可检查</td></tr>
-    <tr><td><code>'dual'</code></td><td>物化 + 同时装内存路由</td><td>需要两者一致性的场合</td></tr>
-    <tr><td><code>'runtime'</code></td><td>只建内存路由，<strong>不碰磁盘</strong></td><td><strong>打包发行版</strong>（<code>process.pkg</code> 存在时强制）与显式指定时</td></tr>
+    <tr><th>版本</th><th>机制</th></tr>
+    <tr><td>≤ 0.1.6-alpha.1</td><td>只有 <code>healProfilesModuleFallback</code>——把包投影写成 <code>node_modules</code> 里的 symlink 与 ESM proxy</td></tr>
+    <tr><td>0.1.6-alpha.2</td><td>两套并存，用 <code>ProfileResolutionMode = 'link' | 'dual' | 'runtime'</code> 选择；默认值从 <code>'link'</code> 翻转为 <code>'runtime'</code></td></tr>
+    <tr><td><strong>0.1.7-rc.1</strong></td><td><strong>只剩内存路由</strong>：<code>createRuntimeResolution()</code> 是唯一路径。<code>healProfilesModuleFallback</code>、<code>healIsolatedProfileModuleFallback</code>、<code>createProfileResolutionGeneration</code>、<code>ProfileResolutionMode</code> <strong>全部删除</strong>（约 −420 行）</td></tr>
   </table></div>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>分辨率模式的选定</span><span class="ln-range">262-263</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">262</span>  <span class="tok-k">const</span> packaged = (process <span class="tok-k">as</span> NodeJS.Process &amp; { pkg?: <span class="tok-k">unknown</span> }).pkg !== <span class="tok-k">undefined</span></span>
-<span class="code-line hl"><span class="ln">263</span>  <span class="tok-k">const</span> resolutionMode = packaged ? <span class="tok-s">'runtime'</span> : options.resolutionMode ?? <span class="tok-s">'runtime'</span></span><span class="note">0.1.6-alpha.2：默认从 'link' 改为 'runtime'</span></span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>分辨率：唯一路径</span><span class="ln-range">203-204</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">203</span>  <span class="tok-k">const</span> resolutionOptions = { installAnchor: resolvedProfile?.installAnchor ?? INSTALL_ANCHOR, profile }</span>
+<span class="code-line hl"><span class="ln">204</span>  <span class="tok-k">const</span> resolution = <span class="tok-k">await</span> <span class="tok-f">createRuntimeResolution</span>(resolutionOptions)</span><span class="note">0.1.7：无分支</span></span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">262-263</span><p><strong>打包发行版没有可写的安装目录</strong>——单文件可执行体里不存在「node_modules 的兄弟目录」这个概念，所以 symlink 方案根本无从谈起。检测 <code>process.pkg</code> 后<strong>强制</strong> runtime 模式，不留给用户选错的机会。</p></div>
-    <div class="lr"><span class="ln-ref">263</span><p><strong>0.1.6-alpha.2：默认模式从 <code>'link'</code> 改成 <code>'runtime'</code></strong>。也就是说现在<strong>默认不物化 symlink</strong>——内存路由成为常规路径，磁盘物化退化为可选。这印证了 §1c 里说的「内存路由是更好的方案」：经过一个版本的验证后，它成了默认值。</p></div>
+    <div class="lr"><span class="ln-ref">203-204</span><p><strong>一个函数、一次调用、没有分支</strong>。0.1.6-alpha.2 时这里还有 <code>resolutionMode === 'runtime' ? ... : ...</code> 的三元；现在 <code>createRuntimeResolution</code> 无条件执行。<strong>经过一个版本的并存验证后，内存路由彻底取代了磁盘物化。</strong></p></div>
   </div>
 
-  <p>内存路由表的实现分四个文件（<code class="path">packages/boot/app-boot/src/profile-resolution/</code>）：</p>
-  <ul>
-    <li><code>resolver.ts</code>（975 行）——核心。文件头一句话说清了它是什么：「In-memory profile package routing for Node's default ESM and CommonJS loaders」。它<strong>接管 Node 的默认解析器</strong>（ESM 与 CJS 两套都要），按 profile 的包表决定每个 specifier 落到哪个目录；<code>'verify'</code> 模式还能断言「运行时解析结果 == 物化结果」。导入的 <code>resolve.exports</code> 处理包的 <code>exports</code> 字段映射。</li>
-    <li><code>service.ts</code>（117 行）——把它包成一个 Cordis 服务：<code>PluginPackages extends Service</code>，通过 declaration merging 提供 <code>ctx.pluginPackages</code>，暴露「包名 → { dir, manifestPath, manifest }」的查询。</li>
-    <li><code>legacy-links.ts</code>（73 行）——从 02 页的 profile.ts 里<strong>搬出来</strong>的链接工具（<code>canonicalLinkPath</code>、<code>symlinkPointsTo</code>、<code>isProfileModuleFallbackLink</code> 等），因为磁盘物化器与运行时解析器都要用它判断「这条链接是不是我们自己建的」。</li>
-    <li><code>worker-bootstrap.ts</code>（13 行）——无导出，纯副作用模块：Harness 派生的 Worker 线程里也要装同一张路由表（通过 <code>worker_threads</code> 的环境数据传递）。</li>
-  </ul>
+  <p>取代后的符号体系（都在 <code class="path">app-boot/src/profile.ts</code>）：</p>
+  <div class="tbl-wrap"><table class="tbl">
+    <tr><th>符号</th><th>行号</th><th>作用</th></tr>
+    <tr><td><code>createRuntimeResolution(</code></td><td>406</td><td>算出运行期解析所需的一切，<strong>不碰磁盘</strong></td></tr>
+    <tr><td><code>RuntimeResolution</code></td><td>129</td><td>结果：<code>{ profilesDir, profileDir, localPackageNames, entries, linkedRoots }</code></td></tr>
+    <tr><td><code>RuntimeResolutionEntry</code></td><td>104</td><td>一个包的解析条目（名字 + 目录）</td></tr>
+    <tr><td><code>LinkedRoot</code></td><td>121</td><td>需要投影的链接根</td></tr>
+    <tr><td><code>removeLinkProjections(</code></td><td>250</td><td>仅存的遗留清理：删掉旧版留下的 <code>.dsh-module-fallback</code> 投影目录</td></tr>
+  </table></div>
+
+  <p>实际的解析拦截仍在 <code class="path">profile-resolution/resolver.ts</code>——0.1.7 里那个文件长到 975 行，入口是 <code>installRuntimeInterception(</code>（698 行）。</p>
 
   <div class="callout key">
-    <p><strong>为什么值得做这件事？</strong>旧的 symlink 方案有三个痛点：① 需要可写磁盘；② 首次启动要建几百条链接（慢，且并发启动要加锁，见 02 页 <code>healProfilesModuleFallback</code> 的「锁内更新」）；③ 链接是一种<strong>全局副作用</strong>——它对整个 Node 进程可见，两个不同 profile 无法在同一进程里用不同的解析规则。内存路由表把解析变成<strong>每次启动计算一次的纯函数</strong>，且天然支持多 profile 隔离。代价是它得接管 Node 的模块解析器——所以代码量不小（975 行）。</p>
+    <p><strong>为什么值得做这件事？</strong>旧的 symlink 方案有三个痛点：① 需要可写磁盘；② 首次启动要建几百条链接（慢，且并发启动要加锁）；③ 链接是一种<strong>全局副作用</strong>——它对整个 Node 进程可见，两个不同 profile 无法在同一进程里用不同的解析规则。内存路由把解析变成<strong>每次启动计算一次的纯函数</strong>，且天然支持多 profile 隔离。代价是它得接管 Node 的模块解析器——所以代码量不小。</p>
   </div>
 
   <div class="callout warn">
-    <p><strong>04 页的 <code>boot</code> prepare 回调现在是 async 的</strong>（<code>profile-boot.ts:352</code>）：在挂载任何配置树条目之前，它先 <code>await hostCtx.plugin(PluginPackages, ...)</code> 把路由表装进树。顺序不能反——任何插件 import 之前，解析规则必须已经就位。</p>
+    <p><strong>04 页的 <code>boot</code> prepare 回调是 async 的</strong>（<code>profile-boot.ts:294</code>）：在挂载任何配置树条目之前，它先 <code>await hostCtx.plugin(PluginPackages, ...)</code> 把路由表装进树。顺序不能反——任何插件 import 之前，解析规则必须已经就位。</p>
   </div>
 </section>
 
@@ -281,75 +280,71 @@
   <h2><span class="sec-num">§2</span>runProfile：boot + 幂等 dispose</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>runProfile 全文</span><span class="ln-range">252-337</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">252</span><span class="tok-k">export async function</span> <span class="tok-f">runProfile</span>(options: RunProfileOptions): Promise&lt;{ ctx; shutdown }&gt; {</span>
-<span class="code-line"><span class="ln">257</span>  <span class="tok-k">const</span> disposeProxy = <span class="tok-k">await</span> <span class="tok-f">installProxyFromEnvironment</span>(  <span class="tok-c">// HTTP 代理引导</span></span>
-<span class="code-line"><span class="ln">258</span>    options.environment,</span>
-<span class="code-line"><span class="ln">259</span>    (message) =&gt; { process.stderr.<span class="tok-f">write</span>(`${NAME}: ${message}\n`) },</span>
-<span class="code-line"><span class="ln">260</span>  )</span>
-<span class="code-line"><span class="ln">262-263</span>  <span class="tok-c">// 打包探测 → 分辨率模式（详见 §1c）</span></span>
-<span class="code-line"><span class="ln">264</span>  <span class="tok-k">const</span> app: { current?: Context } = {}</span>
-<span class="code-line hl"><span class="ln">265-273</span>  <span class="tok-c">// 0.1.6-alpha.2 新增：单次幂等的 dispose（详见下）</span></span><span class="note">聚合清理失败</span></span>
-<span class="code-line"><span class="ln">274</span>  <span class="tok-k">try</span> {</span>
-<span class="code-line"><span class="ln">275</span>    <span class="tok-k">const</span> composed = <span class="tok-k">await</span> <span class="tok-f">composeProfile</span>(</span>
-<span class="code-line"><span class="ln">276</span>      options.profile, options.patchFiles, resolutionMode, options.fromDefaultProfile, options.resolvedProfile,</span>
-<span class="code-line"><span class="ln">277</span>    )</span>
-<span class="code-line"><span class="ln">278</span>    <span class="tok-k">const</span> appReady = <span class="tok-f">createAppReady</span>()   <span class="tok-c">// 就绪信号</span></span>
-<span class="code-line"><span class="ln">279</span>    <span class="tok-k">const</span> shutdown = <span class="tok-f">createProcessShutdown</span>(dispose)</span>
-<span class="code-line"><span class="ln">280</span>    <span class="tok-k">const</span> signalShutdown = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
-<span class="code-line"><span class="ln">290</span>    process.<span class="tok-f">on</span>(<span class="tok-s">'SIGTERM'</span>, () =&gt; { <span class="tok-f">interrupt</span>(0) })</span>
-<span class="code-line"><span class="ln">291</span>    process.<span class="tok-f">on</span>(<span class="tok-s">'SIGINT'</span>, () =&gt; { <span class="tok-f">interrupt</span>(130) })</span>
-<span class="code-line"><span class="ln">292</span>    <span class="tok-f">installFailLoud</span>(NAME, process, <span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
-<span class="code-line"><span class="ln">296</span>    <span class="tok-k">const</span> rootConfig = <span class="tok-f">join</span>(composed.profile.dir, PROFILE_ROOT_FILENAME)</span>
-<span class="code-line hl"><span class="ln">297-305</span>    <span class="tok-k">const</span> profileContext: ProfileContext = { ... }   <span class="tok-c">// 0.1.6-alpha.2：交给 HMR 的 profile 事实</span></span><span class="note">热重载需要它</span></span>
-<span class="code-line hl"><span class="ln">306</span>    <span class="tok-k">const</span> ctx = <span class="tok-k">await</span> <span class="tok-f">boot</span>(NAME, rootConfig, <span class="tok-f">readProfilePatches</span>(NAME, profileContext, composed.profile), <span class="tok-k">async</span> (hostCtx) =&gt; {</span><span class="note">五层在这里组装</span></span>
-<span class="code-line"><span class="ln">307</span>      app.current = hostCtx</span>
-<span class="code-line hl"><span class="ln">308</span>      hostCtx.<span class="tok-f">provide</span>(<span class="tok-s">'profileContext'</span>, profileContext)</span><span class="note">0.1.6-alpha.2 新增</span></span>
-<span class="code-line"><span class="ln">311</span>      hostCtx.<span class="tok-f">provide</span>(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)</span>
-<span class="code-line"><span class="ln">312-315</span>      <span class="tok-k">await</span> hostCtx.<span class="tok-f">plugin</span>(PluginPackages, resolutionMode === <span class="tok-s">'link'</span> ? {} : {</span>
-<span class="code-line"><span class="ln">313</span>        generation: composed.resolution,</span>
-<span class="code-line"><span class="ln">314</span>        behavior: resolutionMode === <span class="tok-s">'dual'</span> ? <span class="tok-s">'verify'</span> : <span class="tok-s">'enforce'</span>,</span>
-<span class="code-line"><span class="ln">315</span>      })</span>
-<span class="code-line"><span class="ln">318-322</span>      <span class="tok-f">provideCmdline</span>(hostCtx, { args: options.args, exit: ..., ready: appReady.service })</span>
-<span class="code-line"><span class="ln">323</span>    })</span>
-<span class="code-line"><span class="ln">324</span>    app.current = ctx</span>
-<span class="code-line"><span class="ln">325</span>    <span class="tok-k">if</span> (!signalShutdown.signal.aborted</span>
-<span class="code-line"><span class="ln">326</span>      &amp;&amp; ctx.fiber.state === FiberState.ACTIVE</span>
-<span class="code-line"><span class="ln">327</span>      &amp;&amp; ctx.get(<span class="tok-s">'loader'</span>) !== <span class="tok-k">undefined</span>) {</span>
-<span class="code-line"><span class="ln">328</span>      appReady.<span class="tok-f">commit</span>()</span>
-<span class="code-line"><span class="ln">329</span>    }</span>
-<span class="code-line"><span class="ln">330</span>    <span class="tok-k">return</span> { ctx, shutdown }</span>
-<span class="code-line hl"><span class="ln">331</span>  } <span class="tok-k">catch</span> (error) {   <span class="tok-c">// 0.1.6-alpha.2 新增：启动失败也要清理</span></span><span class="note">清理失败用 AggregateError</span></span>
-<span class="code-line"><span class="ln">332</span>    <span class="tok-k">try</span> { <span class="tok-k">await</span> <span class="tok-f">dispose</span>() } <span class="tok-k">catch</span> (cleanupError) {</span>
-<span class="code-line"><span class="ln">333</span>      <span class="tok-k">throw new</span> <span class="tok-t">AggregateError</span>([error, cleanupError], <span class="tok-s">'dsh: profile startup and cleanup failed'</span>)</span>
-<span class="code-line"><span class="ln">334</span>    }</span>
-<span class="code-line"><span class="ln">335</span>    <span class="tok-k">throw</span> error</span>
-<span class="code-line"><span class="ln">336</span>  }</span>
-<span class="code-line"><span class="ln">337</span>}</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>runProfile 全文</span><span class="ln-range">242-324</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">242</span><span class="tok-k">export async function</span> <span class="tok-f">runProfile</span>(options: RunProfileOptions): Promise&lt;{ ctx; shutdown }&gt; {</span>
+<span class="code-line"><span class="ln">247</span>  <span class="tok-k">const</span> disposeProxy = <span class="tok-k">await</span> <span class="tok-f">installProxyFromEnvironment</span>(  <span class="tok-c">// HTTP 代理引导</span></span>
+<span class="code-line"><span class="ln">248</span>    options.environment,</span>
+<span class="code-line"><span class="ln">249</span>    (message) =&gt; { process.stderr.<span class="tok-f">write</span>(`${NAME}: ${message}\n`) },</span>
+<span class="code-line"><span class="ln">250</span>  )</span>
+<span class="code-line"><span class="ln">252</span>  <span class="tok-k">const</span> app: { current?: Context } = {}</span>
+<span class="code-line hl"><span class="ln">253-261</span>  <span class="tok-c">// 单次幂等的 dispose（0.1.6-alpha.2 新增）</span></span><span class="note">聚合清理失败</span></span>
+<span class="code-line"><span class="ln">262</span>  <span class="tok-k">try</span> {</span>
+<span class="code-line"><span class="ln">263</span>    <span class="tok-k">const</span> composed = <span class="tok-k">await</span> <span class="tok-f">composeProfile</span>(</span>
+<span class="code-line"><span class="ln">264</span>      options.profile, options.patchFiles, options.fromDefaultProfile, options.resolvedProfile,</span>
+<span class="code-line"><span class="ln">265</span>    )</span>
+<span class="code-line hl"><span class="ln">266</span>    <span class="tok-c">// 0.1.7：打包探测与 resolutionMode 三态判断已删除</span></span><span class="note">直接进 appReady</span></span>
+<span class="code-line"><span class="ln">267</span>    <span class="tok-k">const</span> shutdown = <span class="tok-f">createProcessShutdown</span>(dispose)</span>
+<span class="code-line"><span class="ln">268</span>    <span class="tok-k">const</span> signalShutdown = <span class="tok-k">new</span> <span class="tok-t">AbortController</span>()</span>
+<span class="code-line"><span class="ln">278</span>    process.<span class="tok-f">on</span>(<span class="tok-s">'SIGTERM'</span>, () =&gt; { <span class="tok-f">interrupt</span>(0) })</span>
+<span class="code-line"><span class="ln">279</span>    process.<span class="tok-f">on</span>(<span class="tok-s">'SIGINT'</span>, () =&gt; { <span class="tok-f">interrupt</span>(130) })</span>
+<span class="code-line"><span class="ln">280</span>    <span class="tok-f">installFailLoud</span>(NAME, process, <span class="tok-k">async</span> () =&gt; { <span class="tok-k">await</span> app.current?.fiber.<span class="tok-f">dispose</span>() })</span>
+<span class="code-line"><span class="ln">284</span>    <span class="tok-k">const</span> rootConfig = <span class="tok-f">join</span>(composed.profile.dir, PROFILE_ROOT_FILENAME)</span>
+<span class="code-line hl"><span class="ln">285-293</span>    <span class="tok-k">const</span> profileContext: ProfileContext = { ... }   <span class="tok-c">// 交给 HMR 的 profile 事实</span></span><span class="note">热重载需要它</span></span>
+<span class="code-line hl"><span class="ln">294</span>    <span class="tok-k">const</span> ctx = <span class="tok-k">await</span> <span class="tok-f">boot</span>(NAME, rootConfig, <span class="tok-f">readProfilePatches</span>(NAME, profileContext, composed.profile), <span class="tok-k">async</span> (hostCtx) =&gt; {</span><span class="note">五层在这里组装</span></span>
+<span class="code-line"><span class="ln">295</span>      app.current = hostCtx</span>
+<span class="code-line"><span class="ln">296</span>      hostCtx.<span class="tok-f">provide</span>(<span class="tok-s">'profileContext'</span>, profileContext)</span>
+<span class="code-line"><span class="ln">299</span>      hostCtx.<span class="tok-f">provide</span>(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)</span>
+<span class="code-line hl"><span class="ln">300-302</span>      <span class="tok-k">await</span> hostCtx.<span class="tok-f">plugin</span>(PluginPackages, { resolution: composed.resolution })</span><span class="note">0.1.7：只传 resolution</span></span>
+<span class="code-line"><span class="ln">305-309</span>      <span class="tok-f">provideCmdline</span>(hostCtx, { args: options.args, exit: ..., ready: appReady.service })</span>
+<span class="code-line"><span class="ln">310</span>    })</span>
+<span class="code-line"><span class="ln">311</span>    app.current = ctx</span>
+<span class="code-line"><span class="ln">312</span>    <span class="tok-k">if</span> (!signalShutdown.signal.aborted</span>
+<span class="code-line"><span class="ln">313</span>      &amp;&amp; ctx.fiber.state === FiberState.ACTIVE</span>
+<span class="code-line"><span class="ln">314</span>      &amp;&amp; ctx.get(<span class="tok-s">'loader'</span>) !== <span class="tok-k">undefined</span>) {</span>
+<span class="code-line"><span class="ln">315</span>      appReady.<span class="tok-f">commit</span>()</span>
+<span class="code-line"><span class="ln">316</span>    }</span>
+<span class="code-line"><span class="ln">317</span>    <span class="tok-k">return</span> { ctx, shutdown }</span>
+<span class="code-line"><span class="ln">318</span>  } <span class="tok-k">catch</span> (error) {   <span class="tok-c">// 启动失败也要清理</span></span>
+<span class="code-line"><span class="ln">319</span>    <span class="tok-k">try</span> { <span class="tok-k">await</span> <span class="tok-f">dispose</span>() } <span class="tok-k">catch</span> (cleanupError) {</span>
+<span class="code-line"><span class="ln">320</span>      <span class="tok-k">throw new</span> <span class="tok-t">AggregateError</span>([error, cleanupError], <span class="tok-s">'dsh: profile startup and cleanup failed'</span>)</span>
+<span class="code-line"><span class="ln">321</span>    }</span>
+<span class="code-line"><span class="ln">322</span>    <span class="tok-k">throw</span> error</span>
+<span class="code-line"><span class="ln">323</span>  }</span>
+<span class="code-line"><span class="ln">324</span>}</span></code></pre>
 </figure>
 
   <h3>0.1.6-alpha.2 的两个新增：幂等 dispose 与失败清理</h3>
 
 <figure class="code">
-  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>幂等 dispose</span><span class="ln-range">265-273</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">265</span>  <span class="tok-k">let</span> disposal: Promise&lt;<span class="tok-k">void</span>&gt; | <span class="tok-k">undefined</span></span>
-<span class="code-line hl"><span class="ln">266</span>  <span class="tok-k">const</span> dispose = (): Promise&lt;<span class="tok-k">void</span>&gt; =&gt; disposal ??= (<span class="tok-k">async</span> () =&gt; {</span><span class="note">?？= 记忆化：只跑一次</span></span>
-<span class="code-line"><span class="ln">267</span>    <span class="tok-k">const</span> failures: <span class="tok-k">unknown</span>[] = []</span>
-<span class="code-line"><span class="ln">268</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> release <span class="tok-k">of</span> [() =&gt; app.current?.fiber.<span class="tok-f">dispose</span>(), disposeProxy]) {</span>
-<span class="code-line"><span class="ln">269</span>      <span class="tok-k">try</span> { <span class="tok-k">await</span> <span class="tok-f">release</span>() } <span class="tok-k">catch</span> (error) { failures.<span class="tok-f">push</span>(error) }</span>
-<span class="code-line"><span class="ln">270</span>    }</span>
-<span class="code-line"><span class="ln">271</span>    <span class="tok-k">if</span> (failures.length === 1) <span class="tok-k">throw</span> failures[0]</span>
-<span class="code-line"><span class="ln">272</span>    <span class="tok-k">if</span> (failures.length &gt; 1) <span class="tok-k">throw new</span> <span class="tok-t">AggregateError</span>(failures, <span class="tok-s">'dsh: profile cleanup failed'</span>)</span>
-<span class="code-line"><span class="ln">273</span>  })()</span></code></pre>
+  <figcaption><span class="fname">apps/cli/src/profile-boot.ts</span><span>幂等 dispose</span><span class="ln-range">253-261</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">253</span>  <span class="tok-k">let</span> disposal: Promise&lt;<span class="tok-k">void</span>&gt; | <span class="tok-k">undefined</span></span>
+<span class="code-line hl"><span class="ln">254</span>  <span class="tok-k">const</span> dispose = (): Promise&lt;<span class="tok-k">void</span>&gt; =&gt; disposal ??= (<span class="tok-k">async</span> () =&gt; {</span><span class="note">??= 记忆化：只跑一次</span></span>
+<span class="code-line"><span class="ln">255</span>    <span class="tok-k">const</span> failures: <span class="tok-k">unknown</span>[] = []</span>
+<span class="code-line"><span class="ln">256</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> release <span class="tok-k">of</span> [() =&gt; app.current?.fiber.<span class="tok-f">dispose</span>(), disposeProxy]) {</span>
+<span class="code-line"><span class="ln">257</span>      <span class="tok-k">try</span> { <span class="tok-k">await</span> <span class="tok-f">release</span>() } <span class="tok-k">catch</span> (error) { failures.<span class="tok-f">push</span>(error) }</span>
+<span class="code-line"><span class="ln">258</span>    }</span>
+<span class="code-line"><span class="ln">259</span>    <span class="tok-k">if</span> (failures.length === 1) <span class="tok-k">throw</span> failures[0]</span>
+<span class="code-line"><span class="ln">260</span>    <span class="tok-k">if</span> (failures.length &gt; 1) <span class="tok-k">throw new</span> <span class="tok-t">AggregateError</span>(failures, <span class="tok-s">'dsh: profile cleanup failed'</span>)</span>
+<span class="code-line"><span class="ln">261</span>  })()</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">265-266</span><p><strong>幂等 + 记忆化</strong>：<code>disposal ??=</code> 保证清理体只执行一次，后续调用返回同一个 promise。这很重要——清除路径有三条入口（信号、appExit、启动失败），它们可能并发或重复触发，而 <code>fiber.dispose()</code> 和 <code>disposeProxy()</code> 不该被跑两遍。</p></div>
-    <div class="lr"><span class="ln-ref">267-272</span><p><strong>聚合清理失败</strong>：两个 release 各自 try/catch，失败收集进数组，最后按数量决定抛单个错误还是 <code>AggregateError</code>。<strong>注意顺序：先 dispose 树，再 dispose 代理</strong>——代理要活到最后一个请求结束。</p></div>
-    <div class="lr"><span class="ln-ref">274, 331-336</span><p><strong>整个启动过程包在 try/catch 里</strong>（0.1.6-alpha.2 新增）：启动中途失败时主动调 <code>dispose()</code>，<strong>不再把清理留给进程退出</strong>。如果连清理都失败，用 <code>AggregateError</code> 把两个错误一起抛——原始失败不能被清理失败掩盖。</p></div>
-    <div class="lr"><span class="ln-ref">296-306</span><p><strong>五层组装搬进了 <code>readProfilePatches</code></strong>（<code class="path">app-boot/src/profile-context.ts:45-57</code>）。<code>profileContext</code> 对象承载 profile 的事实（目录、patch 路径、overlay、遥测开关、启动时的 bundle 列表），<strong>在 308 行 provide 进树</strong>——§3 会看到谁在消费它。</p></div>
-    <div class="lr"><span class="ln-ref">312-315</span><p><code>PluginPackages</code> 的装载（§1c）：<code>link</code> 模式不传配置（走磁盘物化），其余两种传内存路由表 + 行为。<code>dual</code> 用 <code>verify</code>（断言两者一致），<code>runtime</code> 用 <code>enforce</code>。</p></div>
-    <div class="lr"><span class="ln-ref">325-329</span><p><strong>就绪信号在最后才 commit</strong>：只有「没被信号打断 + fiber 仍 ACTIVE + loader 还在」三条件齐备，才通知应用「可以开始干活了」。</p></div>
+    <div class="lr"><span class="ln-ref">253-254</span><p><strong>幂等 + 记忆化</strong>：<code>disposal ??=</code> 保证清理体只执行一次，后续调用返回同一个 promise。这很重要——清除路径有三条入口（信号、appExit、启动失败），它们可能并发或重复触发，而 <code>fiber.dispose()</code> 和 <code>disposeProxy()</code> 不该被跑两遍。</p></div>
+    <div class="lr"><span class="ln-ref">255-260</span><p><strong>聚合清理失败</strong>：两个 release 各自 try/catch，失败收集进数组，最后按数量决定抛单个错误还是 <code>AggregateError</code>。<strong>注意顺序：先 dispose 树，再 dispose 代理</strong>——代理要活到最后一个请求结束。</p></div>
+    <div class="lr"><span class="ln-ref">262, 318-323</span><p><strong>整个启动过程包在 try/catch 里</strong>：启动中途失败时主动调 <code>dispose()</code>，<strong>不再把清理留给进程退出</strong>。如果连清理都失败，用 <code>AggregateError</code> 把两个错误一起抛——原始失败不能被清理失败掩盖。</p></div>
+    <div class="lr"><span class="ln-ref">284-294</span><p><strong>五层组装搬进了 <code>readProfilePatches</code></strong>（<code class="path">app-boot/src/profile-context.ts:45-57</code>）。<code>profileContext</code> 对象承载 profile 的事实（目录、patch 路径、overlay、遥测开关、启动时的 bundle 列表），<strong>在 296 行 provide 进树</strong>——§3 会看到谁在消费它。</p></div>
+    <div class="lr"><span class="ln-ref">300-302</span><p><strong>0.1.7 简化</strong>：<code>PluginPackages</code> 的装载现在只传 <code>{ resolution }</code>——0.1.6-alpha.2 时还有 <code>behavior: 'verify' | 'enforce'</code>（配合三态模式）。模式没了，行为参数也没了。</p></div>
+    <div class="lr"><span class="ln-ref">312-316</span><p><strong>就绪信号在最后才 commit</strong>：只有「没被信号打断 + fiber 仍 ACTIVE + loader 还在」三条件齐备，才通知应用「可以开始干活了」。</p></div>
   </div>
 </section>
 

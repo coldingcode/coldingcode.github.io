@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.7-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -129,8 +129,8 @@
   <h2><span class="sec-num">§1</span>合并语义：variables / sections / tools</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/system-prompt/src/index.ts</span><span>assemble 主体（节选）</span><span class="ln-range">559-599</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">559</span>  <span class="tok-k">async</span> <span class="tok-f">assemble</span>(context: AssembleContext = {}): Promise&lt;PromptAssembly&gt; {</span>
+  <figcaption><span class="fname">packages/core/system-prompt/src/index.ts</span><span>assemble 主体（节选）</span><span class="ln-range">558-598</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">558</span>  <span class="tok-k">async</span> <span class="tok-f">assemble</span>(context: AssembleContext = {}): Promise&lt;PromptAssembly&gt; {</span>
 <span class="code-line"><span class="ln">560</span>    <span class="tok-k">const</span> scope = context.scope</span>
 <span class="code-line"><span class="ln">561</span>    <span class="tok-k">const</span> scopeLayers = <span class="tok-k">this</span>.layers.<span class="tok-f">chainLayers</span>(scope)</span>
 <span class="code-line"><span class="ln">562</span>    <span class="tok-k">const</span> runtimeContextSuppressed = !<span class="tok-k">this</span>.layers.global.runtimeContextSuppressors.<span class="tok-f">isEmpty</span>()</span>
@@ -138,12 +138,12 @@
 <span class="code-line"><span class="ln">565</span>    <span class="tok-k">const</span> variables: Record&lt;string, string | <span class="tok-k">undefined</span>&gt; = {}</span>
 <span class="code-line"><span class="ln">566</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> [name, provider] <span class="tok-k">of</span> <span class="tok-k">this</span>.layers.global.variables.<span class="tok-f">entries</span>()) { ... }</span>
 <span class="code-line"><span class="ln">570</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> layer <span class="tok-k">of</span> scopeLayers) {           <span class="tok-c">// Farthest first → nearest scope wins</span></span>
-<span class="code-line"><span class="ln">571</span>      <span class="tok-k">for</span> (<span class="tok-k">const</span> [name, provider] <span class="tok-k">of</span> layer.variables.<span class="tok-f">entries</span>()) { ... }</span>
+<span class="code-line"><span class="ln">571</span>        variables[name] = <span class="tok-f">provider</span>(context)</span>
 <span class="code-line"><span class="ln">572</span>    }</span>
 <span class="code-line"><span class="ln">576</span>    <span class="tok-k">const</span> sectionByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.sections)</span>
 <span class="code-line"><span class="ln">577</span>    <span class="tok-k">const</span> contextByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.contexts)</span>
 <span class="code-line"><span class="ln">579</span>    <span class="tok-k">const</span> providers = [                   <span class="tok-c">// tools: global + ALL matched scopes 都贡献</span></span>
-<span class="code-line"><span class="ln">580</span>      ...<span class="tok-k">this</span>.layers.global.toolProviders.<span class="tok-f">values</span>(),</span>
+<span class="code-line"><span class="ln">579</span>      ...<span class="tok-k">this</span>.layers.global.toolProviders.<span class="tok-f">values</span>(),</span>
 <span class="code-line"><span class="ln">581</span>      ...scopeLayers.<span class="tok-f">flatMap</span>(layer =&gt; [...layer.toolProviders.<span class="tok-f">values</span>()]),</span>
 <span class="code-line"><span class="ln">582</span>    ]</span>
 <span class="code-line"><span class="ln">583</span>    <span class="tok-k">const</span> collected: ToolSchema[] = []</span>

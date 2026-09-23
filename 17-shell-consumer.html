@@ -63,7 +63,7 @@
     <li><a href="33-client-python.html"><span class="idx">33</span>客户端、Python 与 Native</a></li>
     <li><a href="34-infra.html"><span class="idx">34</span>工程基础设施</a></li>
   </ul>
-  <div class="nav-foot">基于 dsh 0.1.6-alpha.2<br>离线可用 · 无外部依赖</div>
+  <div class="nav-foot">基于 dsh 0.1.7-rc.1<br>离线可用 · 无外部依赖</div>
 </aside>
 
 <main>
@@ -72,13 +72,13 @@
 <header class="page-head">
   <p class="kicker">Branch · Step 17</p>
   <h1>tool-bash：Consumer 的注入面与三条路径</h1>
-  <p class="lede"><code class="path">packages/shell/tool-bash/src/index.ts</code>（393 行）。这是旁支的最后一页，也是主链 14 页「工具从哪来」的最终答案：<strong>一个 394 行的插件，用 <code>defineTool('bash')</code> 把 shell 能力变成模型可见的工具</strong>。</p>
+  <p class="lede"><code class="path">packages/shell/tool-bash/src/index.ts</code>（576 行）。这是旁支的最后一页，也是主链 14 页「工具从哪来」的最终答案：<strong>一个 576 行的插件，用 <code>defineTool('bash')</code> 把 shell 能力变成模型可见的工具</strong>。</p>
 </header>
 
 <div class="chain">
   <span class="seg">15 seam 全景：Consumer 位</span>
   <span class="arrow">→</span>
-  <span class="here">tool-bash/src/index.ts apply:189 → defineTool:241 → execute:329</span>
+  <span class="here">tool-bash/src/index.ts apply:232 → defineTool:395 → execute:501</span>
   <span class="arrow">→</span>
   <span class="seg">(回到主干) 13/14 页的调度器与流水线执行它</span>
 </div>
@@ -130,8 +130,8 @@
 
 <figure class="code">
   <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>插件声明（节选）</span><span class="ln-range">30-34</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">29</span><span class="tok-k">export const</span> name = <span class="tok-s">'tool-bash'</span></span>
-<span class="code-line"><span class="ln">30</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'tools'</span>, <span class="tok-s">'shell'</span>, <span class="tok-s">'systemPrompt'</span>, <span class="tok-s">'shellEnv'</span>]</span>
+  <pre><code><span class="code-line"><span class="ln">33</span><span class="tok-k">export const</span> name = <span class="tok-s">'tool-bash'</span></span>
+<span class="code-line"><span class="ln">34</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'tools'</span>, <span class="tok-s">'shell'</span>, <span class="tok-s">'systemPrompt'</span>, <span class="tok-s">'shellEnv'</span>]</span>
 <span class="code-line"><span class="ln">31</span><span class="tok-k">export const</span> inject = [<span class="tok-s">'tools'</span>, <span class="tok-s">'shell'</span>, <span class="tok-s">'systemPrompt'</span>, <span class="tok-s">'shellEnv'</span>]</span></code></pre>
 </figure>
 
@@ -144,27 +144,27 @@
   <h2><span class="sec-num">§2</span>apply：注册工具与沙箱升级</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>apply 开头的守卫</span><span class="ln-range">189-200</span></figcaption>
-  <pre><code><span class="code-line"><span class="ln">189</span><span class="tok-k">export function</span> <span class="tok-f">apply</span>(ctx: Context, config: Config = {}): <span class="tok-k">void</span> {</span>
-<span class="code-line"><span class="ln">190</span>  <span class="tok-k">const</span> backgroundEnabled = config.enableRunInBackground ?? <span class="tok-n">true</span></span>
-<span class="code-line"><span class="ln">191</span>  <span class="tok-k">const</span> defaultMode = ctx.shell.sandboxMode</span>
-<span class="code-line"><span class="ln">192</span>  <span class="tok-k">const</span> escalationModes: readonly SandboxMode[] = defaultMode === <span class="tok-k">undefined</span> ? [] : ESCALATION_TARGETS</span>
-<span class="code-line"><span class="ln">193</span>  <span class="tok-k">const</span> sandboxPolicy: SandboxPolicyService | <span class="tok-k">undefined</span> = defaultMode === <span class="tok-k">undefined</span> ? <span class="tok-k">undefined</span> : ctx.<span class="tok-f">get</span>(<span class="tok-s">'sandboxPolicy'</span>)</span>
-<span class="code-line hl"><span class="ln">194</span>  <span class="tok-k">if</span> (defaultMode !== <span class="tok-k">undefined</span> &amp;&amp; sandboxPolicy === <span class="tok-k">undefined</span>) {</span><span class="note">fail-loud：能力声明与实现不一致</span></span>
-<span class="code-line"><span class="ln">195</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing'</span>)</span>
-<span class="code-line"><span class="ln">196</span>  }</span>
-<span class="code-line"><span class="ln">197</span>  <span class="tok-c">/** Resolve the complete standing policy for this call when a confining executor is mounted. */</span></span>
-<span class="code-line"><span class="ln">198</span>  <span class="tok-k">const</span> resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | <span class="tok-k">undefined</span> =&gt;</span>
-<span class="code-line"><span class="ln">199</span>    sandboxPolicy?.<span class="tok-f">resolve</span>(exec.agent === <span class="tok-k">undefined</span> ? {} : { session: exec.agent.session })</span>
-<span class="code-line"><span class="ln">200</span></span></code></pre>
+  <figcaption><span class="fname">packages/shell/tool-bash/src/index.ts</span><span>apply 开头的守卫</span><span class="ln-range">232-246</span></figcaption>
+  <pre><code><span class="code-line"><span class="ln">232</span><span class="tok-k">export function</span> <span class="tok-f">apply</span>(ctx: Context, config: Config = {}): <span class="tok-k">void</span> {</span>
+<span class="code-line"><span class="ln">233</span>  <span class="tok-k">const</span> backgroundEnabled = config.enableRunInBackground ?? <span class="tok-n">true</span></span>
+<span class="code-line hl"><span class="ln">236</span>  <span class="tok-k">const</span> promoteOnTimeout = (config.promoteOnTimeout ?? <span class="tok-n">true</span>) &amp;&amp; backgroundEnabled</span><span class="note">0.1.7 新增</span></span>
+<span class="code-line"><span class="ln">237</span>  <span class="tok-k">const</span> defaultMode = ctx.shell.sandboxMode</span>
+<span class="code-line"><span class="ln">238</span>  <span class="tok-k">const</span> escalationModes: readonly SandboxMode[] = defaultMode === <span class="tok-k">undefined</span> ? [] : ESCALATION_TARGETS</span>
+<span class="code-line"><span class="ln">239</span>  <span class="tok-k">const</span> sandboxPolicy: SandboxPolicyService | <span class="tok-k">undefined</span> = defaultMode === <span class="tok-k">undefined</span> ? <span class="tok-k">undefined</span> : ctx.<span class="tok-f">get</span>(<span class="tok-s">'sandboxPolicy'</span>)</span>
+<span class="code-line hl"><span class="ln">240-242</span>  <span class="tok-k">if</span> (defaultMode !== <span class="tok-k">undefined</span> &amp;&amp; sandboxPolicy === <span class="tok-k">undefined</span>) {</span><span class="note">fail-loud：能力声明与实现不一致</span></span>
+<span class="code-line"><span class="ln">241</span>    <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(<span class="tok-s">'tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing'</span>)</span>
+<span class="code-line"><span class="ln">243</span>  <span class="tok-c">/** Resolve the complete standing policy for this call when a confining executor is mounted. */</span></span>
+<span class="code-line"><span class="ln">244</span>  <span class="tok-k">const</span> resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | <span class="tok-k">undefined</span> =&gt;</span>
+<span class="code-line"><span class="ln">245</span>    sandboxPolicy?.<span class="tok-f">resolve</span>(exec.agent === <span class="tok-k">undefined</span> ? {} : { session: exec.agent.session })</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">189</span><p><strong>插件入口是 apply</strong>——Cordis 插件协议（03 页的 Inject/Plugin）。树挂载时 Loader 调它，返回 void（注册是副作用，卸载时由 fiber 逆转）。</p></div>
-    <div class="lr"><span class="ln-ref">191-195</span><p>能力探针：读 <code>ctx.shell.sandboxMode</code>（15 页接口里的可选能力声明）。本地 executor 返回 undefined（不沙箱）；沙箱化 executor 返回具体 mode——tool-bash 由此决定是否启用升级审批路径。</p></div>
-    <div class="lr"><span class="ln-ref">222-226</span><p><strong>沙箱升级走审批</strong>：<code>approveEscalation</code>（来自 dsh-sandbox）最终调 <code>approver.request</code> 的 <code>approval/request</code> waterfall——这是 shell seam 唯一相交的 Cordis 事件（15 页图里标过）。</p></div>
-    <div class="lr"><span class="ln-ref">241-242</span><p><code>ctx.tools.register(defineTool({name:'bash',...}))</code>——<strong>「工具从哪来」的最终答案</strong>：一个插件用 defineTool 定义，register 进 registry（14 页），schema 经 systemPrompt 进提示词（12 页），模型就能调它。</p></div>
-    <div class="lr"><span class="ln-ref">329</span><p>execute 是工具的 body——14 页流水线的 dispatchToolBody 最终调到这里。</p></div>
+    <div class="lr"><span class="ln-ref">232</span><p><strong>插件入口是 apply</strong>——Cordis 插件协议（03 页的 Inject/Plugin）。树挂载时 Loader 调它，返回 void（注册是副作用，卸载时由 fiber 逆转）。</p></div>
+    <div class="lr"><span class="ln-ref">236</span><p><strong>0.1.7 新增 <code>promoteOnTimeout</code></strong>（默认 true）：<strong>前台命令超时不再被 kill，而是转为后台 job</strong>。返回的不再是「超时错误」，而是 jobId 与「到此为止」已产出的输出——工具输出新增了 <code>kind: 'promoted'</code> 这一支。条件里的 <code>&amp;&amp; backgroundEnabled</code> 说明它<strong>依赖完整后台面</strong>（收集/停止 job 的工具 + 注册表本身），源码注释点明了这个前提。</p></div>
+    <div class="lr"><span class="ln-ref">237-242</span><p>能力探针：读 <code>ctx.shell.sandboxMode</code>（15 页接口里的可选能力声明）。本地 executor 返回 undefined（不沙箱）；沙箱化 executor 返回具体 mode——tool-bash 由此决定是否启用升级审批路径。</p></div>
+    <div class="lr"><span class="ln-ref">265-269</span><p><strong>沙箱升级走审批</strong>：<code>approveEscalation</code>（来自 dsh-sandbox）最终调 <code>approver.request</code> 的 <code>approval/request</code> waterfall——这是 shell seam 唯一相交的 Cordis 事件（15 页图里标过）。</p></div>
+    <div class="lr"><span class="ln-ref">395</span><p><code>ctx.tools.register(defineTool({name:'bash',...}))</code>——<strong>「工具从哪来」的最终答案</strong>：一个插件用 defineTool 定义，register 进 registry（14 页），schema 经 systemPrompt 进提示词（12 页），模型就能调它。</p></div>
+    <div class="lr"><span class="ln-ref">501</span><p>execute 是工具的 body——14 页流水线的 dispatchToolBody 最终调到这里。</p></div>
   </div>
 </section>
 
