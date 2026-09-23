@@ -167,7 +167,7 @@ Options:
 
   <div class="le">
     <div class="lr"><span class="ln-ref">21-30</span><p><code>ProfileInvocation</code>：主模式。<code>profile</code> 是名字，<code>patches</code> 是 <code>--patch</code> overlay 列表（按 argv 顺序），<code>args</code> 是「内部参数」（launcher 不认识的所有东西，原样进插件树）。</p></div>
-    <div class="lr"><span class="ln-ref">25</span><p><strong>0.1.5 新增 <code>fromDefaultProfile</code></strong>：可选的模板名。它<strong>不是</strong>「启动哪个 profile」，而是「若目标 profile 还不存在，用哪个随包模板把它初始化出来」（<code>apps/cli/src/profile-boot.ts:104</code> 的 <code>initializeProfileFromDefault</code>）。所以它是 <code>?</code> 可选的——只在首次创建时有意义。</p></div>
+    <div class="lr"><span class="ln-ref">25</span><p><strong>0.1.5 新增 <code>fromDefaultProfile</code></strong>：可选的模板名。它<strong>不是</strong>「启动哪个 profile」，而是「若目标 profile 还不存在，用哪个随包模板把它初始化出来」（<code>apps/cli/src/profile-boot.ts:100</code> 的 <code>initializeProfileFromDefault</code>）。所以它是 <code>?</code> 可选的——只在首次创建时有意义。</p></div>
     <div class="lr"><span class="ln-ref">33-41</span><p><code>DumpConfigInvocation</code>：打印配置树。注意它<strong>没有</strong> args 字段——dump 是 boot-free 的（见 §3 的守卫逻辑）。但它<strong>有</strong> <code>fromDefaultProfile</code>（37 行）：预览树时必须和真实 boot 用同一套初始化规则，否则预览就失去意义。</p></div>
     <div class="lr"><span class="ln-ref">44-50</span><p><strong>0.1.7-rc.1 新增 <code>DumpConfigSchemaInvocation</code></strong>：打印 <strong>JSON Schema</strong>（供编辑器补全/外部校验配置用），而不是配置树本身。它与 <code>DumpConfigInvocation</code> 的关键差别是<strong>没有 <code>defaultOnly</code>，却保留 <code>patches</code></strong>——因为 schema 档要反映「合上 <code>--patch</code> 之后」的字段全集，而 bundle-only 那个降级模式对它没有意义。</p></div>
     <div class="lr"><span class="ln-ref">53-58</span><p><code>PluginInvocation</code>：把剩余参数转发给 pnpm。与主链无关，但它说明了 <code>args</code> 字段在两种模式里语义不同（应用参数 vs pnpm 参数）。</p></div>

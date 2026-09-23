@@ -76,11 +76,11 @@
 </header>
 
 <div class="chain">
-  <span class="seg">08 preStep:241 systemPrompt.assemble(assembleContextFor(...))</span>
+  <span class="seg">08 agent.ts:271 preStep systemPrompt.assemble(assembleContextFor(...))</span>
   <span class="arrow">→</span>
-  <span class="here">system-prompt/src/index.ts:559 assemble</span>
+  <span class="here">system-prompt/src/index.ts:558 assemble</span>
   <span class="arrow">→</span>
-  <span class="seg">(下一步) 11 step:360 renderPrompt(assembly)</span>
+  <span class="seg">(下一步) 11 agent.ts:387 renderPrompt(assembly)</span>
 </div>
 
 <section id="trace">
@@ -94,23 +94,23 @@
 #   tool 指引 section 'tool-guidance'   order:100
 #   variables: { persona: provider→'一个严谨的工程师助手' }
 #   toolProviders: [tools 包的 provider → 可见工具 schema 白名单投影]
-# 合并（本页 467-508 行）：
+# 合并（本页 564-581 行）：
 #   variables = { persona: '一个严谨的工程师助手' }
-#   sections 按 order 排序：identity(-100) → persona(0) → tool-guidance(100)
+#   sections 按 order 排序：identity(-1000) → persona(0) → tool-guidance(1000+)
 #   collected = [{name:'bash',description,parameters}, {name:'read',...}, ...]
 # → PromptAssembly 过 system-prompt/assemble waterfall（无改写 → 原样）
-# → renderPrompt（system-prompt/src/index.ts:280）：{{persona}} → '一个严谨的工程师助手'
+# → renderPrompt（system-prompt/src/index.ts:279）：{{persona}} → '一个严谨的工程师助手'
 # → system 文本进 09 页 canonicalHeader → request/header.system</pre>
     <div class="src">来源：12 页行级解读 + fixture 的 request/header 行里 system:"SYS PROMPT" 的位置（06 页示例 06-1）</div>
   </div>
   <div class="trace">
     <div class="trace-head">示例轨迹 12-2 · 为什么模型看到的 tools 只有三字段</div>
     <pre># 14 页 registry 里的 ToolDefinition 有 execute/timeoutMs/isConcurrencySafe...
-# 但 12 页 495-499 行只投影 {name, description, parameters}：
+# 但 12 页 586-591 行只投影 {name, description, parameters}（外加可选的 deferLoading）：
 # { "name":"bash", "description":"Run a command...", "parameters":{...} }
 # execute 等实现细节永不下发——模型只需要知道「能叫什么、怎么传参」
 # 这正是 06 页 fixture 里 tools 数组的字段（只有 t1/D1/parameters）</pre>
-    <div class="src">来源：12 页 495-499 行 + 14 页 schemaOf 白名单</div>
+    <div class="src">来源：12 页 586-591 行 + 14 页 schemaOf 白名单</div>
   </div>
 </section>
 
@@ -129,29 +129,32 @@
   <h2><span class="sec-num">§1</span>合并语义：variables / sections / tools</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/core/system-prompt/src/index.ts</span><span>assemble 主体（节选）</span><span class="ln-range">558-598</span></figcaption>
+  <figcaption><span class="fname">packages/core/system-prompt/src/index.ts</span><span>assemble 主体（节选）</span><span class="ln-range">558-599</span></figcaption>
   <pre><code><span class="code-line"><span class="ln">558</span>  <span class="tok-k">async</span> <span class="tok-f">assemble</span>(context: AssembleContext = {}): Promise&lt;PromptAssembly&gt; {</span>
-<span class="code-line"><span class="ln">560</span>    <span class="tok-k">const</span> scope = context.scope</span>
-<span class="code-line"><span class="ln">561</span>    <span class="tok-k">const</span> scopeLayers = <span class="tok-k">this</span>.layers.<span class="tok-f">chainLayers</span>(scope)</span>
-<span class="code-line"><span class="ln">562</span>    <span class="tok-k">const</span> runtimeContextSuppressed = !<span class="tok-k">this</span>.layers.global.runtimeContextSuppressors.<span class="tok-f">isEmpty</span>()</span>
-<span class="code-line"><span class="ln">563</span>      || scopeLayers.<span class="tok-f">some</span>(layer =&gt; !layer.runtimeContextSuppressors.<span class="tok-f">isEmpty</span>())</span>
-<span class="code-line"><span class="ln">565</span>    <span class="tok-k">const</span> variables: Record&lt;string, string | <span class="tok-k">undefined</span>&gt; = {}</span>
-<span class="code-line"><span class="ln">566</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> [name, provider] <span class="tok-k">of</span> <span class="tok-k">this</span>.layers.global.variables.<span class="tok-f">entries</span>()) { ... }</span>
-<span class="code-line"><span class="ln">570</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> layer <span class="tok-k">of</span> scopeLayers) {           <span class="tok-c">// Farthest first → nearest scope wins</span></span>
+<span class="code-line"><span class="ln">559</span>    <span class="tok-k">const</span> scope = context.scope</span>
+<span class="code-line"><span class="ln">560</span>    <span class="tok-k">const</span> scopeLayers = <span class="tok-k">this</span>.layers.<span class="tok-f">chainLayers</span>(scope)</span>
+<span class="code-line"><span class="ln">561</span>    <span class="tok-k">const</span> runtimeContextSuppressed = !<span class="tok-k">this</span>.layers.global.runtimeContextSuppressors.<span class="tok-f">isEmpty</span>()</span>
+<span class="code-line"><span class="ln">562</span>      || scopeLayers.<span class="tok-f">some</span>(layer =&gt; !layer.runtimeContextSuppressors.<span class="tok-f">isEmpty</span>())</span>
+<span class="code-line"><span class="ln">564</span>    <span class="tok-k">const</span> variables: Record&lt;string, string | <span class="tok-k">undefined</span>&gt; = {}</span>
+<span class="code-line"><span class="ln">565</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> [name, provider] <span class="tok-k">of</span> <span class="tok-k">this</span>.layers.global.variables.<span class="tok-f">entries</span>()) { ... }</span>
+<span class="code-line"><span class="ln">569</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> layer <span class="tok-k">of</span> scopeLayers) {           <span class="tok-c">// Farthest first → nearest scope wins</span></span>
 <span class="code-line"><span class="ln">571</span>        variables[name] = <span class="tok-f">provider</span>(context)</span>
 <span class="code-line"><span class="ln">572</span>    }</span>
-<span class="code-line"><span class="ln">576</span>    <span class="tok-k">const</span> sectionByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.sections)</span>
-<span class="code-line"><span class="ln">577</span>    <span class="tok-k">const</span> contextByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.contexts)</span>
-<span class="code-line"><span class="ln">579</span>    <span class="tok-k">const</span> providers = [                   <span class="tok-c">// tools: global + ALL matched scopes 都贡献</span></span>
+<span class="code-line"><span class="ln">575</span>    <span class="tok-k">const</span> sectionByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.sections)</span>
+<span class="code-line"><span class="ln">576</span>    <span class="tok-k">const</span> contextByName = <span class="tok-k">this</span>.layers.<span class="tok-f">merge</span>(scope, layer =&gt; layer.contexts)</span>
+<span class="code-line"><span class="ln">578</span>    <span class="tok-k">const</span> providers = [                   <span class="tok-c">// tools: global + ALL matched scopes 都贡献</span></span>
 <span class="code-line"><span class="ln">579</span>      ...<span class="tok-k">this</span>.layers.global.toolProviders.<span class="tok-f">values</span>(),</span>
-<span class="code-line"><span class="ln">581</span>      ...scopeLayers.<span class="tok-f">flatMap</span>(layer =&gt; [...layer.toolProviders.<span class="tok-f">values</span>()]),</span>
-<span class="code-line"><span class="ln">582</span>    ]</span>
-<span class="code-line"><span class="ln">583</span>    <span class="tok-k">const</span> collected: ToolSchema[] = []</span>
-<span class="code-line"><span class="ln">585</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> provider <span class="tok-k">of</span> providers) {</span>
-<span class="code-line"><span class="ln">586</span>      <span class="tok-k">const</span> result = <span class="tok-f">provider</span>(context)</span>
-<span class="code-line"><span class="ln">587</span>      <span class="tok-k">const</span> schemas = result.schemas.<span class="tok-f">map</span>(({ name, description, parameters }): ToolSchema =&gt; ({</span>
-<span class="code-line"><span class="ln">588</span>        name, description,</span>
-<span class="code-line"><span class="ln">590</span>        parameters: <span class="tok-f">structuredClone</span>(parameters),   <span class="tok-c">// 只投影白名单三字段</span></span>
+<span class="code-line"><span class="ln">580</span>      ...scopeLayers.<span class="tok-f">flatMap</span>(layer =&gt; [...layer.toolProviders.<span class="tok-f">values</span>()]),</span>
+<span class="code-line"><span class="ln">581</span>    ]</span>
+<span class="code-line"><span class="ln">582</span>    <span class="tok-k">const</span> collected: ToolSchema[] = []</span>
+<span class="code-line"><span class="ln">583</span>    <span class="tok-k">const</span> knownNames = <span class="tok-k">new</span> <span class="tok-t">Set</span>&lt;string&gt;()</span>
+<span class="code-line"><span class="ln">584</span>    <span class="tok-k">for</span> (<span class="tok-k">const</span> provider <span class="tok-k">of</span> providers) {</span>
+<span class="code-line"><span class="ln">585</span>      <span class="tok-k">const</span> result = <span class="tok-f">provider</span>(context)</span>
+<span class="code-line hl"><span class="ln">586</span>      <span class="tok-k">const</span> schemas = result.schemas.<span class="tok-f">map</span>(({ name, description, parameters, deferLoading }): ToolSchema =&gt; ({</span><span class="note">0.1.7-rc.1：多透传 deferLoading</span></span>
+<span class="code-line"><span class="ln">587</span>        name,</span>
+<span class="code-line"><span class="ln">588</span>        description,</span>
+<span class="code-line"><span class="ln">589</span>        parameters: <span class="tok-f">structuredClone</span>(parameters),   <span class="tok-c">// 只投影白名单字段</span></span>
+<span class="code-line"><span class="ln">590</span>        ...deferLoading === <span class="tok-n">true</span> ? { deferLoading } : {},</span>
 <span class="code-line"><span class="ln">591</span>      }))</span>
 <span class="code-line"><span class="ln">593</span>      collected.<span class="tok-f">push</span>(...schemas)</span>
 <span class="code-line"><span class="ln">596</span>    <span class="tok-k">const</span> sectionDefinitions = [...sectionByName.<span class="tok-f">values</span>()].<span class="tok-f">sort</span>(comparePromptSections)</span>
@@ -161,13 +164,13 @@
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">560-561</span><p><code>scopeLayers</code>：该 scope 的层链。合并基于 ScopedLayers（scope 库）——global 层 + 从远到近的 scope 层。</p></div>
-    <div class="lr"><span class="ln-ref">562-563</span><p>runtimeContextSuppressors：任何层有 suppressor 就整体抑制运行时上下文（08 页 project 的开关）。</p></div>
-    <div class="lr"><span class="ln-ref">565-572</span><p><strong>variables：同名时 scoped 覆盖 global</strong>——先填 global，再从远到近遍历 scope 层，最近的作用域最后写、赢下同名。Provider 函数在调用时求值。</p></div>
-    <div class="lr"><span class="ln-ref">576-577</span><p>sections/contexts 走 <code>layers.merge(scope, ...)</code>——同样的覆盖语义。</p></div>
-    <div class="lr"><span class="ln-ref">579-582</span><p><strong>tools 不同：global + 全部匹配 scope 都 append（贡献而非覆盖）</strong>——与 variables 的语义相反。一个 agent 作用域的工具不会遮蔽全局工具，只会增加。</p></div>
-    <div class="lr"><span class="ln-ref">587-591</span><p>工具 schema 进模型的唯一路径：<strong>只投影 name/description/parameters 三个字段</strong>（structuredClone 防消费者改原对象）。timeoutMs、isConcurrencySafe、execute 等元数据永不下发。</p></div>
-    <div class="lr"><span class="ln-ref">596</span><p>order 带决定顺序：-100 = harness:identity（<code>PERSONA_SECTION</code> 之前的身份行），0 = persona，100-199 = tool guidance；同 order 靠注册顺序破平（插件加载顺序的产物）。工具另有 toolOrder 排序。</p></div>
+    <div class="lr"><span class="ln-ref">559-560</span><p><code>scopeLayers</code>：该 scope 的层链。合并基于 ScopedLayers（scope 库）——global 层 + 从远到近的 scope 层。</p></div>
+    <div class="lr"><span class="ln-ref">561-562</span><p>runtimeContextSuppressors：任何层有 suppressor 就整体抑制运行时上下文（08 页 project 的开关）。</p></div>
+    <div class="lr"><span class="ln-ref">564-571</span><p><strong>variables：同名时 scoped 覆盖 global</strong>——先填 global，再从远到近遍历 scope 层，最近的作用域最后写、赢下同名。Provider 函数在调用时求值。</p></div>
+    <div class="lr"><span class="ln-ref">575-576</span><p>sections/contexts 走 <code>layers.merge(scope, ...)</code>——同样的覆盖语义。</p></div>
+    <div class="lr"><span class="ln-ref">578-581</span><p><strong>tools 不同：global + 全部匹配 scope 都 append（贡献而非覆盖）</strong>——与 variables 的语义相反。一个 agent 作用域的工具不会遮蔽全局工具，只会增加。</p></div>
+    <div class="lr"><span class="ln-ref">586-591</span><p>工具 schema 进模型的唯一路径：<strong>只投影 name/description/parameters 三个字段</strong>（structuredClone 防消费者改原对象）。timeoutMs、isConcurrencySafe、execute 等元数据永不下发。<strong>0.1.7-rc.1 新增 <code>deferLoading</code> 透传</strong>（590 行）：provider 想让某个工具的定义延迟加载时，这个标记会跟着 schema 一起进模型请求——用的是 Anthropic 的 <code>defer_loading</code> 术语，只在不支持的能力适配器里才报不支持。</p></div>
+    <div class="lr"><span class="ln-ref">596</span><p>order 带决定顺序：-1000 = harness:identity（<code>SECTION_ORDERS.HARNESS_IDENTITY</code>），0 = persona 前缀，工具指引从 1000（<code>TOOL_BASH</code>）往上一路排到 5000/9900/10100 等；同 order 靠注册顺序破平（插件加载顺序的产物）。工具另有 toolOrder 排序。0.1.7-rc.1 起 <code>SECTION_ORDERS</code> 里的 <code>TOOL_CORDIS</code> 条目已删除。</p></div>
     <div class="lr"><span class="ln-ref">597-599</span><p><strong>complete 节：fail-loud</strong>——多个 effective complete 直接 throw。complete:true 的节在 waterfall 之后恢复为唯一节（§2）。</p></div>
   </div>
 </section>
@@ -188,14 +191,14 @@
 
 <section id="s3">
   <h2><span class="sec-num">§3</span>renderPrompt：严格插值</h2>
-  <p>11 页 <code>agent.ts:360</code> 调 <code>renderPrompt(assembly)</code>（<code>system-prompt/src/index.ts:280</code>）产出最终 system 文本。四条规则（fail-loud 取向）：</p>
+  <p>11 页 <code>agent.ts:387</code> 调 <code>renderPrompt(assembly)</code>（<code>system-prompt/src/index.ts:279</code>）产出最终 system 文本。四条规则（fail-loud 取向）：</p>
   <ol>
     <li>未注册的变量（<code>Object.hasOwn</code> 防原型名攻击）→ <strong>throw</strong></li>
     <li>注册但值为 <code>undefined</code> → <strong>throw</strong></li>
     <li>畸形的完整组（<code>{{}}</code> 里不是合法名）→ <strong>throw</strong></li>
     <li>孤立 <code>{{</code> 后无 <code>}}</code> → 字面量（不是变量，保留原文）</li>
   </ol>
-  <p>渲染出的文本<strong>不再</strong>进入 <code>request/header</code>。0.1.5 起它交给 <code>SystemPromptProjection.project()</code>（<code class="path">runtime-context.ts:83</code>），由它决定以 append 还是 replace 的方式落成 <code>system/message</code> surface 节点（11 页 364-372 行）。<strong>模型看到的 prompt 依然可从日志重建</strong>——只是承载它的事件换了地方，而且现在能承载「多个版本」而非单个字符串。</p>
+  <p>渲染出的文本<strong>不再</strong>进入 <code>request/header</code>。0.1.5 起它交给 <code>SystemPromptProjection.project()</code>（<code class="path">core/agent-loop/src/runtime-context.ts:88</code>），由它决定以 append 还是 replace 的方式落成 <code>system/message</code> surface 节点（<code>agent.ts:395-404</code>）。<strong>模型看到的 prompt 依然可从日志重建</strong>——只是承载它的事件换了地方，而且现在能承载「多个版本」而非单个字符串。</p>
 </section>
 
 
@@ -205,24 +208,24 @@
 
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>层</th><th>0.1.3-alpha.2</th><th>0.1.5</th></tr>
-    <tr><td>事件</td><td><code>request/header.system: string</code></td><td><code>system/message { turn, step, message }</code>（<code class="path">session/src/types.ts:310</code>）</td></tr>
-    <tr><td>surface</td><td>非 surface 事件</td><td><code>SurfaceEventType</code> 第 4 个成员——<strong>surface 节点 0</strong></td></tr>
-    <tr><td>格式版本</td><td><code>SESSION_FORMAT_VERSION = 2</code></td><td><code>SESSION_FORMAT_VERSION = 3</code>（types.ts:88）</td></tr>
-    <tr><td>校验</td><td>无</td><td><code>validateSessionEventData</code> 拒绝带 <code>system</code> 的 header（surface.ts:149）</td></tr>
-    <tr><td>能力位</td><td>无</td><td><code>systemPromptUpdate: 'in-history'</code>（llm/src/index.ts:942）</td></tr>
+    <tr><td>事件</td><td><code>request/header.system: string</code></td><td><code>system/message { turn, step, message }</code>（<code class="path">core/session/src/types.ts:330</code>）</td></tr>
+    <tr><td>surface</td><td>非 surface 事件</td><td><code>SurfaceEventType</code> 的新成员——0.1.5 时排第 4，如今列在联合首位（<code>core/session/src/types.ts:439-444</code>，0.1.7 起共 5 个成员）——<strong>surface 节点 0</strong></td></tr>
+    <tr><td>格式版本</td><td><code>SESSION_FORMAT_VERSION = 2</code></td><td>0.1.5 时升到 <code>3</code>；现在（0.1.7）是 <code>4</code>（<code>core/session/src/types.ts:89</code>）</td></tr>
+    <tr><td>校验</td><td>无</td><td><code>validateSessionEventData</code> 拒绝带 <code>system</code> 的 header（<code>core/session/src/surface.ts:172</code>）</td></tr>
+    <tr><td>能力位</td><td>无</td><td><code>systemPromptUpdate: 'in-history'</code>（<code>llm/src/index.ts:784</code>）</td></tr>
   </table></div>
 
   <div class="callout key">
     <p><strong>为什么值得换？</strong>旧结构下 system prompt 是请求的一个属性——它随请求生灭，日志里只有「最后一次用的是什么」。新结构下它是一个<strong>surface 节点</strong>，于是：</p>
     <ul>
-      <li><strong>替换而非删除</strong>：prompt 变化时用 <code>surfaceOp: {op:'replace'}</code> 遮蔽旧节点（<code>runtime-context.ts:100-105</code>），历史版本留在日志里。</li>
-      <li><strong>能在历史中间追加</strong>：适配器声明 <code>in-history</code> 能力时，prompt 的变化作为一条新的 <code>system/message</code> 追加在对话流中——模型能感知到「系统指令刚刚变了」。这是 <code>project()</code> 里 96-97 行的分支。</li>
+      <li><strong>替换而非删除</strong>：prompt 变化时用 <code>surfaceOp: {op:'replace'}</code> 遮蔽旧节点（<code>core/agent-loop/src/runtime-context.ts:108</code>），历史版本留在日志里。</li>
+      <li><strong>能在历史中间追加</strong>：适配器声明 <code>in-history</code> 能力时，prompt 的变化作为一条新的 <code>system/message</code> 追加在对话流中——模型能感知到「系统指令刚刚变了」。这是 <code>project()</code>（<code>runtime-context.ts:88</code>）里 102 行的 <code>surfaceOp: 'append'</code> 分支。</li>
       <li><strong>与其他 surface 节点同构</strong>：compaction 的 replace、工具结果的 append 与它走同一套 <code>planSurfaceEvent</code> 机制——surface 只有一种规则。</li>
     </ul>
   </div>
 
   <div class="callout warn">
-    <p><strong>迁移是硬断点</strong>：<code>SESSION_FORMAT_VERSION</code> 从 2 升到 3，而 dsh 的持久化<strong>没有迁移器</strong>（20 页：版本不匹配直接拒绝）。旧会话日志不能在新版本里恢复——这是「宁可起不来，也不静默读错」的又一处体现。</p>
+    <p><strong>格式版本升级曾是硬断点</strong>：<code>SESSION_FORMAT_VERSION</code> 从 2 升到 3 时，旧会话日志不能在新版本里恢复——那是「宁可起不来，也不静默读错」的又一次体现。<strong>0.1.7 起这条策略松了一档</strong>：格式目录带上了迁移链（<code>session-format-v0-to-v1</code> → … → <code>v3-to-v4</code>，现在当前版本是 4），读旧日志时会先按链升级到当前格式、再走与 append 相同的校验（20 页 §3）；只有「比本 build 更新」的日志仍然被直接拒绝。</p>
   </div>
 </section>
 

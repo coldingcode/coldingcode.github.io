@@ -318,7 +318,7 @@ $ cat ~/.dsh/profiles/web/package.json
   </div>
 
   <div class="callout info">
-    <p><strong>cordis.patch.yml 不是 Loader 直接挂载的配置</strong>——它只是一份数据。真正的 root 配置是 profile-boot.ts 每次重写的空 <code>cordis.yml</code>（<code>PROFILE_ROOT_CONFIG</code>，<code>profile-boot.ts:84-91</code>；只为给 Loader 一个 include 根锚定 baseUrl）。这个「数据 vs 挂载」的区分在 03 页 boot() 里会再次出现。</p>
+    <p><strong>cordis.patch.yml 不是 Loader 直接挂载的配置</strong>——它只是一份数据。真正的 root 配置是 profile-boot.ts 每次重写的空 <code>cordis.yml</code>（<code>PROFILE_ROOT_CONFIG</code>，<code>profile-boot.ts:80-84</code>；只为给 Loader 一个 include 根锚定 baseUrl）。这个「数据 vs 挂载」的区分在 03 页 boot() 里会再次出现。</p>
   </div>
 </section>
 

@@ -228,7 +228,7 @@ node --import tsx/esm apps/cli/src/bin.ts web
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>环节</th><th>位置</th><th>做什么</th></tr>
     <tr><td>错误类型</td><td><code class="path">app-boot/src/index.ts:799</code></td><td><code>StartupError extends Error</code>，携带 <code>entries: StartupEntryDiagnostic[]</code>（每个未激活插件的元数据与原始失败值）。<code>boot</code> 在 dispose 之后把 <code>startup: { configurationPath, messages }</code> 挂上去（1018 行）</td></tr>
-    <tr><td>日志收集</td><td><code class="path">app-boot/src/index.ts:978-987</code></td><td><code>boot</code> 里新建一个独立 <code>Context</code> 当 logger exporter，只收 <code>warn</code>/<code>error</code> 级别的日志。<strong>它必须活得比 root disposal 长</strong>，才能留住异步清理阶段的错误（979 行注释）</td></tr>
+    <tr><td>日志收集</td><td><code class="path">app-boot/src/index.ts:980-987</code></td><td><code>boot</code> 里新建一个独立 <code>Context</code> 当 logger exporter，只收 <code>warn</code>/<code>error</code> 级别的日志。<strong>它必须活得比 root disposal 长</strong>，才能留住异步清理阶段的错误（979 行注释）</td></tr>
     <tr><td>落盘</td><td><code class="path">apps/cli/src/startup-diagnostics.ts</code></td><td>把摘要打到 stderr，完整报告写到 <code>$DSH_HOME/logs/</code> 下的唯一命名文件（<code>randomUUID</code>）。<strong>写失败时会把完整报告也打到 stderr</strong>——不谎称「已保存到某路径」</td></tr>
   </table></div>
 

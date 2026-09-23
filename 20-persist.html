@@ -105,7 +105,7 @@
 # 重启 → 恢复路径读 JSONL → seed = [seq 0..7]（或到 9，取决于 flush）
 # → 06 页构造器校验：无损 JSON ✓、seq 连续 ✓、surface ✓
 # → 日志尾部有未闭合的 turn 1/step 1 + 未落结果的 tool/call（seq 8）
-# → repair.ts（133 行）合成关闭事件：
+# → repair.ts（177 行）合成关闭事件：
 #   tool/result（TOOL_OUTCOME_UNKNOWN）
 #   step/end {turn:1,step:1}
 #   turn/end {turn:1, reason:{kind:'interrupted'}}   ← loop 从不发出这个 reason
@@ -132,7 +132,7 @@
   <ul>
     <li><code>session-persistence-jsonl → @deepseek-ai/dsh-session-persistence-jsonl</code>——JSONL 后端</li>
     <li><code>session-query-sqlite → @deepseek-ai/dsh-session-query-sqlite</code>——SQLite 查询索引</li>
-    <li><code>session-checkpoint-policy → @deepseek-ai/dsh-session-checkpoint-policy</code>（113 行）——按请求持久化检查点（06 页提过：loop 不在 turn 边界 flush，checkpoint 归它）</li>
+    <li><code>session-checkpoint-policy → @deepseek-ai/dsh-session-checkpoint-policy</code>（83 行）——按请求持久化检查点（06 页提过：loop 不在 turn 边界 flush，checkpoint 归它）</li>
     <li><code>attachment-local → @deepseek-ai/dsh-attachment-local</code>——附件（图片等）本地存储</li>
   </ul>
 </section>
@@ -141,11 +141,11 @@
   <h2><span class="sec-num">§2</span>包文件地图</h2>
   <div class="tbl-wrap"><table class="tbl">
     <tr><th>包</th><th>规模</th><th>角色</th></tr>
-    <tr><td><code class="path">packages/session/session-persistence/</code></td><td>6 文件 / 2160 行</td><td><strong>Service Definition</strong>：<code>SessionPersistence extends Service</code>（src/index.ts:84）——抽象的存储生命周期契约（load/store/remove、版本检查）</td></tr>
-    <tr><td><code class="path">packages/session/session-persistence-jsonl/</code></td><td>7 文件 / 1939 行</td><td><strong>Provider</strong>：JSONL 后端——<code>static inject = ['sessions']</code>（src/index.ts:124），把日志逐事件追加到 .jsonl 文件</td></tr>
+    <tr><td><code class="path">packages/session/session-persistence/</code></td><td>5 文件 / 627 行</td><td><strong>Service Definition</strong>：<code>SessionPersistence extends Service</code>（src/index.ts:135）——抽象的存储生命周期契约（create/open/flush/stat/list、版本门在 <code>storage-contract.ts:45</code>）</td></tr>
+    <tr><td><code class="path">packages/session/session-persistence-jsonl/</code></td><td>13 文件 / 4963 行（src/，含 testing/）</td><td><strong>Provider</strong>：JSONL 后端——<strong>不写 <code>static inject</code></strong>，靠基类 <code>SessionPersistence</code> 构造器注册（src/index.ts:245 起），把日志逐事件追加到 .jsonl 文件</td></tr>
     <tr><td><code class="path">packages/session/session-query-sqlite/</code></td><td>—</td><td><strong>查询侧</strong>：SQLite 索引（会话列表、搜索）——与持久化后端解耦，是「查询」不是「存储」</td></tr>
-    <tr><td><code class="path">packages/session/session-checkpoint-policy/</code></td><td>2 文件 / 113 行</td><td>持久化检查点策略：决定何时 <code>session/flush</code></td></tr>
-    <tr><td><code class="path">packages/attachment/attachment-local/</code></td><td>8 文件 / 1270 行</td><td>附件本地存储（图片等非文本数据走这里，不进 JSONL）</td></tr>
+    <tr><td><code class="path">packages/session/session-checkpoint-policy/</code></td><td>1 文件 / 83 行</td><td>持久化检查点策略：决定何时 <code>session/flush</code></td></tr>
+    <tr><td><code class="path">packages/attachment/attachment-local/</code></td><td>9 文件 / 1552 行</td><td>附件本地存储（图片等非文本数据走这里，不进 JSONL）</td></tr>
   </table></div>
 </section>
 
@@ -155,8 +155,8 @@
   <ol>
     <li><strong>追加写（firehose）</strong>：jsonl 后端订阅 <code>session/event</code>，把每个事件规范序列化追加到 <code>&lt;sessionId&gt;.jsonl</code>。事件在内存里是深冻结的、无损 JSON 校验过的——后端可以逐字写（06 页 append 的「快照」就是为这一刻准备的）。</li>
     <li><strong>检查点（flush）</strong>：<code>session/flush</code> 是 awaited 的并行持久化检查点；checkpoint-policy 决定「按请求」触发它——loop 不在 turn 边界 flush（06 页 types.ts 里 turn/end 的 JSDoc 原话）。</li>
-    <li><strong>恢复（seed）</strong>：重启时读 JSONL → 构造 seed 事件数组 → 走 06 页构造器<strong>同一条校验链</strong>（无损 JSON、seq 从 0 连续、surface 校验）→ <code>SESSION_FORMAT_VERSION</code> 不匹配则直接拒绝（版本钉 0，无迁移）。</li>
-    <li><strong>修复（repair）</strong>：<code class="path">packages/core/session/src/repair.ts</code>（133 行）扫描日志尾部未闭合的 turn/step/工具调用，合成确定性的 <code>tool/result</code>（<code>TOOL_NOT_STARTED</code>/<code>TOOL_OUTCOME_UNKNOWN</code>）、<code>step/end</code>、<code>turn/end</code>（reason: <code>interrupted</code>）。<strong>interrupted 这个 reason 是持久化后端专用的 crash 标记，loop 从不发出</strong>。</li>
+    <li><strong>恢复（seed）</strong>：重启时读 JSONL → 构造 seed 事件数组 → 走 06 页构造器<strong>同一条校验链</strong>（无损 JSON、seq 从 0 连续、surface 校验）。格式版本上：<strong>旧格式（v0–v3）日志走 <code>session-format</code> 的迁移链升到当前 v4</strong>，再交给同一条校验；<strong>只有「比本 build 更新」的日志被直接拒绝</strong>——<code>sessionFormatVersionRefusal</code>（<code>session-persistence/src/errors.ts:133</code>）给两种情形写了两句不同的话：更新的日志提示「升级 harness」，过旧且无升级路径的提示「本 build 不带升级路径」。</li>
+    <li><strong>修复（repair）</strong>：<code class="path">packages/core/session/src/repair.ts</code>（177 行）扫描日志尾部未闭合的 turn/step/工具调用，合成确定性的 <code>tool/result</code>（<code>TOOL_NOT_STARTED</code>/<code>TOOL_OUTCOME_UNKNOWN</code>）、<code>step/end</code>、<code>turn/end</code>（reason: <code>interrupted</code>）。<strong>interrupted 这个 reason 是持久化后端专用的 crash 标记，loop 从不发出</strong>（0.1.7 起同一条机制还多了一个 <code>forked</code> 生产者：fork seed 若切在源会话的开放 turn 中间，也用同一套合成事件闭合）。</li>
   </ol>
 </section>
 
@@ -164,16 +164,18 @@
   <h2><span class="sec-num">§4</span>关键代码</h2>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/session/session-persistence-jsonl/src/index.ts</span><span>后端注册与格式版本守卫</span><span class="ln-range">245-252, 270-278</span></figcaption>
+  <figcaption><span class="fname">packages/session/session-persistence-jsonl/src/index.ts</span><span>后端注册与格式版本守卫</span><span class="ln-range">245-252, 258-278</span></figcaption>
   <pre><code><span class="code-line hl"><span class="ln">245</span><span class="tok-k">class</span> <span class="tok-t">JsonlSessionPersistence</span> <span class="tok-k">extends</span> SessionPersistence {</span><span class="note">没有 static inject —— 靠基类注册</span></span>
 <span class="code-line"><span class="ln">246</span>  <span class="tok-k">static</span> Config: z&lt;Config&gt; = z.<span class="tok-f">object</span>({</span>
 <span class="code-line"><span class="ln">247</span>    root: z.string().<span class="tok-f">required</span>(),</span>
 <span class="code-line"><span class="ln">248</span>    compression: JsonlCompressionSchema,</span>
 <span class="code-line"><span class="ln">249</span>  })</span>
 <span class="code-line"><span class="ln">252</span>  <span class="tok-k">override readonly</span> name = <span class="tok-s">'session-persistence-jsonl'</span></span>
+<span class="code-line hl"><span class="ln">266</span>  <span class="tok-k">private readonly</span> coldLogMemo = <span class="tok-k">new</span> <span class="tok-t">Map</span>&lt;SessionId, StoredLog&gt;()</span><span class="note">0.1.7：冷读一次即缓存（按 revision 守卫）</span></span>
+<span class="code-line hl"><span class="ln">268</span>  <span class="tok-k">private readonly</span> migrationPreparations = <span class="tok-k">new</span> <span class="tok-t">Map</span>&lt;SessionId, MigrationPreparation&gt;()</span><span class="note">每个历史文件一次可 join 的迁移</span></span>
 <span class="code-line"><span class="ln">270</span>  <span class="tok-f">constructor</span>(ctx: Context, <span class="tok-k">public</span> config: Config) {</span>
 <span class="code-line"><span class="ln">271</span>    <span class="tok-k">super</span>(ctx)   <span class="tok-c">// 基类构造器里 super(ctx, 'sessionPersistence') 才是注册点</span></span>
-<span class="code-line hl"><span class="ln">273</span>    <span class="tok-k">if</span> (sessionFormatCatalog.currentVersion !== SESSION_FORMAT_VERSION) {</span><span class="note">0.1.5：SESSION_FORMAT_VERSION = 3</span></span>
+<span class="code-line hl"><span class="ln">273</span>    <span class="tok-k">if</span> (sessionFormatCatalog.currentVersion !== SESSION_FORMAT_VERSION) {</span><span class="note">0.1.7：SESSION_FORMAT_VERSION = 4</span></span>
 <span class="code-line"><span class="ln">274</span>      <span class="tok-k">throw new</span> <span class="tok-t">Error</span>(</span>
 <span class="code-line"><span class="ln">275</span>        `session-persistence-jsonl: format catalog v${sessionFormatCatalog.currentVersion} `</span>
 <span class="code-line"><span class="ln">276</span>        + `does not match Session v${SESSION_FORMAT_VERSION}`,</span>
@@ -182,18 +184,21 @@
 </figure>
 
 <figure class="code">
-  <figcaption><span class="fname">packages/session/session-persistence/src/index.ts</span><span>存储生命周期的抽象契约</span><span class="ln-range">135-147</span></figcaption>
+  <figcaption><span class="fname">packages/session/session-persistence/src/index.ts</span><span>存储生命周期的抽象契约</span><span class="ln-range">135, 139, 150, 165, 178, 194, 201</span></figcaption>
   <pre><code><span class="code-line"><span class="ln">135</span><span class="tok-k">export abstract class</span> <span class="tok-t">SessionPersistence</span> <span class="tok-k">extends</span> Service {</span>
-<span class="code-line"><span class="ln">147</span>  <span class="tok-k">abstract</span> <span class="tok-f">create</span>(header: SessionHeader, options?: SessionPersistenceCreateOptions): Promise&lt;SessionHandle&gt;</span>
-<span class="code-line"><span class="ln">162</span>  <span class="tok-k">abstract</span> <span class="tok-f">open</span>(id: SessionId, access: SessionAccess, options?: SessionPersistenceOpenOptions): Promise&lt;SessionHandle&gt;</span>
-<span class="code-line"><span class="ln">175</span>  <span class="tok-k">abstract</span> <span class="tok-f">flush</span>(): Promise&lt;<span class="tok-k">void</span>&gt;</span>
-<span class="code-line"><span class="ln">191</span>  <span class="tok-k">abstract</span> <span class="tok-f">stat</span>(id: SessionId, options?: SessionPersistenceStatOptions): Promise&lt;SessionPersistenceSnapshot | <span class="tok-k">undefined</span>&gt;</span></code></pre>
+<span class="code-line"><span class="ln">139</span>  <span class="tok-f">constructor</span>(ctx: Context) {</span>
+<span class="code-line"><span class="ln">140</span>    <span class="tok-k">super</span>(ctx, <span class="tok-s">'sessionPersistence'</span>)   <span class="tok-c">// 这就是注册点</span></span>
+<span class="code-line"><span class="ln">150</span>  <span class="tok-k">abstract</span> <span class="tok-f">create</span>(header: SessionHeader, options?: SessionPersistenceCreateOptions): Promise&lt;SessionHandle&gt;</span>
+<span class="code-line"><span class="ln">165</span>  <span class="tok-k">abstract</span> <span class="tok-f">open</span>(id: SessionId, access: SessionAccess, options?: SessionPersistenceOpenOptions): Promise&lt;SessionHandle&gt;</span>
+<span class="code-line"><span class="ln">178</span>  <span class="tok-k">abstract</span> <span class="tok-f">flush</span>(): Promise&lt;<span class="tok-k">void</span>&gt;</span>
+<span class="code-line"><span class="ln">194</span>  <span class="tok-k">abstract</span> <span class="tok-f">stat</span>(id: SessionId, options?: SessionPersistenceStatOptions): Promise&lt;SessionPersistenceSnapshot | <span class="tok-k">undefined</span>&gt;</span>
+<span class="code-line"><span class="ln">201</span>  <span class="tok-k">abstract</span> <span class="tok-f">list</span>(options?: SessionPersistenceListOptions): Promise&lt;<span class="tok-k">readonly</span> SessionPersistenceSnapshot[]&gt;</span></code></pre>
 </figure>
 
   <div class="le">
-    <div class="lr"><span class="ln-ref">245, 271</span><p><strong>jsonl 后端不写 <code>static inject</code></strong>——它靠<strong>基类注册</strong>：<code>SessionPersistence</code> 的构造器里做 <code>super(ctx, 'sessionPersistence')</code>，子类只 <code>super(ctx)</code>。它通过 <code>session/event</code> 事件与 <code>session/flush</code> 工作，不需要知道 loop 的存在。换后端 = 换这个 provider（sqlite 只读查询引擎走另一条路，见 §5）。</p></div>
-    <div class="lr"><span class="ln-ref">273-278</span><p><strong>格式版本守卫</strong>：后端启动时先比对「格式目录的当前版本」与 Session 包声明的 <code>SESSION_FORMAT_VERSION</code>（0.1.5 起 = 3）。两者不等就直接拒绝启动——<strong>宁可起不来，也不写出一个自己读不回的日志</strong>。这是「恢复必须走同一条校验链」原则在二进制层面的延伸。</p></div>
-    <div class="lr"><span class="ln-ref">135-191</span><p>抽象契约在 session-persistence 包：create / open / flush / stat。这是 seam 的 Service Definition——jsonl 是 Provider 之一。</p></div>
+    <div class="lr"><span class="ln-ref">245, 271</span><p><strong>jsonl 后端不写 <code>static inject</code></strong>——它靠<strong>基类注册</strong>：<code>SessionPersistence</code> 的构造器里做 <code>super(ctx, 'sessionPersistence')</code>（<code>session-persistence/src/index.ts:139-141</code>），子类只 <code>super(ctx)</code>。它通过 <code>session/event</code> 事件与 <code>session/flush</code> 工作，不需要知道 loop 的存在。换后端 = 换这个 provider（sqlite 只读查询引擎走另一条路，见 §5）。</p></div>
+    <div class="lr"><span class="ln-ref">273-278</span><p><strong>格式版本守卫</strong>：后端启动时先比对「格式目录的当前版本」与 Session 包声明的 <code>SESSION_FORMAT_VERSION</code>（0.1.7 起 = 4）。两者不等就直接拒绝启动——<strong>宁可起不来，也不写出一个自己读不回的日志</strong>。注意这只管「写」：读旧日志时格式目录会先按迁移链升级，见 §3 第 3 条。</p></div>
+    <div class="lr"><span class="ln-ref">135-201</span><p>抽象契约在 session-persistence 包：create / open / flush / stat / list。这是 seam 的 Service Definition——jsonl 是 Provider 之一。0.1.7 起同一个包里还多了 <code>storage-contract.ts</code>：<strong>所有后端共享的一套存储校验</strong>（版本门 <code>assertVersion</code>、事件词汇表白名单、追加批次、连续性）——「每个后端拒绝同样的输入」被收进一个地方。</p></div>
   </div>
 </section>
 
